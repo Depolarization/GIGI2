@@ -3,13 +3,10 @@
 
 package com.gigi.tcg.domain
 
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.floor
-
-private val RECORD_TIME_FORMATTER: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.systemDefault())
 
 /** 对局时间：原版为 "M-D H:m"，现代化为 "MM-DD HH:mm"（本地时区，语义不变） */
 fun formatRecordTime(timestampSec: Any?): String {
@@ -22,7 +19,8 @@ fun formatRecordTime(timestampSec: Any?): String {
         return ""
     }
     return try {
-        RECORD_TIME_FORMATTER.format(Instant.ofEpochMilli(floor(sec * 1000).toLong()))
+        // SimpleDateFormat 非线程安全，故每次调用新建，不做共享实例
+        SimpleDateFormat("MM-dd HH:mm", Locale.US).format(Date(floor(sec * 1000).toLong()))
     } catch (e: Exception) {
         ""
     }
