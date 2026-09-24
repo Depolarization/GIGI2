@@ -1,0 +1,292 @@
+// 玩家信息弹窗：移植 web/src/components/PlayerDetailDialog.tsx 的内容与布局，适配 M3 居中 Dialog。
+// 四入口共用，参数 (uid, onClose)；弹窗开关由调用页持有，本组件不持全局 controller。
+// 版式：头部（头像/昵称/UID/查询码/段位）+ 天梯/巅峰积分 + 展示角色 + 参赛经历；
+// is_shield / 无 pageInfo 走独立分支；胜负语义色来自 LocalSemanticColors。
+
+package com.gigi.tcg.ui.dialogs.playerdetail
+
+import android.app.Application
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gigi.tcg.domain.formatTier
+import com.gigi.tcg.domain.getTierStars
+import com.gigi.tcg.ui.components.Avatar
+import com.gigi.tcg.ui.components.EmptyState
+import com.gigi.tcg.ui.components.ErrorState
+import com.gigi.tcg.ui.components.LocalToast
+import com.gigi.tcg.ui.components.LoadingView
+import com.gigi.tcg.ui.theme.LocalSemanticColors
+import com.gigi.tcg.ui.theme.SemanticColors
+
+@Composable
+fun PlayerDetailDialog(uid: String?, onClose: () -> Unit) {
+    if (uid == null) return
+
+    val app = LocalContext.current.applicationContext as Application
+    val viewModel: PlayerDetailViewModel = viewModel(factory = PlayerDetailViewModel.factory(app))
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val toast = LocalToast.current
+    @Suppress("DEPRECATION") val clipboard = LocalClipboardManager.current
+    val semantic = LocalSemanticColors.current
+
+    LaunchedEffect(uid) { viewModel.openPlayerDetail(uid) }
+
+    val content = (state as? DetailUiState.Content)?.takeIf { it.uid == uid }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("玩家信息") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                when {
+                    content != null -> PlayerDetailBody(content, semantic)
+                    state is DetailUiState.Error -> {
+                        val e = state as DetailUiState.Error
+                        ErrorState(message = e.message, onRetry = if (e.canRetry) viewModel::retry else null)
+                    }
+                    else -> LoadingView(label = "正在查询玩家信息")
+                }
+            }
+        },
+        confirmButton = {
+            if (content != null) {
+                TextButton(onClick = {
+                    @Suppress("DEPRECATION") clipboard.setText(AnnotatedString(content.uid))
+                    toast("已复制对手UID:${content.uid}")
+                }) { Text("复制UID") }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onClose) { Text("关闭") }
+        },
+    )
+}
+
+@Composable
+private fun PlayerDetailBody(content: DetailUiState.Content, semantic: SemanticColors) {
+    val pageInfo = content.data.pageInfo
+    when {
+        // T10：接口无该玩家数据 → 说明式版式（区别于加载失败）
+        pageInfo == null -> EmptyState(
+            icon = Icons.Outlined.Search,
+            title = "未查询到玩家信息",
+            message = "未查询到 UID ${content.uid} 的七圣召唤信息。可能该玩家从未进行过七圣对局、" +
+                "在游戏中关闭了资料公开，或近期无对局数据尚未同步。",
+        )
+        // 屏蔽分支：仅保留昵称与 UID
+        pageInfo.isShield == true -> Column {
+            HeaderRow(uid = content.uid, nickname = pageInfo.nickname, avatarUrl = pageInfo.avatarUrl)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "无权访问该玩家其他信息",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        else -> Column {
+            HeaderRow(uid = content.uid, nickname = pageInfo.nickname, avatarUrl = pageInfo.avatarUrl)
+            val tier = formatTier(getTierStars(pageInfo.ladderScore ?: 0))
+            if (tier.isNotEmpty()) {
+                Text(text = tier, style = MaterialTheme.typography.titleSmall, color = semantic.gold)
+            }
+            Spacer(Modifier.height(8.dp))
+            CodeCard(code = content.code)
+            Spacer(Modifier.height(12.dp))
+            ScoresRow(
+                ladder = pageInfo.ladderScore ?: 0,
+                peak = pageInfo.peakScore ?: 0,
+                semantic = semantic,
+            )
+            RolesSection(pageInfo.roles.orEmpty())
+            EntriesSection(pageInfo.entryExperience.orEmpty(), semantic)
+        }
+    }
+}
+
+@Composable
+private fun HeaderRow(uid: String, nickname: String?, avatarUrl: String?) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Avatar(url = avatarUrl, size = 64.dp, contentDescription = nickname)
+        Spacer(Modifier.width(16.dp))
+        Column {
+            Text(
+                text = nickname ?: "未知",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = "UID $uid",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CodeCard(code: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text(
+                text = "查询码",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = code,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScoresRow(ladder: Int, peak: Int, semantic: SemanticColors) {
+    Row(Modifier.fillMaxWidth()) {
+        ScoreItem(label = "天梯积分", value = ladder, color = semantic.win, modifier = Modifier.weight(1f))
+        ScoreItem(label = "巅峰积分", value = peak, color = semantic.gold, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun ScoreItem(label: String, value: Int, color: Color, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = value.toString(),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = color,
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RolesSection(roles: List<com.gigi.tcg.data.model.RoleInfo>) {
+    SectionTitle("展示角色", roles.size)
+    if (roles.isEmpty()) {
+        Text("无展示角色", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        roles.forEach { role ->
+            Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 1.dp) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    Text(role.name ?: "未知", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text(
+                        text = "熟练度 ${role.proficiency ?: 0}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EntriesSection(entries: List<com.gigi.tcg.data.model.EntryExperience>, semantic: SemanticColors) {
+    SectionTitle("参赛经历", entries.size)
+    if (entries.isEmpty()) {
+        Text("无参赛经历", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    entries.forEachIndexed { index, entry ->
+        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "${index + 1}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(20.dp),
+            )
+            Text(
+                text = entry.competitionName ?: "未知",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = entry.competitionResult ?: "未知",
+                style = MaterialTheme.typography.labelLarge,
+                color = resultColor(entry.competitionResult, semantic),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "${entry.score ?: 0} 积分",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(title: String, count: Int) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        if (count > 0) {
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = count.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+/** 胜负语义着色：对 competition_result 文案做胜/负判定（红绿成败约定，不参与动态取色） */
+private fun resultColor(result: String?, semantic: SemanticColors): Color {
+    if (result == null) return Color.Unspecified
+    return when {
+        result.contains("胜") || result.contains("冠") || result.contains("第一") ||
+            result.equals("win", ignoreCase = true) -> semantic.win
+        result.contains("负") || result.contains("败") || result.contains("最后") ||
+            result.equals("lose", ignoreCase = true) -> semantic.lose
+        else -> Color.Unspecified
+    }
+}
