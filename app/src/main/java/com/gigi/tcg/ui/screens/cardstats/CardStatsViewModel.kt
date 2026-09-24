@@ -1,211 +1,220 @@
-// 卡牌使用详情状态机：移植 web/src/pages/CardStatsPage.tsx 的 load/排序/筛选语义。
-// - 头像与卡牌统计并行获取（对齐 tsx：头像失败不影响统计主流程）；
+// 卡牌使用详情状态：移植 web/src/pages/CardStatsPage.tsx（§5.6）。
+// - load 取 fetchGcgCardListCached（统计主体，5min 缓存），头像取 fetchMyHomePageCached
+//   （与主页共用缓存通常直接命中；失败不影响统计主流程，展开详情时才懒取）；
 // - retcode 业务失败 → "卡牌信息获取失败: {message}"（对齐原 game.lua，不跳登录），
-//   网络失败 → "请检查网络重试"（retcode 归因仍集中在数据层，本层只做文案分支）。
+//   其余归因 → "请检查网络重试"（可重试）；归因只经 ApiError.kind，页面不判 retcode 值。
 
 package com.gigi.tcg.ui.screens.cardstats
 
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.gigi.tcg.GigiApp
 import com.gigi.tcg.data.api.API_ERROR_KIND_RETCODE
 import com.gigi.tcg.data.api.ApiError
 import com.gigi.tcg.data.model.GcgCard as ApiGcgCard
 import com.gigi.tcg.data.model.GcgStats as ApiGcgStats
 import com.gigi.tcg.di.AppContainer
+import com.gigi.tcg.domain.CARD_TYPE_ASSIST
+import com.gigi.tcg.domain.CARD_TYPE_EVENT
+import com.gigi.tcg.domain.CARD_TYPE_MODIFY
 import com.gigi.tcg.domain.GcgCard
-import com.gigi.tcg.domain.GcgStats
 import com.gigi.tcg.domain.GcgSummary
-import com.gigi.tcg.domain.PreparedCardLists
 import com.gigi.tcg.domain.calcPercent
 import com.gigi.tcg.domain.computeGcgSummary
 import com.gigi.tcg.domain.percentSortKey
 import com.gigi.tcg.domain.prepareCardLists
-import java.util.concurrent.CancellationException
-import kotlinx.coroutines.async
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-/** 角色牌排序维度：出场次数 / 胜率 / 胜场（对齐 tsx CharSortKey） */
+/** 角色牌排序维度（对齐 CHAR_SORT_OPTIONS）：出场次数 / 胜率 / 胜场 */
 enum class CharSortKey(val label: String) {
     Use("出场次数"),
     WinRate("胜率"),
     Wins("胜场"),
 }
 
-/** 行动牌类型筛选（对齐 tsx ACTION_TYPES：全部/装备牌/支援牌/事件牌） */
-enum class ActionTypeFilter(val label: String, val cardType: String?) {
+/** 行动牌类型筛选（对齐 ACTION_TYPES）；typeValue 为 null 表示"全部" */
+enum class ActionTypeFilter(val label: String, val typeValue: String?) {
     All("全部", null),
-    Modify("装备牌", com.gigi.tcg.domain.CARD_TYPE_MODIFY),
-    Assist("支援牌", com.gigi.tcg.domain.CARD_TYPE_ASSIST),
-    Event("事件牌", com.gigi.tcg.domain.CARD_TYPE_EVENT),
+    Modify("装备牌", CARD_TYPE_MODIFY),
+    Assist("支援牌", CARD_TYPE_ASSIST),
+    Event("事件牌", CARD_TYPE_EVENT),
 }
 
 data class StatsUiState(
     val loading: Boolean = true,
+    /** null = 无错误；非空时 UI 出 ErrorState */
     val error: String? = null,
+    /** false = retcode 业务失败（缺权限类），重试无意义 */
+    val errorCanRetry: Boolean = true,
     val charSort: CharSortKey = CharSortKey.Use,
     val actionType: ActionTypeFilter = ActionTypeFilter.All,
+    /** 玩家信息详情面板：默认折叠 */
     val detailOpen: Boolean = false,
     val summary: GcgSummary? = null,
-    /** 玩家头像：cardList 接口不返回，从 my_home_page 的 page_info.avatar_url 取 */
-    val avatarUrl: String? = null,
-    /** 已按 charSort 排序的角色牌 */
     val charList: List<GcgCard> = emptyList(),
-    /** 已按 actionType 筛选的行动牌 */
     val actionList: List<GcgCard> = emptyList(),
-)
+    val avatarUrl: String? = null,
+) {
+    val isEmpty: Boolean
+        get() = !loading && error == null && summary == null
 
-class CardStatsViewModel(private val container: AppContainer) : ViewModel() {
+    /** 出场率分母 = 全部角色牌使用次数之和（红线 6：不是游玩场次数） */
+    val charTotalUse: Int
+        get() = charList.sumOf { it.useCount ?: 0 }
+
+    /** 当前排序下的角色牌（胜率/胜场同值时回退出场次数降序，保证顺序稳定） */
+    val sortedCharList: List<GcgCard>
+        get() {
+            val byUse = compareByDescending<GcgCard> { it.useCount ?: 0 }
+            return when (charSort) {
+                CharSortKey.Use -> charList.sortedWith(byUse)
+                CharSortKey.Wins ->
+                    charList.sortedWith(compareByDescending<GcgCard> { it.proficiency ?: 0 }.then(byUse))
+                CharSortKey.WinRate ->
+                    charList.sortedWith(
+                        compareByDescending<GcgCard> {
+                            percentSortKey(
+                                calcPercent((it.proficiency ?: 0).toDouble(), (it.useCount ?: 0).toDouble()),
+                            )
+                        }.then(byUse),
+                    )
+            }
+        }
+
+    /** 当前类型筛选下的行动牌 */
+    val filteredActionList: List<GcgCard>
+        get() = if (actionType.typeValue == null) {
+            actionList
+        } else {
+            actionList.filter { it.cardType == actionType.typeValue }
+        }
+}
+
+class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
+
+    private val container: AppContainer = (app as GigiApp).container
 
     private val _uiState = MutableStateFlow(StatsUiState())
     val uiState: StateFlow<StatsUiState> = _uiState.asStateFlow()
 
-    private var prepared: PreparedCardLists? = null
+    private var generation = 0
     private var loadJob: Job? = null
 
-    /** 首次进入/错误重试/强制刷新：force=true 绕过 repository 的 TTL 缓存 */
-    fun load(force: Boolean = false) {
-        // 已有数据时静默刷新：不置 loading，避免整屏闪烁（对齐 tsx listsRef 判定）
-        val hasContent = prepared != null
-        if (!hasContent || force) {
-            _uiState.update { it.copy(loading = true, error = null) }
-        } else {
-            _uiState.update { it.copy(error = null) }
-        }
+    init {
+        load(force = false)
+    }
+
+    /** ErrorState 重试按钮：force 绕过 TTL 缓存重新拉取 */
+    fun retry() = load(force = true)
+
+    fun setCharSort(key: CharSortKey) {
+        _uiState.update { it.copy(charSort = key) }
+    }
+
+    fun setActionType(filter: ActionTypeFilter) {
+        _uiState.update { it.copy(actionType = filter) }
+    }
+
+    /** 展开"玩家信息"详情：首次展开且无头像时懒取 my_home_page（与主页共用缓存） */
+    fun toggleDetail() {
+        val open = !_uiState.value.detailOpen
+        _uiState.update { it.copy(detailOpen = open) }
+        if (open && _uiState.value.avatarUrl == null) fetchAvatar()
+    }
+
+    private fun load(force: Boolean) {
         loadJob?.cancel()
+        val gen = ++generation
+        _uiState.update { it.copy(loading = true, error = null) }
         loadJob = viewModelScope.launch {
             val uid = container.sessionUid.value
-            if (uid == null) {
-                _uiState.update { it.copy(loading = false, error = RETRY_HINT) }
-                return@launch
-            }
             val server = container.currentServer.value
-            // 头像并行获取、失败留空：与统计主流程互不影响（对齐 tsx avatarPromise.catch）
-            val avatarDeferred = async {
-                try {
-                    container.repository.fetchMyHomePageCached(uid, server, force).pageInfo?.avatarUrl
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    null
-                }
+            if (uid.isNullOrBlank()) {
+                _uiState.update { it.copy(loading = false, error = null, summary = null, charList = emptyList(), actionList = emptyList()) }
+                return@launch
             }
             try {
                 val data = container.repository.fetchGcgCardListCached(uid, server, force)
-                val cardList = data.cardList.orEmpty().map { it.toDomain() }
+                if (gen != generation) return@launch
+                val cardList = data.cardList.orEmpty().map { it.toDomainCard() }
                 if (cardList.isEmpty()) {
-                    prepared = null
                     _uiState.update {
-                        it.copy(
-                            loading = false,
-                            error = null,
-                            summary = null,
-                            charList = emptyList(),
-                            actionList = emptyList(),
-                        )
+                        it.copy(loading = false, error = null, summary = null, charList = emptyList(), actionList = emptyList())
                     }
                 } else {
                     val lists = prepareCardLists(cardList)
-                    prepared = lists
                     _uiState.update {
                         it.copy(
                             loading = false,
                             error = null,
-                            summary = computeGcgSummary(data.stats?.toDomain(), lists),
+                            summary = computeGcgSummary(data.stats.toDomainStats(), lists),
+                            charList = lists.charCards,
+                            actionList = lists.actionCards,
                         )
                     }
-                    applySortAndFilter()
                 }
-                _uiState.update { it.copy(avatarUrl = avatarDeferred.await() ?: it.avatarUrl) }
+                // 头像失败不影响统计主流程（对齐 web 的 .catch(() => undefined)）
+                if (_uiState.value.detailOpen) fetchAvatar()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _uiState.update { it.copy(loading = false, error = e.toStatsMessage()) }
+                if (gen != generation) return@launch
+                val isRetcode = e is ApiError && e.kind == API_ERROR_KIND_RETCODE
+                _uiState.update {
+                    it.copy(
+                        loading = false,
+                        error = if (isRetcode) "卡牌信息获取失败: ${e.message}" else "请检查网络重试",
+                        errorCanRetry = !isRetcode,
+                    )
+                }
             }
         }
     }
 
-    /** 排序键切换：角色牌列表按新键重排（胜率/胜场同值时回退出场次数，保证顺序稳定） */
-    fun onCharSortChange(key: CharSortKey) {
-        if (_uiState.value.charSort == key) return
-        _uiState.update { it.copy(charSort = key) }
-        applySortAndFilter()
-    }
-
-    /** 行动牌类型切换：按 card_type 过滤 */
-    fun onActionTypeChange(filter: ActionTypeFilter) {
-        if (_uiState.value.actionType == filter) return
-        _uiState.update { it.copy(actionType = filter) }
-        applySortAndFilter()
-    }
-
-    /** 玩家信息详情面板折叠开关 */
-    fun onToggleDetail() {
-        _uiState.update { it.copy(detailOpen = !it.detailOpen) }
-    }
-
-    private fun applySortAndFilter() {
-        val lists = prepared ?: return
-        val sort = _uiState.value.charSort
-        val type = _uiState.value.actionType
-        _uiState.update {
-            it.copy(
-                charList = sortedChars(lists, sort),
-                actionList = lists.actionCards.filter { c -> type.cardType == null || c.cardType == type.cardType },
-            )
+    private fun fetchAvatar() {
+        val uid = container.sessionUid.value ?: return
+        val server = container.currentServer.value
+        viewModelScope.launch {
+            try {
+                val home = container.repository.fetchMyHomePageCached(uid, server)
+                val url = home.pageInfo?.avatarUrl
+                if (!url.isNullOrBlank()) _uiState.update { it.copy(avatarUrl = url) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 头像缺失只影响详情面板展示，静默忽略
+            }
         }
     }
 
-    private fun sortedChars(lists: PreparedCardLists, key: CharSortKey): List<GcgCard> {
-        val byUse = compareByDescending<GcgCard> { it.useCount ?: 0 }
-        return when (key) {
-            CharSortKey.Use -> lists.charCards.sortedWith(byUse)
-            CharSortKey.Wins -> lists.charCards.sortedWith(
-                compareByDescending<GcgCard> { (it.proficiency ?: 0).toDouble() }.then(byUse),
-            )
-            CharSortKey.WinRate -> lists.charCards.sortedWith(
-                compareByDescending<GcgCard> {
-                    percentSortKey(calcPercent((it.proficiency ?: 0).toDouble(), (it.useCount ?: 0).toDouble()))
-                }.then(byUse),
-            )
-        }
-    }
-
-    private fun ApiGcgCard.toDomain(): GcgCard =
+    private fun ApiGcgCard.toDomainCard(): GcgCard =
         GcgCard(name = name, cardType = cardType, useCount = useCount, proficiency = proficiency)
 
-    private fun ApiGcgStats.toDomain(): GcgStats =
-        GcgStats(
-            nickname = nickname,
-            level = level,
-            avatarCardNumGained = avatarCardNumGained,
-            actionCardNumGained = actionCardNumGained,
-        )
-
-    /** retcode 业务失败与网络失败分文案（对齐 tsx load 的 catch 分支） */
-    private fun Throwable.toStatsMessage(): String {
-        val e = this
-        return if (e is ApiError && e.kind == API_ERROR_KIND_RETCODE) {
-            "$RETCODE_PREFIX${e.message ?: ""}"
-        } else {
-            RETRY_HINT
+    private fun ApiGcgStats?.toDomainStats(): com.gigi.tcg.domain.GcgStats? =
+        this?.let {
+            com.gigi.tcg.domain.GcgStats(
+                nickname = it.nickname,
+                level = it.level,
+                avatarCardNumGained = it.avatarCardNumGained,
+                actionCardNumGained = it.actionCardNumGained,
+            )
         }
-    }
 
     companion object {
-        const val RETCODE_PREFIX = "卡牌信息获取失败: "
-        const val RETRY_HINT = "请检查网络重试"
-
-        fun factory(container: AppContainer): ViewModelProvider.Factory =
-            object : ViewModelProvider.Factory {
+        fun factory(app: Application): ViewModelProvider.Factory =
+            object : ViewModelProvider.AndroidViewModelFactory(app) {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    CardStatsViewModel(container) as T
+                    CardStatsViewModel(app) as T
             }
     }
 }
