@@ -1,0 +1,42 @@
+// 移植 web/src/api/__tests__/retcode.test.ts 中不依赖 fetchMyHomePage 的用例
+// （"限流自动重试" describe 依赖 mihoyo 接口封装，归 T3d 集成）。
+
+package com.gigi.tcg.data.api
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class ApiErrorTest {
+
+    private fun retcodeError(retcode: Int) =
+        ApiError(API_ERROR_KIND_RETCODE, "服务端消息", retcode)
+
+    @Test
+    fun `仅凭据失效码 -100 -101 判定为需要重新登录`() {
+        assertTrue(isAuthFailureError(retcodeError(-100)))
+        assertTrue(isAuthFailureError(retcodeError(-101)))
+        // 实测：带有效凭据并发请求主页接口时约 1/3 概率返回 -500004[操作频繁]
+        assertFalse(isAuthFailureError(retcodeError(-500004)))
+        assertFalse(isAuthFailureError(retcodeError(-1)))
+        assertFalse(isAuthFailureError(retcodeError(-110)))
+        assertFalse(isAuthFailureError(ApiError(API_ERROR_KIND_NETWORK, "网络请求失败")))
+        assertFalse(isAuthFailureError(Exception("其它异常")))
+    }
+
+    @Test
+    fun `限流与网络失败给出不同的可读文案`() {
+        assertEquals("请求过于频繁，请稍后重试", describeApiError(retcodeError(-500004)))
+        assertEquals("请检查网络重试", describeApiError(ApiError(API_ERROR_KIND_NETWORK, "网络请求失败")))
+        assertEquals("服务端消息", describeApiError(retcodeError(-100)))
+        assertEquals("请检查网络重试", describeApiError(Exception("x")))
+    }
+
+    @Test
+    fun `重试码集合与 web client 一致且不含凭据失效码`() {
+        assertEquals(setOf(-500004, -1, -110), RETRYABLE_RETCODES)
+        assertEquals(setOf(-100, -101), AUTH_FAILED_RETCODES)
+        assertFalse(RETRYABLE_RETCODES.contains(-100))
+    }
+}
