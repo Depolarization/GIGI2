@@ -1,30 +1,13 @@
 // 米哈游接口 URL 构造函数：逐字符移植 web/src/api/urls.ts。
 //
 // 服务器绑定的参数（badge_region / server）由调用方传入当前服务器标识符（data.ServerId）；
-// 域名与 game_biz 对国服两个服务器完全一致，取自下方 ServerApi（对照 servers.ts SERVER_API），
+// 域名与 game_biz 对国服两个服务器完全一致，恒取 data.ServerApi 常量（servers.ts SERVER_API），
 // 不允许在此硬编码 'cn_gf01' 等标识符或域名。
 
 package com.gigi.tcg.data.api
 
+import com.gigi.tcg.data.ServerApi
 import com.gigi.tcg.data.ServerId
-
-/** 国服接口端点常量：照搬 servers.ts SERVER_API（与原工程 api.lua 逐字符一致） */
-object ServerApi {
-    /** 账号/登录态接口的 game_biz */
-    const val gameBiz: String = "hk4e_cn"
-
-    /** 七圣赛事 · 活动接口域名与路径前缀 */
-    const val eventOrigin: String = "https://hk4e-api.mihoyo.com"
-    const val eventPathPrefix: String = "/event/geniusinvokationtcg"
-
-    /** 游戏记录接口域名与路径前缀（个人卡牌统计等） */
-    const val recordOrigin: String = "https://api-takumi-record.mihoyo.com"
-    const val recordPathPrefix: String = "/game_record/app/genshin/api"
-
-    /** 登录态校验接口（完整 URL，含 game_biz 与 lang） */
-    const val loginInfoUrl: String =
-        "https://api-takumi.mihoyo.com/common/badge/v1/login/info?game_biz=hk4e_cn&lang=zh-cn"
-}
 
 /** 官方赛事页（登录引导入口） */
 const val LOGIN_URL: String = "https://webstatic.mihoyo.com/ys/event/tcgmatch/index.html#/homePage"
@@ -42,11 +25,11 @@ fun cardDetailUrl(entryPageId: Int): String =
     "https://act-api-takumi-static.mihoyo.com/hoyowiki/genshin/wapi/entry_page?app_sn=ys_obc&entry_page_id=$entryPageId&lang=zh-cn"
 
 /** 登录态 / game_uid 换取（需凭据） */
-fun userInfoUrl(server: ServerId): String = ServerApi.loginInfoUrl
+fun userInfoUrl(server: ServerId): String = ServerApi.LOGIN_INFO_URL
 
 /** 七圣赛事 · 活动接口（需凭据）：badge_region / game_biz 随服务器变化 */
 private fun eventEndpointUrl(server: ServerId, endpoint: String, query: String): String =
-    "${ServerApi.eventOrigin}${ServerApi.eventPathPrefix}/$endpoint?$query&badge_region=${server.id}&game_biz=${ServerApi.gameBiz}&lang=zh-cn"
+    "${ServerApi.EVENT_ORIGIN}${ServerApi.EVENT_PATH_PREFIX}/$endpoint?$query&badge_region=${server.id}&game_biz=${ServerApi.GAME_BIZ}&lang=zh-cn"
 
 /** 对局记录（需凭据） */
 fun gameRecordsUrl(uid: String, server: ServerId): String =
@@ -70,4 +53,4 @@ fun competitionRankUrl(uid: String, server: ServerId): String =
 
 /** 个人卡牌使用统计（需凭据） */
 fun cardListUrl(uid: String, server: ServerId): String =
-    "${ServerApi.recordOrigin}${ServerApi.recordPathPrefix}/gcg/cardList?limit=999&offset=0&server=${server.id}&role_id=$uid&need_action=true&need_avatar=true&need_stats=true"
+    "${ServerApi.RECORD_ORIGIN}${ServerApi.RECORD_PATH_PREFIX}/gcg/cardList?limit=999&offset=0&server=${server.id}&role_id=$uid&need_action=true&need_avatar=true&need_stats=true"
