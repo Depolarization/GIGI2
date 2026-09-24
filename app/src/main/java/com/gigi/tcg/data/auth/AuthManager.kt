@@ -251,6 +251,7 @@ class AuthManager(
 
         /**
          * mergeFragments：auth-core.mjs 同语义——片段合并为 name=value 列表，同名以后者覆盖。
+         * 🔴 mjs 的 join('; ')+split(';') 会吃掉非首片段首字符：'=' 开头的坏键被静默丢弃，照抄不改。
          * 纯函数，可单测。
          */
         fun mergeFragments(fragments: List<String>): List<String> {
