@@ -19,3 +19,4 @@ __pycache__/
 # 协调网络的运行时噪音（事件流 / 原子写临时文件）
 .task/events/
 .task/**/*.tmp
+.kotlin/
