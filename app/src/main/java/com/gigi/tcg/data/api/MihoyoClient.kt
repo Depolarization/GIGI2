@@ -19,6 +19,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.serializer
 import okhttp3.Call
 import okhttp3.Callback
@@ -45,8 +46,9 @@ class MihoyoClient(
         }
         .build()
 
-    /** 详情查询全局节流：对齐 Web 版 playerDetail 的 createThrottle(1000) 单实例语义 */
-    private val detailThrottle = Throttle(THROTTLE_DELAY_MS)
+    /** 详情查询全局节流：对齐 Web 版 playerDetail 的 createThrottle(1000) 单实例语义（public-inline 可见 → @PublishedApi internal） */
+    @PublishedApi
+    internal val detailThrottle = Throttle(THROTTLE_DELAY_MS)
 
     /**
      * GET 米哈游接口并返回解析后的 data。
@@ -99,7 +101,7 @@ class MihoyoClient(
         val message = (root["message"] as? JsonPrimitive)?.contentOrNull
         // data 解码失败与缺失同样记 null → 由 retcode 判定分支抛错，不误报 network
         val data: T? = root["data"]?.let { element ->
-            if (element is JsonPrimitive && element.isNull) {
+            if (element is JsonPrimitive && element.content == "null" && element.isString.not()) {
                 null
             } else {
                 try {

@@ -12,11 +12,12 @@ sealed class ServerId(val id: String, val name: String, val shortName: String) {
     data object Channel : ServerId("cn_qd01", "渠道服（世界树）", "渠道服")
 
     companion object {
-        /** 全部可选服务器（切换控件渲染顺序即此列表顺序） */
-        val ALL: List<ServerId> = listOf(Official, Channel)
+        /** 全部可选服务器（切换控件渲染顺序即此列表顺序）。
+         *  🔴 必须 lazy：嵌套 object 的类初始化发生在伴生对象之后，急切求值得到 [null, null] */
+        val ALL: List<ServerId> by lazy { listOf(Official, Channel) }
 
         /** 默认服务器：官服——未选择或标识符非法时的兜底目标 */
-        val DEFAULT: ServerId = Official
+        val DEFAULT: ServerId get() = Official
 
         /** 按标识符精确查找（未命中返回 null，不做兜底；非注册表值一律不合法） */
         fun from(id: String?): ServerId? = ALL.firstOrNull { it.id == id }

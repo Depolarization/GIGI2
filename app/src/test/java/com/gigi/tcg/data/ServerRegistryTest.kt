@@ -70,7 +70,7 @@ class ServerRegistryTest {
     }
 
     @Test
-    fun `国服端点常量与原工程 api.lua 一致`() {
+    fun `国服端点常量与原工程 api-lua 一致`() {
         assertEquals("hk4e_cn", ServerApi.GAME_BIZ)
         assertEquals("https://hk4e-api.mihoyo.com", ServerApi.EVENT_ORIGIN)
         assertEquals("/event/geniusinvokationtcg", ServerApi.EVENT_PATH_PREFIX)
