@@ -12,6 +12,9 @@ agent_created: true
 > 若同机存在 WorkBuddy 全局版 `C:/Users/oscur/.workbuddy-ai/skills/subagent-cli-ops/SKILL.md`，
 > 可以**额外**读它以获取最新通用经验，但**本文件已能独立成立**；两者冲突时以本文件为准（它是 GIGI 事实）。
 >
+> 🔴🔴 **接手本工程时，先读 `.task/TRAE_AGENT_HANDOFF.md`**（跨 agent 共享协作网络的约定）：
+> 谁在跑、链条排到哪、哪些**不能**重复派 / 不能替它提交 / 不能停服务。**别跳过这一步。**
+>
 > 职责边界：本 skill 只管**怎么派、怎么守、怎么救**；派不派 / 怎么分档 / 怎么验收 → 见同目录 `task-execution`。
 
 ## 0. 环境常量（GIGI 专属，换机器只改这一块）
