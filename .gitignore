@@ -9,3 +9,13 @@ captures/
 .cxx/
 *.apk
 *.aab
+
+# 子代理协作运行时数据（勿提交）
+tools/.agent_monitor/
+.agent_work/
+.task/chains/
+__pycache__/
+
+# 协调网络的运行时噪音（事件流 / 原子写临时文件）
+.task/events/
+.task/**/*.tmp
