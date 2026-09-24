@@ -203,7 +203,8 @@ def probe_state(proj: Path, tid: str) -> dict:
     st, pm = _read_probe(proj, tid)
     pid = _pid_alive_for(proj, tid)
     sess = _newest_session_for(proj, tid)
-    acts = [x for x in (pm, sess) if x]
+    # last/age 只认探针 mtime；sess 是弱佐证，仅作 stale/dead 的单向救援，不得抬升活动时间
+    acts = [pm] if pm else []
     last = max(acts) if acts else None
     return {
         "id": tid, "probe_status": st, "probe_ts": pm, "pid": pid,
@@ -220,6 +221,11 @@ def classify(s: dict) -> str:
         return "blocked"
     if s["pid"]:
         if s["age"] is not None and s["age"] > STALE_LIMIT:
+            # 单向救援：pid 存活且 sess 仍新鲜 ⇒ 降级为 running；
+            # sess 永不把无 pid 的条目抬成 running（🔴 见派单红线）。
+            sess = s.get("sess_ts")
+            if sess is not None and (now_ts() - sess) < STALE_LIMIT:
+                return "running"
             return "stale"
         return "running"
     if st == "doing":
