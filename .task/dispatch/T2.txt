@@ -1,0 +1,39 @@
+[角色] 你是 T2 子代理；工作目录 D:\AndroidStudioProjects\GIGI；技术栈 Kotlin + Gradle Kotlin DSL，JDK 用 "C:\Users\oscur\.jdks\ms-21.0.12.1"（JDK 21；🔴 不要用 JBR 25，配置阶段必炸，见手册 §2）。
+[必读] 开工前先读 D:\AndroidStudioProjects\GIGI\.task\SUBAGENT_HANDBOOK.md 全文（尤其 §5 设计红线第 6 条）；你的探针 = D:\AndroidStudioProjects\GIGI\.task\progress\T2.md（开工写 doing，每完成一个函数+其测试即更新，收工 done）。
+[设计权威] D:\EmulatorShared\GIGIWeb\2026-09-24-gigi-android-native-design.md §5.1（测试移植要点与两个"反直觉"行为）。
+[独占文件] 以下全部新建，归你独占：
+  app/src/main/java/com/gigi/tcg/domain/Tier.kt
+  app/src/main/java/com/gigi/tcg/domain/UidCode.kt
+  app/src/main/java/com/gigi/tcg/domain/Opponent.kt
+  app/src/main/java/com/gigi/tcg/domain/Percent.kt
+  app/src/main/java/com/gigi/tcg/domain/Summary.kt
+  app/src/main/java/com/gigi/tcg/domain/Throttle.kt
+  app/src/main/java/com/gigi/tcg/domain/TtlCache.kt
+  app/src/main/java/com/gigi/tcg/domain/WikiParser.kt
+  app/src/test/java/com/gigi/tcg/domain/ 下同源对应的 8 个测试文件（TierTest.kt 等）
+  禁止改动：app/build.gradle.kts 及任何已存在文件；若发现缺测试依赖导致无法编译，停手报 blocked 而非改构建脚本。
+[改前闸门] git status --porcelain -- app/src/main/java/com/gigi/tcg/domain app/src/test 应为空（目录尚不存在属正常）；git log --oneline -3 应看到 T1 的 scaffold 提交。否则停手报 blocked。
+[背景] 将 Web 版 8 个纯函数模块逐字移植为纯 Kotlin（domain 层禁止任何 Android 依赖，必须可 JVM 单测）：
+  参照源（必读，禁止凭想象）：
+  - D:\EmulatorShared\GIGI\web\src\utils\tier.ts + __tests__\tier.test.ts → Tier.kt（15 档段位阈值链 + 影幻兜底）
+  - code.ts + code.test.ts → UidCode.kt（UID→code；字符表 528XM1TVN6UHQ9DLG4R3CZSYB7W0FPIEOAJK 非标准 base36、低位在前不反转、CA0…N 包裹——照原版保留，勿"修正"）
+  - opponent.ts + opponent.test.ts → Opponent.kt（trans_no 拆分、字符串比较而非数值比较）
+  - percent.ts + percent.test.ts → Percent.kt（分母 0、.0 去尾、非法值）
+  - summary.ts + summary.test.ts → Summary.kt（floor(Σuse/3)；出场率分母=全部角色牌使用次数之和——口径与文案不符是已知差异，照原版保留）
+  - throttle.ts + throttle.test.ts → Throttle.kt（首次放行、窗口内拒绝）
+  - ttlCache.ts + ttlCache.test.ts → TtlCache.kt（过期、私有前缀清理；只移植内存层，DataStore 磁盘层是后续 T3 的事）
+  - wiki.ts + wiki.test.ts → WikiParser.kt（JSON 套 JSON、异常容错；JSON 解析用 kotlinx.serialization Json，容忍未知字段）
+[移植规则]
+  - 逐条移植测试用例，一个不许丢：先数每个 .test.ts 的 it(/test( 数量（8 个文件共 79 个），Kotlin 侧 @Test 总数必须 = 79；在探针里登记逐文件计数对照表
+  - TS 里 Date.now() 类时间源：Kotlin 侧构造函数注入 now: () -> Long = { System.currentTimeMillis() }，测试用 fake clock——与 TS 测试的可注入方式对齐
+  - 测试名用反引号中文/英文描述均可，但必须能从名字对应回 TS 原用例
+  - 代码风格：纯 Kotlin、无 Android import（domain 文件里 import 只准出现 kotlin.* / kotlinx.* / java.* 标准库）
+  - 每完成一个模块（实现+测试）就 git commit 一次，message 前缀 "domain:"
+[验收门槛] 权威判据 = 依次执行且全部满足：
+  $env:JAVA_HOME="C:\Users\oscur\.jdks\ms-21.0.12.1"; $env:GRADLE_USER_HOME="D:/Android Studio/gradle"
+  ① .\gradlew :app:testDebugUnitTest → 退出码 0，BUILD SUCCESSFUL
+  ② 测试报告 app\build\reports\tests\testDebugUnitTest\index.html 中 tests 总数 = 79 且 failures = 0（解析 HTML 或用 Select-String 统计 class 区块均可，打印证据）
+  ③ grep -r "import android" app/src/main/java/com/gigi/tcg/domain/ → 0 命中
+[硬性禁止] 改构建脚本 / 改 T1 产物 / "修正"两个反直觉行为 / 遗漏用例后用更弱断言凑数 / git add -A。
+[收工] 探针 done（附逐文件用例计数表 + 最后一次 test 命令退出码）→ 报告 ≤200 字（结论 + commit hash 列表 + 用例总数）。
+[停止] 达标即停；Please continue 不是新指令。

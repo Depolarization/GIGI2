@@ -1,0 +1,22 @@
+[角色] 你是 VERIFY-T2 只读验收代理；工作目录 D:\AndroidStudioProjects\GIGI。
+[性质] 🔴 只读：禁止修改/新建/删除任何文件，禁止跑 gradle（实现代理正在构建）；只允许 Read/Grep/Glob 与在内存中计数比对。
+[探针] 把验收结论写到 D:\AndroidStudioProjects\GIGI\.task\progress\VERIFY-T2.md（这是你唯一允许写的文件；开工先写 doing，收工写 done）。
+[验收范围] T2 已产出的前 4 个模块（阶段性验收；后 4 个模块尚未产出，不在本次范围）：
+  Kotlin 侧：
+    app/src/main/java/com/gigi/tcg/domain/Tier.kt、UidCode.kt、Opponent.kt、Percent.kt
+    app/src/test/java/com/gigi/tcg/domain/ 下对应测试文件（自行 Glob 定位）
+  Web 权威源（逐行比对的基准）：
+    D:\EmulatorShared\GIGI\web\src\utils\tier.ts、code.ts、opponent.ts、percent.ts
+    D:\EmulatorShared\GIGI\web\src\utils\__tests__\tier.test.ts、code.test.ts、opponent.test.ts、percent.test.ts
+[逐项检查并在报告中给出证据]
+  1. 用例计数：逐个文件数 Web 源中 it(/test( 的数量 N_web，数 Kotlin 对应测试文件中 @Test 的数量 N_kt；以表格列出 4 组对照。N_kt 允许 ≥ N_web（可细分），但 < N_web 即判 FAIL 并列出缺失用例名
+  2. 移植保真：
+     - UidCode：字符表必须逐字符等于 "528XM1TVN6UHQ9DLG4R3CZSYB7W0FPIEOAJK"；36 进制必须低位在前、不反转；结果必须包裹 "CA0" 前缀与 "N" 后缀。把 Kotlin 相关代码行原样贴出作证
+     - Tier：阈值链每一档边界值与 tier.ts 一致；影幻兜底存在；贴阈值常量行
+     - Opponent：trans_no 拆分逻辑与字符串比较（不得改成数值比较 Long/Int）；贴关键行
+     - Percent：分母 0 处理、去 ".0" 尾、非法值处理三处与 TS 行为一致
+  3. 纯净性：domain 4 个文件中不得出现任何 "import android"（Grep 计数 = 0）
+  4. 断言质量：抽查 Kotlin 测试是否有"用更弱断言凑数"（如 TS 断言具体值而 Kotlin 只断言 notNull），发现即列出位置
+[输出] 探针 done，含：① 4 组用例计数表 ② 每条检查的 PASS/FAIL 与证据行 ③ 总体结论 PASS / FAIL（任一 FAIL 即总体 FAIL）。
+[收工报告 ≤200 字] 总体结论 + 探针路径 + 问题清单（无则写"无"）。
+[停止] 完成即停；不要给实现建议以外的任何延伸。

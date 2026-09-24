@@ -1,0 +1,30 @@
+[角色] 你是 T5a 子代理；工作目录 D:\AndroidStudioProjects\GIGI；Kotlin + Compose（M3）。
+[必读] D:\AndroidStudioProjects\GIGI\.task\SUBAGENT_HANDBOOK.md；探针 = .task\progress\T5a.md。
+[设计权威] 设计文档§4.3（三态组件）、§4.7（Coil）；参照源码（必读）：
+  D:\EmulatorShared\GIGI\web\src\components\Feedback.tsx（Spinner/Skeleton/Empty/Error 四组件）
+  D:\EmulatorShared\GIGI\web\src\components\Avatar.tsx
+  D:\EmulatorShared\GIGI\web\src\state\toast.tsx
+[独占文件（全部新建）]
+  app/src/main/java/com/gigi/tcg/ui/components/StateViews.kt
+  app/src/main/java/com/gigi/tcg/ui/components/Avatar.kt
+  app/src/main/java/com/gigi/tcg/ui/components/GigiToast.kt
+  禁止改其它任何文件。
+[改前闸门] git status --porcelain -- app/src/main/java/com/gigi/tcg/ui/components 应为空/目录不存在（HEAD=c5bdba5）。非空→blocked。
+[要做什么 —— 🔴 组件签名是 T5b/c/d 三个并行组的契约，逐字符照此实现，不要改名]
+  1. StateViews.kt：
+     - @Composable fun LoadingView(modifier: Modifier = Modifier, label: String? = null)：CircularProgressIndicator 居中（有 label 时下方 Text）
+     - @Composable fun EmptyState(modifier: Modifier = Modifier, icon: ImageVector? = null, title: String, message: String? = null)：居中图标（InvisibleDefault 用 Icons.Outlined.Inbox）+ 标题 + 可选描述
+     - @Composable fun ErrorState(modifier: Modifier = Modifier, message: String, onRetry: (() -> Unit)? = null)：居中 Icons.Outlined.ErrorOutline + 文案 + 可选"重试"TextButton
+  2. Avatar.kt：@Composable fun Avatar(url: String?, modifier: Modifier = Modifier, size: Dp = 40.dp, contentDescription: String? = null)
+     用 Coil 2.7 AsyncImage（model=url，圆形 clip(CircleShape)，占位/错误用 Icons.Outlined.Person 灰底；url 为空同样兜底）；默认头像常量 UrlBuilder.DEFAULT_AVATAR_URL 由调用方决定是否传入，本组件不引用
+  3. GigiToast.kt：全局轻提示（对齐 toast.tsx）：
+     - data class ToastMessage(val id: Long, val text: String)
+     - val LocalToast = compositionLocalOf<(String) -> Unit>（默认抛 IllegalStateException 或 no-op 均可——🔴 用 no-op { }）
+     - @Composable fun GigiToastHost(state: List<ToastMessage>, modifier: Modifier = Modifier)：SnackbarHost 风格但用 M3 Snackbar，逐条显示（本组件只负责渲染当前一条：参数改为 current: ToastMessage?）
+     - @Composable fun rememberToastState()：返回持有 SnackbarHostState 与 show(text) 的小类 ToastController（val show: (String)->Unit）；用 LaunchedEffect 消费队列
+     🔴 契约以本段为准：调用方写 val toast = remember { ToastController() }……把可用签名做成：class ToastController { fun show(text: String) }；@Composable fun ToastHost(controller: ToastController)
+     （即：最终对外只暴露 ToastController/ToastHost 两个符号 + LocalToast 可选；你自行收敛但必须包含这两个）
+[验收门槛] ① .\gradlew :app:assembleDebug → 0（T4b 可能正在改其它文件：🔴 若编译失败信息与你文件无关而是 T4b 在途文件导致，等待 2 分钟后重试，不要改它们）
+  ② .\gradlew :app:lintDebug → Error 0 ③ testDebugUnitTest 95 全绿
+[提交] "ui: shared state views, avatar and toast components"；禁 git add -A。
+[收工] 探针 done（组件签名清单/判据结果）→ 报告 ≤200 字（hash + 最终签名）。达标即停。

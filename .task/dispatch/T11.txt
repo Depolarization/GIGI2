@@ -1,0 +1,22 @@
+[角色] 你是 T11 子代理；[标识] 本派单文件 .task/dispatch/T11.txt；工作目录 D:\AndroidStudioProjects\GIGI；Windows + adb。
+[必读] .task\SUBAGENT_HANDBOOK.md；探针 = .task\progress\T11.md。
+[设计权威] 设计文档§5.2（真机取证）。
+[工具链] adb = D:\AndroidSDK\platform-tools\adb.exe；MuMu 模拟器 adb 端口 127.0.0.1:16384；APK = app/build/outputs/apk/debug/app-debug.apk。
+[独占文件（新建）]
+  app/src/androidTest/java/com/gigi/tcg/debug/DebugCredentialInjector.kt（仅取证用 instrumentation）
+  .task/evidence/ 目录下截图与取证报告（图片 .png + 说明 .md）
+  禁止改 main 源码；不得为取证修改业务代码。
+[要做什么]
+  1. adb connect 127.0.0.1:16384；adb devices 确认设备在线（不在线→尝试常见 MuMu 端口 16384/7555；仍无→blocked：需用户启动 MuMu）。
+  2. adb install -r 安装 APK；启动 com.gigi.tcg/.MainActivity。
+  3. 截图取证（逐张保存到 .task/evidence/，文件名含页面名）：
+     ① 登录页首屏（二维码可见）；尝试等待并截"已扫描"态需真机配合——做不到则列 blocked
+  4. 登录后四页面取证：🔴 优先寻找本机现成凭据——在 D:\EmulatorShared\GIGI、D:\AndroidStudioProjects\GIGI\.agent_work、用户桌面等位置查找 cookie 文本文件（关键词 e_hk4e_token / cookie_token / stoken）；
+     找到→写 DebugCredentialInjector（androidTest 中通过 app Context 构造 CredentialStore().save(cookie)）→ adb shell am instrument 运行注入→重新启动 App→依次截：首页（个人卡+对局）、排行榜（巅峰/赛事两 Tab 各一张+前三名）、卡牌统计（角色牌/行动牌两 Tab+排序/筛选各一张）、卡牌图鉴（三分类+筛选+网格）；
+     并取证：玩家详情弹窗、UID 查询弹窗（含一次"UID不符合格式"提示）、卡面弹窗（PNG/GIF 切换）、关于弹窗；卡面下载后 adb shell ls /sdard/Pictures/GIGI 或 MediaStore 验证落盘；服务器切换后两服数据各截一张；退出登录→回登录页。
+     找不到凭据→blocked：已完成证据=登录页截图；保留项=全部登录后页面，需用户提供 cookie 串或真机扫码（在探针写明需要用户做什么、一行命令模板）。
+  5. 每张截图配一行对照说明（与 Web 版语义是否一致：布局/数据/着色）。取证报告写 .task/evidence/取证报告.md。
+[红线] 禁止伪造截图、禁止用 web 版截图冒充；做不到的项必须写 blocked。
+[验收门槛] ① .task/evidence/ 截图数量与探针声称一致（逐文件 ls）② APK 已安装（adb shell pm path com.gigi.tcg 有输出）③ 探针含完成/blocked 清单
+[提交] "test: add debug credential injector and real-device evidence"（截图也提交）；禁 git add -A。
+[收工] 探针 done 或 blocked→ 报告 ≤200 字（证据路径+blocked 项）。达标即停。

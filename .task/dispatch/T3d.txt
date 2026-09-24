@@ -1,0 +1,35 @@
+[角色] 你是 T3d 子代理（T3 收尾集成）；工作目录 D:\AndroidStudioProjects\GIGI；Kotlin。
+[必读] D:\AndroidStudioProjects\GIGI\.task\SUBAGENT_HANDBOOK.md；探针 = .task\progress\T3d.md。
+[前置] T3a/T3b/T3c 必须已 done（开工先读三份探针 + git log 确认三个 data commit 已在）。若发现任一未完成/探针 claims 不实→blocked。
+[独占文件（新建为主）]
+  app/src/main/java/com/gigi/tcg/data/cache/WikiDiskCache.kt
+  app/src/main/java/com/gigi/tcg/data/repo/GigiRepository.kt
+  app/src/main/java/com/gigi/tcg/di/AppContainer.kt（已存在空壳，仅你可改）
+  app/src/test/java/com/gigi/tcg/data/repo/GigiRepositoryTest.kt
+  app/src/test/java/com/gigi/tcg/data/api/RetcodeFlowTest.kt（移植 retcode.test.ts 中依赖 mihoyo.ts 的剩余用例，按 Kotlin 架构适配）
+  🔴 编译错误修复纪律：若 T3a/b/c 代码有错，只允许【最小修改】出错文件并在探针逐条登记（文件+原因+改动），不得重构。
+[改前闸门] git status --porcelain 中只允许出现你上面独占文件；T3a/b/c 文件如有未提交改动→blocked。
+[背景·权威参照（必读）]
+  - 设计文档§2.4（缓存 TTL 表/键含服务器/私有不落盘）、§3.5
+  - D:\EmulatorShared\GIGI\web\src\api\mihoyo.ts、pageCache.ts（Repository 方法与缓存策略）
+  - D:\EmulatorShared\GIGI\web\src\utils\ttlCache.ts、state 下 serverStorage（DataStore 语义参考）
+[要做什么]
+  1. WikiDiskCache：DataStore Preferences（Context 扩展，文件 wiki_cache）；仅图鉴列表落盘；API= suspend fun get(serverId: String): String?（返回原始 JSON；过期视为 null）/ suspend fun put(serverId: String, rawJson: String)；TTL 1 小时（存写入毫秒时间）；键前缀含 serverId。
+  2. GigiRepository：对齐 mihoyo.ts 的方法（fetchLoginInfo、fetchMyHomePage、fetchOtherHomePage、fetchRank、fetchGcgStats、fetchGcgCardList、卡面详情等，以 mihoyo.ts 实际为准），全部经 MihoyoClient.get + model 反序列化。
+     缓存按§2.4：内存用 domain TtlCache 实例（卡牌使用统计5min/资料卡+最近对局45s/排行榜3min）；卡面详情 android.util.LruCache(200)；图鉴列表先读 WikiDiskCache 再请求并回写；键一律 "gigi:private:<server>:<uid>:<suffix>"；公开数据另用不带 private 的键。
+     1 秒详情节流由 MihoyoClient tag="detail" 承担，Repository 调用点打 tag。
+     构造注入：client、diskCache、now 可注入默认 System.currentTimeMillis()。
+  3. AppContainer：class AppContainer(context)（从 GigiApp 取得 appContext）：
+     json = Json { ignoreUnknownKeys=true; coerceInputValues=true; explicitNulls=false; encodeDefaults=false }
+     credentialStore = CredentialStore(context)
+     wikiDiskCache = WikiDiskCache(context)
+     client = MihoyoClient(OkHttpClient.Builder().connectTimeout(10,SECONDS).build(), json, credentialStore)
+     repository = GigiRepository(client, wikiDiskCache)
+     暴露以上属性。读现有 GigiApp.kt 确认其持容器方式，不改 GigiApp 除非容器构造签名必须适配（如必须则最小改+登记）。
+  4. 测试：GigiRepositoryTest 用 MockWebServer？本工程无该依赖——改用手写假 CredentialSource + 本地 stub 的方式：将 client 抽象为接口（如需，定义在 repo 包内 interface，最小化）或直接测试缓存/键/TTL 纯逻辑部分；RetcodeFlowTest 同理，重点覆盖"缓存命中不请求/过期重取/键含服务器"。禁止加依赖。
+[验收门槛] 权威判据（JDK21，手册§2）：
+  ① .\gradlew :app:assembleDebug → 退出码 0 BUILD SUCCESSFUL
+  ② .\gradlew :app:testDebugUnitTest → 全绿；报告总数 = 59( T2) + T3a/T3b/T3d 新增，打印计数
+  ③ APK 在盘
+[提交] 分步：cache/repo 各一 commit；集成构建通过后如对兄弟文件有修复单独 commit "fix:"。message 前缀 data:/fix:。
+[收工] 探针 done（测试计数/修复登记/commit 列表）→ 报告 ≤200 字。达标即停。

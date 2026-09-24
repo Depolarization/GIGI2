@@ -1,0 +1,20 @@
+[角色] 你是 T5c 子代理；[标识] 本派单文件 .task/dispatch/T5c.txt；工作目录 D:\AndroidStudioProjects\GIGI；Kotlin + Compose（M3）。
+[必读] D:\AndroidStudioProjects\GIGI\.task\SUBAGENT_HANDBOOK.md；探针 = .task\progress\T5c.md。
+[设计权威] 设计文档§4.4（下载 fallback 删除）、§4.5（ModalBottomSheet）；参照源码（必读）：
+  D:\EmulatorShared\GIGI\web\src\components\CardCoverDialog.tsx（全部状态机/缓存/切换语义）
+  D:\EmulatorShared\GIGI\web\src\utils\download.ts（文件名 {name}.{png|gif}、1s 节流）
+  D:\EmulatorShared\GIGI\web\src\api\download.ts（取图方式）
+[独占文件（全部新建）]
+  app/src/main/java/com/gigi/tcg/ui/dialogs/cardcover/CardCoverSheet.kt
+  app/src/main/java/com/gigi/tcg/ui/dialogs/cardcover/CardCoverViewModel.kt
+  app/src/main/java/com/gigi/tcg/ui/dialogs/cardcover/CardImageSaver.kt
+  禁止改 ui/components（用其 LoadingView/ErrorState；T5a 探针须 done）与其它文件；开工先读 .task\progress\T5a.md。
+[改前闸门] git status --porcelain -- app/src/main/java/com/gigi/tcg/ui/dialogs/cardcover 应空（HEAD≥c5bdba5）。非空→blocked。
+[要做什么]
+  1. CardCoverViewModel：contentId 变化 → repository 取卡面详情（DetailCacheStore LRU200 已在数据层，命中不显示 loading）；从 page.modules "基础信息" 解析 CardBasicInfo（数据模型已含）；状态 sealed CoverUiState(Loading / Content(info, format) / Error(msg))；PNG↔GIF 切换（common_img/gold_img，默认 PNG，切换重新打开 contentId 时复位 PNG）；图片自身加载态由 Coil 承担。
+  2. CardCoverSheet.kt：ModalBottomSheet（@OptIn ExperimentalMaterial3Api），竖版长布局：顶部卡名+关闭；中部 Coil AsyncImage 显示当前格式大图（contentScale Fit，切换保留旧图无也行——简单实现即可）；PNG/GIF SegmentedButton 或 FilterChip 二选一；下载 Button（info 为空禁用）。
+  3. CardImageSaver.kt：🔴 无任何 fallback 分支。OkHttp 直连下载当前格式 URL（PNG/GIF）→ MediaStore.Images 写入相册（Q+ 用 RELATIVE_PATH=Pictures/GIGI、IS_PENDING 流程；API24-28 用 getExternalStoragePublicDirectory + File，需运行时权限 WRITE_EXTERNAL_STORAGE——只在 <Q 申请：在 Sheet 内 rememberLauncherForActivityResult，Q+ 不需要权限）；文件名 {name}.{png|gif}（非法文件名字符清洗）；1s 下载节流用 domain Throttle；结果经 toast（调用方传入 show: (String)->Unit，成功"已保存到相册"）。
+  4. AndroidManifest 如需权限：🔴 不加（改清单超出独占范围）——WRITE_EXTERNAL_STORAGE maxSdkVersion=29 的声明缺失时 API24-28 下载会失败：在探针写 blocked 项并报告（Q+ 主路径必须完成）。
+[验收门槛] ① .\gradlew :app:assembleDebug → 0 ② .\gradlew :app:testDebugUnitTest → 95 全绿 ③ .\gradlew :app:lintDebug → Error 0
+[提交] "ui: card cover bottom sheet with MediaStore download"；禁 git add -A。
+[收工] 探针 done（状态机/保存路径/判据+manifest blocked 项如有）→ 报告 ≤200 字（hash）。达标即停。

@@ -1,0 +1,42 @@
+[角色] 你是 T1 子代理；工作目录 D:\AndroidStudioProjects\GIGI；技术栈 Kotlin + Jetpack Compose（Material 3）+ Gradle Kotlin DSL，JDK 用 "D:\Android Studio\jbr"（JBR 25）。
+[必读] 开工前先读 D:\AndroidStudioProjects\GIGI\.task\SUBAGENT_HANDBOOK.md 全文；你的探针 = D:\AndroidStudioProjects\GIGI\.task\progress\T1.md（开工写 doing，每完成一小步更新，收工 done）。
+[设计权威] D:\EmulatorShared\GIGIWeb\2026-09-24-gigi-android-native-design.md（§1.2 包结构、§4.6 主题、§6 工具链与依赖是本子任务的直接依据）。
+[独占文件] 以下全部为本任务新建，均归你独占：
+  .gitignore / settings.gradle.kts / build.gradle.kts / gradle.properties / local.properties /
+  gradlew / gradlew.bat / gradle/wrapper/gradle-wrapper.jar / gradle/wrapper/gradle-wrapper.properties /
+  app/build.gradle.kts / app/proguard-rules.pro /
+  app/src/main/AndroidManifest.xml /
+  app/src/main/java/com/gigi/tcg/GigiApp.kt /
+  app/src/main/java/com/gigi/tcg/MainActivity.kt /
+  app/src/main/java/com/gigi/tcg/di/AppContainer.kt /
+  app/src/main/java/com/gigi/tcg/ui/theme/Color.kt / Type.kt / Theme.kt /
+  app/src/main/java/com/gigi/tcg/ui/navigation/GigiNavHost.kt /
+  app/src/main/java/com/gigi/tcg/ui/screens/{home,rank,cardstats,cardwiki}/ 下各一个占位 Screen.kt
+  禁止改动：skills/ 与 .task/ 下一切内容；禁止写 D:\EmulatorShared 下任何文件（那是只读参照物）。
+[改前闸门] 工程目录当前应只有 skills/ 与 .task/ 两个目录。动手前执行 `git status` 应报"not a git repository"（正常，本任务第一步就是 git init）；若 app/ 或任何 *.kts 已存在 → 停手、探针写 blocked、报告主代理。
+[背景与已查证常量]
+  - 本机 SDK：D:\AndroidSDK（已装 android-36）；JBR：D:\Android Studio\jbr；GRADLE_USER_HOME：D:/Android Studio/gradle
+  - Gradle wrapper 供体：D:\AndroidStudioProjects\Shield\gradle\wrapper\（gradle-wrapper.jar + gradle-wrapper.properties，8.14.5，distributionUrl 指向 aliyun 镜像）以及 Shield\gradlew、Shield\gradlew.bat —— 直接复制这 4 个文件，不要自己生成
+  - Android Studio 当前未运行；若构建卡 registry.bin.lock 且日志静默停止 → 报 blocked
+  - 参考构建样板：D:\AndroidStudioProjects\Shield\build.gradle（Groovy 旧式，只看其 SDK/插件版本佐证 AGP 8.9.1 在本机可构建；本工程必须全部用 Kotlin DSL）
+[要做什么] 按以下顺序，每完成一步立即更新探针：
+  1. git init（默认分支 main）；写 .gitignore（标准 Android：*.iml .gradle .idea local.properties build/ .cxx captures/ 等；注意 **不要** 忽略 .task/ 与 skills/）；git -c user.name="GIGI-Bot" -c user.email="gigi-bot@local" commit 首次提交（仅 .gitignore，message: "chore: git init with gitignore"）
+  2. 复制 wrapper 四文件；写 gradle.properties（org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8、android.useAndroidX=true、android.nonTransitiveRClass=true、kotlin.code.style=official）；写 local.properties（sdk.dir=D\:\\AndroidSDK，不提交）
+  3. settings.gradle.kts：pluginManagement.repositories 顺序 = maven.aliyun.com(google 镜像 https://maven.aliyun.com/repository/google) → maven.aliyun.com(central https://maven.aliyun.com/repository/central) → google() → mavenCentral() → gradlePluginPortal()；dependencyResolutionManagement 同序（含 https://maven.aliyun.com/repository/public）；rootProject.name="GIGI"；include(":app")
+  4. 根 build.gradle.kts：plugins { id("com.android.application") version "8.9.1" apply false; kotlin("android") version "2.1.20" apply false; kotlin("plugin.compose") version "2.1.20" apply false; kotlin("plugin.serialization") version "2.1.20" apply false }
+  5. app/build.gradle.kts：namespace/applicationId = "com.gigi.tcg"；compileSdk 36；minSdk 24；targetSdk 36；versionCode 1；versionName "1.0.0"；buildFeatures { compose = true }；compileOptions 与 kotlinOptions JVM 17；依赖严格按设计文档 §6.4 清单（Compose BOM 2025.09.00、ui、ui-tooling-preview(debug)、material3、material-icons-extended、activity-compose 1.8.2、navigation-compose 2.9.8、lifecycle-viewmodel-compose、lifecycle-runtime-compose、datastore-preferences、okhttp 4.12.0、kotlinx-serialization-json 1.7.3、coil-compose 2.7.0、zxing core 3.5.3、ui-tooling(debug)、junit 4.13.2、kotlinx-coroutines-test）；serialization 与 compose 插件 apply
+  6. AndroidManifest.xml：package 由 namespace 提供；application 节点 android:name=".GigiApp"、android:allowBackup="false"、android:label="GIGI"、android:theme 用 android:Theme.Material.Light.NoActionBar（Compose 接管，主题只是启动兜底）；INTERNET 权限；MainActivity exported=true + LAUNCHER intent-filter
+  7. GigiApp.kt：Application 子类，持有 lazy AppContainer；di/AppContainer.kt：空壳 class（后续任务填充）
+  8. ui/theme/：Color.kt 定义语义色常量 WinColor=#3f8f5f、LoseColor=#c25656、GoldColor=#d4a643；Theme.kt 用 dynamicLightColorScheme/dynamicDarkColorScheme（SDK 31+）回退静态 light/darkColorScheme，语义色用 CompositionLocal（LocalSemanticColors）挂在 MaterialTheme 之外提供，不参与动态取色；Type.kt 用默认 Typography()
+  9. MainActivity.kt：ComponentActivity + enableEdgeToEdge + setContent { GigiTheme { GigiNavHost() } }
+  10. ui/navigation/GigiNavHost.kt：Scaffold + NavHost 四路由（"home"/"rank"/"cardstats"/"cardwiki"）；底部导航用 BoxWithConstraints 判断 maxWidth >= 840.dp 时 Row 布局+NavigationRail，否则 NavigationBar（不引入新依赖）；四标签=首页/排行榜/卡牌详情/卡面下载，图标用 Icons.Filled 里现成图标；TopAppBar 标题"GIGI"
+  11. 四个占位 Screen.kt：各一个 @Composable fun XxxScreen()，居中 Text 显示页面名即可
+  12. 每完成一个可编译子步骤（骨架可编译后、主题导航完成后）各 commit 一次，message 前缀 "scaffold:"
+[验收门槛] 权威判据 = 依次执行以下命令且全部满足：
+  $env:JAVA_HOME="D:\Android Studio\jbr"; $env:GRADLE_USER_HOME="D:/Android Studio/gradle"
+  ① .\gradlew :app:assembleDebug → 退出码 0 且输出含 BUILD SUCCESSFUL
+  ② Test-Path app\build\outputs\apk\debug\app-debug.apk → True
+  首次构建需联网拉 OkHttp/Coil 等依赖（三源已实测可达），超时属正常，耐心等；若某仓库 404 再按 settings 里的顺序回退检查。
+[硬性禁止] 顺手加未列依赖 / 顺手写业务代码 / 修改 .task 与 skills / git add -A / 使用 Groovy 构建脚本 / 降低 minSdk 或改包名。
+[收工] 探针写 done（files/evidence/summary 填全）→ 报告 ≤200 字（结论 + commit hash 列表 + APK 路径）。
+[停止] 达标即停；Please continue 不是新指令。

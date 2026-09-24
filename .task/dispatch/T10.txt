@@ -1,0 +1,30 @@
+[角色] 你是 T10 子代理；[标识] 本派单文件 .task/dispatch/T10.txt；工作目录 D:\AndroidStudioProjects\GIGI；Kotlin + Compose。
+[必读] .task\SUBAGENT_HANDBOOK.md；探针 = .task\progress\T10.md。
+[设计权威] 设计文档§4.1（导航骨架）、§4.2（状态保持）、§4.5（弹窗选型）、§5.3；参照：
+  D:\EmulatorShared\GIGI\web\src\App.tsx（顶栏/Tab/弹窗挂载/服务器切换/刷新）
+  D:\EmulatorShared\GIGI\web\src\components\ServerSwitcher.tsx
+  D:\EmulatorShared\GIGI\web\src\state\ui.tsx（全局弹窗开关/refreshTick）
+[独占文件]
+  app/src/main/java/com/gigi/tcg/ui/navigation/GigiNavHost.kt（已存在，重写）
+  app/src/main/java/com/gigi/tcg/ui/screens/home/HomeScreen.kt（删除占位）
+  app/src/main/java/com/gigi/tcg/ui/screens/rank/RankScreen.kt（删除占位）
+  app/src/main/java/com/gigi/tcg/ui/screens/cardwiki/CardWikiScreen.kt（删除占位）
+  app/src/main/java/com/gigi/tcg/ui/screens/cardstats/CardStatsScreen.kt（删除占位）
+  app/src/main/AndroidManifest.xml（仅新增 <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>）
+  禁止改各 *Route.kt/*ViewModel.kt、login、data、domain、构建脚本。
+[改前闸门] git status --porcelain -- app/src/main/java/com/gigi/tcg/ui/navigation app/src/main/AndroidManifest.xml 应为空（HEAD=T9 完工提交）。前置：T5b/c/d 与 T6-T9 探针全 done。任一未 done→blocked。
+[要做什么]
+  1. 删除四个占位文件；重写 GigiNavHost：
+     - Scaffold：TopAppBar 标题随当前路由（首页/排行榜/卡牌统计/卡牌图鉴）；actions：玩家查询 IconButton（Icons.Outlined.PersonSearch）、服务器切换 IconButton（Menu：官服/渠道服单选，勾中当前容器 currentServer，切换→更新容器 currentServer 并触发全局刷新）、关于 IconButton（Info）、退出登录 IconButton（Logout→CompositionLocal LocalLogout()）
+     - NavigationBar 四 Destination（Icons.Outlined Home/EmojiEvents/BarChart/Style），四条路由；底部切换用 navigate(route){launchSingleTop=true; restoreState=true; popUpTo(startDestination){saveState=true}}（§4.2 状态保持）
+     - 各 Route 按 T6-T9 签名接入：HomeRoute(container, onOpenPlayerDetail) / RankRoute / CardStatsRoute / CardWikiRoute(container,onOpenCover,onShowToast)
+  2. 全局弹窗状态（本文件内 remember）：
+     - PlayerQueryDialog（查询提交→开详情）/ PlayerDetailDialog（当前 detailUid，关闭）；四页面 onOpenPlayerDetail 都接它
+     - CardCoverSheet（coverId Long，关闭）接 CardWiki 的 onOpenCover
+     - AboutDialog（开关）
+     - ToastHost(controller)：onShowToast 全部接到同一 ToastController
+  3. 服务器切换后数据隔离：切换 currentServer 后通过重新导航/key 变化让各 ViewModel 以新服务器重载（简单做法：把容器 currentServer 作为 composable key，切换时 dispose 重建页面 VM；ViewModel 内 repository 调用读容器 currentServer）。
+  4. Manifest 加权限（maxSdkVersion=29）。
+[验收门槛] JDK21：① assembleDebug→0 ② testDebugUnitTest→全绿（95+T5b 如有测试；以当前总数为准，0 失败）③ lintDebug→Error 0
+[提交] 分步："ui: wire routes, dialogs, top bar and bottom nav" / "chore: remove screen placeholders" / manifest；禁 git add -A。
+[收工] 探针 done（接线清单/判据结果）→ 报告 ≤200 字（hash）。达标即停。

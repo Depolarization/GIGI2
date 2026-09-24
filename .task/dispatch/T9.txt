@@ -1,0 +1,23 @@
+[角色] 你是 T9 子代理；[标识] 本派单文件 .task/dispatch/T9.txt；工作目录 D:\AndroidStudioProjects\GIGI；Kotlin + Compose（M3）+ MVI。
+[必读] .task\SUBAGENT_HANDBOOK.md；探针 = .task\progress\T9.md。
+[参照源码（必读，全部）]
+  D:\EmulatorShared\GIGI\web\src\pages\CardStatsPage.tsx
+[独占文件（全部新建）]
+  app/src/main/java/com/gigi/tcg/ui/screens/cardstats/CardStatsRoute.kt
+  app/src/main/java/com/gigi/tcg/ui/screens/cardstats/CardStatsViewModel.kt
+  🔴 不动同目录 CardStatsScreen.kt 占位；不改导航/容器/其它页面/domain。
+[改前闸门] git status --porcelain -- 上述两个文件应空（HEAD=1977c74）。非空→blocked。
+[要做什么]
+  1. CardStatsViewModel(container)：data class StatsUiState(loading,error,charSort: CharSortKey, actionType, detailOpen, summary: GcgSummary?, charList, actionList)
+     - load：repository 并行取 fetchMyHomePageCached（玩家信息）与 fetchGcgCardListCached（七圣召唤卡牌统计 GcgStats/GcgCard 列表）
+     - prepareCardLists(GcgCard) + computeGcgSummary(stats, lists)（domain Summary.kt）；角色牌排序三键：use 出场次数/winRate 胜率(percentSortKey)/wins 胜场；行动牌类型筛选：all/CardTypeModify 装备/CardTypeAssist 支援/CardTypeEvent 事件
+     - 可展开详情面板：默认折叠（groups 明细照 StatsDetailPanel 组装，字段文案对齐 CardStatsPage）
+  2. CardStatsRoute.kt：@Composable fun CardStatsRoute(container: AppContainer, onShowToast: (String)->Unit, modifier=Modifier)
+     - TabRow（角色牌/行动牌）
+     - 角色牌：排序 SegmentedButton/FilterChip 三选一；LazyColumn 行：名称 + "出场:x　出场率:y　胜率:z　胜场:w"（calcPercent+formatPercent）
+     - 行动牌：类型 FilterChip 横排（全部/装备牌/支援牌/事件牌）；紧凑行：名称 + "出场:x"
+     - 玩家信息详情：ExpandMore/ExpandLess 图标开关，展开组明细
+     - LoadingView/EmptyState/ErrorState（重试）
+[验收门槛] JDK21：① assembleDebug→0 ② testDebugUnitTest→95 全绿 ③ lintDebug→Error 0
+[提交] "ui: card stats route with sort/filter and expandable detail"；禁 git add -A。
+[收工] 探针 done→ 报告 ≤200 字（hash）。达标即停。

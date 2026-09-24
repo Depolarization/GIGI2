@@ -1,0 +1,30 @@
+[角色] 你是 T3c 子代理；工作目录 D:\AndroidStudioProjects\GIGI；Kotlin + Android Keystore。
+[必读] D:\AndroidStudioProjects\GIGI\.task\SUBAGENT_HANDBOOK.md；探针 = .task\progress\T3c.md。
+[独占文件（全部新建，仅这些可改）]
+  app/src/main/java/com/gigi/tcg/data/auth/CredentialStore.kt
+  禁止碰 data 下其它目录；禁止新建测试（Keystore 无法 JVM 测，验收靠代码审计+后续真机）。
+[改前闸门] git status --porcelain -- app/src/main/java/com/gigi/tcg/data/auth 应为空（HEAD=67e62fd）。非空→blocked。
+[背景]
+  - 设计文档§3.4（架构、三条安全约束）、§3.1（Cookie 片段形态）
+  - CredentialSource 接口由 T3b 同时创建，精确签名（你要实现它）：
+    ```kotlin
+    package com.gigi.tcg.data.api
+    interface CredentialSource { fun cookieHeader(): String? }
+    ```
+  - 编译在 T3d 集成阶段，本任务不跑 gradle；若发现接口文件尚不存在属正常（并行），按签名实现即可。
+[要做什么] 约 80–110 行手写 CredentialStore，禁止引入 androidx.security：
+  ```kotlin
+  class CredentialStore(context: Context) : CredentialSource {
+      fun save(cookieFragments: String)   // 明文 "a=1; b=2"，加密后落 SharedPreferences
+      override fun cookieHeader(): String? // 解密返回完整片段；无/损坏→null
+      fun clear()                          // 退出登录：清密文 + 删 Keystore 别名（双重清除）
+  }
+  ```
+  ① Keystore：KeyStore.getInstance("AndroidKeyStore")；AES-256、KeyGenParameterSpec(别名="gigi_credentials_key", PURPOSE_ENCRYPT|DECRYPT, BLOCK_MODES_GCM, ENCRYPTION_PADDINGS_NONE, setRandomizedEncryptionRequired(true))
+  ② 存储：SharedPreferences 文件 "gigi_credentials"、key "ciphertext"，值=Base64(IV(12B) + GCM ciphertext(含16B tag))
+  ③ 加密每次随机 IV；解密取前 12B；GCMParameterSpec(128, iv)；损坏→返回 null（不抛出）
+  ④ clear(): prefs.edit().clear().apply() + 删除 alias（containsKey 判断后 deleteEntry）
+  ⑤ 类内加密细节为 private；明文只在 save 参数与 cookieHeader 返回值出现——满足"凭据不出加密区"
+  commit："data: keystore-backed credential store with AES-GCM"。
+[验收] 探针 done，写明：算法参数、存储结构、clear 双重清除、与 CredentialSource 实现关系。
+[硬性禁止] 加依赖/写其它文件/把明文写日志/git add -A。达标即停。

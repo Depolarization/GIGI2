@@ -1,0 +1,23 @@
+[角色] 你是 T5b 子代理；[标识] 本派单文件 .task/dispatch/T5b.txt；工作目录 D:\AndroidStudioProjects\GIGI；Kotlin + Compose（M3）。
+[必读] D:\AndroidStudioProjects\GIGI\.task\SUBAGENT_HANDBOOK.md；探针 = .task\progress\T5b.md。
+[设计权威] 设计文档§4.5；参照源码（必读）：
+  D:\EmulatorShared\GIGI\web\src\components\PlayerDetailDialog.tsx（内容与布局）
+  D:\EmulatorShared\GIGI\web\src\components\PlayerQueryDialog.tsx
+  D:\EmulatorShared\GIGI\web\src\state\playerDetail.tsx（查询/缓存/节流语义）
+[独占文件（全部新建）]
+  app/src/main/java/com/gigi/tcg/ui/dialogs/playerdetail/PlayerDetailDialog.kt
+  app/src/main/java/com/gigi/tcg/ui/dialogs/playerdetail/PlayerQueryDialog.kt
+  app/src/main/java/com/gigi/tcg/ui/dialogs/playerdetail/PlayerDetailViewModel.kt
+  禁止改 ui/components 与其它文件（组件由 T5a 提供，直接使用：Avatar(url)/LoadingView/EmptyState(icon,title)/ErrorState(message,onRetry)，签名以 T5a 探针为准——开工先读 .task\progress\T5a.md，若探针未 done→blocked）。
+[改前闸门] git status --porcelain -- app/src/main/java/com/gigi/tcg/ui/dialogs 应空/不存在（HEAD=c5bdba5 或之后）。非空→blocked。
+[要做什么]
+  1. PlayerDetailViewModel：openPlayerDetail(uid) → repository.fetchOtherHomePage（含缓存与 1s 详情节流，数据层已实现）；sealed DetailUiState（Loading / Content(OtherHomePageData) / Error(msg, canRetry)）；code 生成用 domain UidCode.generateCode(uid)；段位用 Tier 函数解析；对齐 playerDetail.tsx：缓存命中直接展示、错误经 describeApiError 文案、重试入口。
+  2. PlayerDetailDialog.kt：M3 Dialog（居中），对齐 PlayerDetailDialog.tsx 布局：头像(Avatar)+昵称+UID+code 卡片+段位星级（用 theme 语义色：胜色 LocalSemanticColors.win/负 lose）、最近对局列表（result 胜负着色、时间用 domain formatRecordTime）；关闭按钮。四入口共用，参数 (uid: String?, onClose)。
+  3. PlayerQueryDialog.kt：M3 Dialog，输入框 + 提交；校验 9 位纯数字（不合法显示"UID不符合格式"且不发请求）；提交→关闭并 openPlayerDetail(uid)。
+  4. 弹窗开关状态由调用页面持有（本任务不提供全局 controller）；只暴露三个 composable/类符号。
+[验收门槛] JDK21：
+  ① .\gradlew :app:assembleDebug → 0
+  ② .\gradlew :app:testDebugUnitTest → 95 全绿（不变）
+  ③ .\gradlew :app:lintDebug → Error 0
+[提交] "ui: player detail and query dialogs"；禁 git add -A。
+[收工] 探针 done（符号清单/判据结果）→ 报告 ≤200 字（hash）。达标即停。

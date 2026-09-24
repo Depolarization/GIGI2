@@ -1,0 +1,22 @@
+[角色] 你是 T7 子代理；[标识] 本派单文件 .task/dispatch/T7.txt；工作目录 D:\AndroidStudioProjects\GIGI；Kotlin + Compose（M3）+ MVI。
+[必读] .task\SUBAGENT_HANDBOOK.md；探针 = .task\progress\T7.md。
+[参照源码（必读，全部）]
+  D:\EmulatorShared\GIGI\web\src\pages\RankPage.tsx
+[独占文件（全部新建）]
+  app/src/main/java/com/gigi/tcg/ui/screens/rank/RankRoute.kt
+  app/src/main/java/com/gigi/tcg/ui/screens/rank/RankViewModel.kt
+  🔴 不动同目录 RankScreen.kt 占位；不改导航/容器/其它页面。
+[改前闸门] git status --porcelain -- 上述两个文件应空（HEAD=1977c74）。非空→blocked。
+[要做什么]
+  1. RankViewModel(container: AppContainer)：两 Tab 独立懒加载（peak 巅峰/competition 赛事）——
+     data class RankUiState(peak: AsyncRankList, competition: AsyncRankList, activeTab: RankTab)
+     sealed AsyncRankList = NotLoaded/Loading/Content(List<RankInfo>)/Error(msg)；
+     首次切到某 Tab 才调 repository 对应 fetchRank 方法（peakRankUrl/competitionRankUrl 对应方法，照 RankPage 用的 pageCache 方法名映射到 repository）；刷新时两表重取。
+  2. RankRoute.kt：@Composable fun RankRoute(container: AppContainer, onOpenPlayerDetail: (String)->Unit, modifier: Modifier=Modifier)
+     - TabRow（"巅峰积分"/"赛事积分"）
+     - LazyColumn 行：名次=下标+1；前三名名次徽章金/银/铜色；Avatar(44.dp)；昵称 ellipsis；"巅峰积分:x"或"赛事积分:x" + "UID:xxx"；点击行→onOpenPlayerDetail(uid)
+     - 分页渲染：首屏 60 条，滚动到底自动追加 visibleCount（对齐 PAGE_CHUNK=60）
+     - LoadingView/EmptyState/ErrorState（重试重取当前 Tab）
+[验收门槛] JDK21：① assembleDebug→0 ② testDebugUnitTest→95 全绿 ③ lintDebug→Error 0
+[提交] "ui: rank route with peak/competition tabs and paged list"；禁 git add -A。
+[收工] 探针 done→ 报告 ≤200 字（hash）。达标即停。

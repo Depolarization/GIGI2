@@ -1,0 +1,23 @@
+[角色] 你是 T8 子代理；[标识] 本派单文件 .task/dispatch/T8.txt；工作目录 D:\AndroidStudioProjects\GIGI；Kotlin + Compose（M3）+ MVI。
+[必读] .task\SUBAGENT_HANDBOOK.md；探针 = .task\progress\T8.md。
+[参照源码（必读，全部）]
+  D:\EmulatorShared\GIGI\web\src\pages\CardWikiPage.tsx
+  D:\EmulatorShared\GIGI\web\src\utils\wiki.ts（筛选语义由 domain WikiParser.kt 承接）
+[独占文件（全部新建）]
+  app/src/main/java/com/gigi/tcg/ui/screens/cardwiki/CardWikiRoute.kt
+  app/src/main/java/com/gigi/tcg/ui/screens/cardwiki/CardWikiViewModel.kt
+  🔴 不动同目录 CardWikiScreen.kt 占位；不改导航/容器/其它页面/domain。
+[改前闸门] git status --porcelain -- 上述两个文件应空（HEAD=1977c74）。非空→blocked。
+[要做什么]
+  1. CardWikiViewModel(container)：data class WikiUiState(loading, error, categories: List<CategoryVm>, activeCatId=233, keyword, selections: Map<String,String>, coverId: Long?)
+     - load：repository 取 wiki 列表（fetchCardWikiListCached，含 DataStore 1h 缓存）；按 CATEGORY_IDS=[233,234,235] 解析三分类（角色牌/行动牌/魔物牌，EXT_KEYS c_233/c_234/c_235）；每卡 contentId/title(stripTitleSuffix)/icon/filters(parseCardFilters)；筛选维度定义 parseFilterDefs
+     - 过滤：各维度选中子项 AND + 关键词（标题 contains，不区分大小写）；暴露 filteredCards
+     - openCover(contentId) 由 UI 回调上抛（本 VM 只持有 pendingCoverId）
+  2. CardWikiRoute.kt：@Composable fun CardWikiRoute(container: AppContainer, onOpenCover: (Long)->Unit, onShowToast: (String)->Unit, modifier=Modifier)
+     - 三分类 TabRow（233 角色牌/234 行动牌/235 魔物牌）；当前分类的筛选维度用 FilterChip 横排（每维度一行，"全部"为未选）
+     - 搜索 OutlinedTextField（关键词）
+     - LazyVerticalGrid（Cells.Adaptive(110.dp)）：每格 Coil AsyncImage(icon) + strip 后标题；点击→onOpenCover(contentId)
+     - LoadingView/EmptyState("暂无符合条件的卡牌")/ErrorState(重试→load force)；force 刷新入口
+[验收门槛] JDK21：① assembleDebug→0 ② testDebugUnitTest→95 全绿 ③ lintDebug→Error 0
+[提交] "ui: card wiki route with category filters and grid"；禁 git add -A。
+[收工] 探针 done→ 报告 ≤200 字（hash）。达标即停。
