@@ -376,12 +376,30 @@ $id=<调度器pid>; while ($id) { $p=Get-CimInstance Win32_Process -Filter "Proc
 5. `--stop` 必须**同时**杀 pid **和** `schtasks /Delete /TN GIGIChain_<ID> /F`，
    否则 `--daemon-task` 模式下"停止"不完整（计划任务还在，会被再次触发）。
 
-**⚠️ 子代理本身仍在调度器的 Job 里（已知残余风险）**：`dispatch()` 里派子代理用的是
-`creationflags=CREATE_NO_WINDOW`，**没有 breakaway** ⇒ 子代理留在调度器的 Job Object 内。
-后果：**杀掉调度器会连带杀掉它正在派的子代理**。
-（第 1 棒由主代理直派时不受影响，这类子代理的父进程随 turn 消失、被子代理自身独立存活；
-实测 `T5c` 的父进程已退出而它继续跑了 20 分钟。）
-若要让子代理彻底独立，可在 `dispatch()` 里也加 breakaway + 降级重试——**改前先实测，别盲目套用**。
+**子代理与调度器的 Job 关系（2026-09-25 实测修正，比旧描述窄很多）**：
+`dispatch()` 里派子代理用的是 `creationflags=CREATE_NO_WINDOW`，**没有 breakaway** ⇒ 子代理留在调度器的 Job Object 内。
+
+**但实测 T6–T9（四个并发子代理）全部存活并正常推进**，父链为：
+```
+qoderclicn.exe(T6/T7/T8/T9) ← python.exe(38128 调度器) ← svchost.exe ← services.exe ← wininit.exe
+```
+原因：调度器自身已通过 `--daemon-task` 脱离宿主 Job ⇒ **它的 Job Object 不属于宿主** ⇒
+子代理跟着这个"外来的" Job 走，不会被宿主 turn 收尾带走。
+
+⇒ 真实边界只有两条：
+1. ✅ **宿主 turn 结束不会波及**（实测通过）；
+2. ⚠️ **杀掉调度器会连带杀掉它正在派的子代理**（因为共享该调度器的 Job）。
+   这就是**为什么禁止用 `--stop` 去"清理"**（见下方红线）——它会连在跑的子代理一起端掉。
+
+（第 1 棒由主代理直派时又是另一种情况：子代理父进程随 turn 消失，但子代理自身独立存活——
+实测 `T5c` 父进程 34308 早已退出，它仍继续跑了 20+ 分钟。）
+若要让子代理彻底独立于调度器，可在 `dispatch()` 里也加 breakaway + 降级重试——
+**改前先实测，别盲目套用**（本机宿主 Job 拒绝 breakaway，降级后与现状无实质差别）。
+
+**🔴🔴 红线：不要用 `--stop` 去"清理"任何链** —— 它会**连带端掉该链正在跑的子代理**。
+`--stop` 只在两种情况下用：① 该链已确认**没有**在跑的子代理，② 收工时按顺序停。
+判断"有没有在跑"**不能只看 `--status`（status=running 是链级）、也不能只看探针**，
+必须 `--json` 看每个 step 的 pid，再 `Get-Process -Id <pid>` 确认进程真在。
 
 **接力清单格式（`.task/chains/<CHAIN_ID>.json`）**
 
