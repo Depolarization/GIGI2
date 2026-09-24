@@ -340,16 +340,48 @@ updated: <取自 `date` 的真实时间>
 
 ```bash
 # ① 写接力清单 .task/chains/<CHAIN_ID>.json（见下方格式）
-# ② 以「脱离宿主」的方式常驻（推荐；breakaway 被 Job 拒绝会自动降级 detached）
-"$PY" "D:/AndroidStudioProjects/GIGI/tools/task_scheduler.py" --chain <CHAIN_ID> --daemon
-# ②' 兜底：用计划任务拉起（父进程 svchost，100% 抗宿主清理）
+# ② 🔴 首选：用计划任务拉起（父进程链 = svchost ← services ← wininit，真脱离宿主）
 "$PY" "D:/AndroidStudioProjects/GIGI/tools/task_scheduler.py" --chain <CHAIN_ID> --daemon-task
+# ②' 次选：进程级脱离（⚠️ 本机实测**活不过 turn**，见下方警告）
+"$PY" "D:/AndroidStudioProjects/GIGI/tools/task_scheduler.py" --chain <CHAIN_ID> --daemon
 # ③ 看进度（非阻塞，一次调用即返回）
 "$PY" "D:/AndroidStudioProjects/GIGI/tools/task_scheduler.py" --status [--chain <CHAIN_ID>]
-# ④ 停止（只停调度器，不影响已派出的子代理）
+# ④ 停止（杀调度器 pid + 注销计划任务）
 "$PY" "D:/AndroidStudioProjects/GIGI/tools/task_scheduler.py" --stop [--chain <CHAIN_ID>]
 "$PY" "D:/AndroidStudioProjects/GIGI/tools/task_scheduler.py" --stop-all
 ```
+
+**🔴🔴 警告：`--daemon`（进程级脱离）在本机不足以跨 turn 存活 —— 必须用 `--daemon-task`（2026-09-25 实测）**
+
+| 方式 | 创建标志 | 实测结果 |
+| :-- | :-- | :-- |
+| `--daemon` | `DETACHED_PROCESS \| NEW_PROCESS_GROUP \| NO_WINDOW \| CREATE_BREAKAWAY_FROM_JOB` | 本机宿主 Job **拒绝 breakaway**（`[WinError 5] 拒绝访问`）⇒ 自动降级为**去掉 breakaway** 的 `detached`。<br>而 `DETACHED_PROCESS` **只脱离控制台、不脱离 Job Object** ⇒ **turn 结束时调度器连同它派出的子代理一起被杀死** |
+| `--daemon-task` ✅ | 写 `_launch.cmd` 包装脚本 + `schtasks /Create /SC ONCE /ST 00:00 /TR <launcher>` + 立即 `/Run` | 进程树 = `cmd.exe ← svchost.exe ← services.exe ← wininit.exe`，**真脱离**，可跨 turn 存活 |
+
+**🔴 验活判据（`--status` 说"存活"**不够**）**：
+```powershell
+# 必须补一步：追溯父进程链到 svchost
+$id=<调度器pid>; while ($id) { $p=Get-CimInstance Win32_Process -Filter "ProcessId = $id"; "$($p.ProcessId) $($p.Name)"; $id=$p.ParentProcessId }
+```
+只到 `cmd.exe` / `python.exe` 就说明**还在宿主 Job 里** ⇒ 迟早被带走；必须看到 `svchost.exe`（其父 `services.exe`）。
+⚠️ 用 `--daemon-task` 时父链里**有 `cmd.exe` 是正常的**（它是 `_launch.cmd` 的解释器），
+**关键看 `cmd.exe` 的上一层是不是 `svchost.exe`**。
+
+**`_install_task` 的四个必踩坑（已在脚本内修，勿改回）**：
+1. `/TR` **不能塞完整命令行**（嵌套引号被 `schtasks` 解析坏，任务建了但跑不起来）⇒
+   写一个 `_launch.cmd` 包装脚本，`/TR` **只指向脚本路径**。
+2. 包装脚本必须 **CRLF + GBK**（`encoding="gbk", newline=""`），否则 Windows 批处理解析异常。
+3. `/SC ONCE /ST 00:00` 是"过去的时刻" ⇒ 建完必须**立刻 `/Run`** 才真的跑；`/ST` 不能省略。
+4. 创建与启动要**分步检查 returncode**，否则失败被静默吞掉。
+5. `--stop` 必须**同时**杀 pid **和** `schtasks /Delete /TN GIGIChain_<ID> /F`，
+   否则 `--daemon-task` 模式下"停止"不完整（计划任务还在，会被再次触发）。
+
+**⚠️ 子代理本身仍在调度器的 Job 里（已知残余风险）**：`dispatch()` 里派子代理用的是
+`creationflags=CREATE_NO_WINDOW`，**没有 breakaway** ⇒ 子代理留在调度器的 Job Object 内。
+后果：**杀掉调度器会连带杀掉它正在派的子代理**。
+（第 1 棒由主代理直派时不受影响，这类子代理的父进程随 turn 消失、被子代理自身独立存活；
+实测 `T5c` 的父进程已退出而它继续跑了 20 分钟。）
+若要让子代理彻底独立，可在 `dispatch()` 里也加 breakaway + 降级重试——**改前先实测，别盲目套用**。
 
 **接力清单格式（`.task/chains/<CHAIN_ID>.json`）**
 

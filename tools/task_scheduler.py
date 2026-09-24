@@ -475,11 +475,11 @@ def _pid_alive(pid: int) -> str:
 
 
 def cmd_stop(chain_id: str | None, all_: bool) -> int:
-    if not CHAINS_DIR.is_dir():
-        return 0
     killed = 0
-    # 兼容两种落盘位置：<CHAINS>/<CHAIN>/scheduler.pid（正常）与 <CHAINS>/scheduler.pid（异常残留）
-    pid_files = list(CHAINS_DIR.glob("*/scheduler.pid")) + list(CHAINS_DIR.glob("scheduler.pid"))
+    # ① 杀调度器进程（两种落盘位置都要覆盖）
+    pid_files = []
+    if CHAINS_DIR.is_dir():
+        pid_files = list(CHAINS_DIR.glob("*/scheduler.pid")) + list(CHAINS_DIR.glob("scheduler.pid"))
     for pidf in pid_files:
         cname = pidf.parent.name if pidf.parent != CHAINS_DIR else "(根)"
         if chain_id and cname != chain_id:
@@ -496,8 +496,25 @@ def cmd_stop(chain_id: str | None, all_: bool) -> int:
             killed += 1
         except Exception as e:
             print("停止 pid=%d 失败：%s" % (pid, e))
+
+    # ② 注销计划任务（--daemon-task 启动时留下来；否则"正确停止"就不完整：
+    #    计划任务还在 ⇒ 可能被再次触发，或残留占用任务名）
+    task_names = []
+    if CHAINS_DIR.is_dir():
+        for d in CHAINS_DIR.iterdir():
+            if d.is_dir() and (chain_id is None or d.name == chain_id):
+                if (d / "_launch.cmd").exists():
+                    task_names.append("GIGIChain_%s" % d.name)
+    for tn in task_names:
+        r = subprocess.run(["schtasks", "/Delete", "/TN", tn, "/F"],
+                           capture_output=True, timeout=20,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if r.returncode == 0:
+            print("已注销计划任务 %s" % tn)
+            killed += 1
+
     if not killed:
-        print("（没有在跑的调度器）")
+        print("（没有在跑的调度器 / 计划任务）")
     return 0
 
 
@@ -541,22 +558,50 @@ def _install_task(chain_path: Path) -> int:
 
     计划任务名 = `GIGIChain_<CHAIN_ID>`；只创建 + 立即运行一次。
     卸载用 `schtasks /Delete /TN <名> /F`。
+
+    🔴 关键（对齐 Shield 版 2026-09-25 实测修复，勿改回）：
+    1. `/TR` **不能塞完整命令行**（嵌套引号会被 schtasks 解析坏，任务建了但跑不起来）。
+       正确做法：写一个 `.cmd` 包装脚本，`/TR` 只指向它。
+    2. `/SC ONCE /ST 00:00` 是"过去的时刻" ⇒ 建完必须立刻 `/Run` 才真的跑；
+       且 `/ST` 不能省略（schtasks 要求 ONCE 必带）。
+    3. 包装脚本必须 **CRLF + GBK**（Windows 批处理），否则 `goto`/路径解析异常。
+    4. 创建与启动要**分步检查 returncode**，否则失败被静默吞掉。
     """
     cid = chain_path.stem
     name = "GIGIChain_%s" % cid
     py = sys.executable
     script = str(Path(__file__).resolve())
-    tr = '"%s" "%s" --run "%s"' % (py, script, chain_path)
+    chain_dir = chain_path.parent / cid
+    chain_dir.mkdir(parents=True, exist_ok=True)
+    launcher = chain_dir / "_launch.cmd"
+
+    body = (
+        "@echo off\r\n"
+        'cd /d "{}"\r\n'
+        '"{}" "{}" --run "{}" >> "{}" 2>&1\r\n'
+    ).format(PROJ, py, script, chain_path, chain_dir / "scheduler.out.log")
     try:
-        subprocess.run(["schtasks", "/Create", "/TN", name, "/F",
-                        "/SC", "ONCE", "/ST", "00:00", "/TR", tr],
-                       capture_output=True, timeout=30,
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        r = subprocess.run(["schtasks", "/Run", "/TN", name],
-                           capture_output=True, timeout=30,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        out = (r.stdout or b"").decode("gbk", "replace")
-        print("计划任务 %s 已启动：%s" % (name, out.strip() or "OK"))
+        launcher.write_text(body, encoding="gbk", newline="")
+    except OSError as e:
+        print("写启动脚本失败：%s" % e)
+        return 1
+    try:
+        cr = subprocess.run(["schtasks", "/Create", "/TN", name, "/F",
+                             "/SC", "ONCE", "/ST", "00:00", "/TR", str(launcher)],
+                            capture_output=True, timeout=30,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if cr.returncode != 0:
+            print("计划任务创建失败：%s" % (cr.stdout or b"").decode("gbk", "replace"))
+            return 1
+        rr = subprocess.run(["schtasks", "/Run", "/TN", name],
+                            capture_output=True, timeout=30,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        out = (rr.stdout or b"").decode("gbk", "replace").strip()
+        if rr.returncode != 0:
+            print("计划任务启动失败：%s" % out)
+            return 1
+        print("计划任务 %s 已启动（父进程 svchost，抗宿主清理）：%s" % (name, out or "OK"))
+        print("  停止：task_scheduler.py --stop --chain %s" % cid)
         return 0
     except Exception as e:
         print("计划任务兜底失败：%s" % e)
