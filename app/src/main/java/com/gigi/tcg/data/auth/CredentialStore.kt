@@ -22,6 +22,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -199,7 +200,10 @@ class CredentialStore(context: Context) : CredentialSource {
 
     private fun writeIndex(accounts: List<StoredAccount>) {
         prefs.edit()
-            .putString(KEY_INDEX, INDEX_JSON.encodeToString(accounts))
+            .putString(
+                KEY_INDEX,
+                INDEX_JSON.encodeToString(ListSerializer(StoredAccount.serializer()), accounts),
+            )
             .apply()
     }
 
