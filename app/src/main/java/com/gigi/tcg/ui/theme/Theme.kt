@@ -43,7 +43,11 @@ fun GigiTheme(
         else -> LightColors
     }
 
-    CompositionLocalProvider(LocalSemanticColors provides SemanticColors()) {
+    // gold 随主题取色：亮色下 GoldColor 对比度不足（对白底约 2.3:1），换用深金档；
+    // 判据与本函数 colorScheme 的 darkTheme 分支一致，不另引 isSystemInDarkTheme()。
+    val semanticColors = SemanticColors(gold = if (darkTheme) GoldColor else GoldColorLight)
+
+    CompositionLocalProvider(LocalSemanticColors provides semanticColors) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = Typography,
