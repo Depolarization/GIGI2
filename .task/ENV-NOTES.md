@@ -263,3 +263,82 @@ V7B 也没消除它。V7E 修。
 - 多棒并发时 **index 是公共资源**——别人 staged 的内容会被你的 commit 带走（反之亦然）；
 - 更稳妥的做法：并发棒改用 `git commit -- <自己独占的路径>`（pathspec 限定），
   从根上避免把别人的 staged 内容裹进来。
+
+---
+
+# 🔴🔴 V7G 波（2026-09-26 00:1x）—— V7A 引入的 indicator 宽度回归
+
+## 现象（用户真机反馈）
+> "排行榜的 indicator 有渲染问题，在手指触碰滑动时，indicator **覆盖了整个 tab**。"
+
+静止正常、**手指拖动 pager 过程中**指示条变成横贯整个 TabRow 的一条线。
+
+## 根因（javap 实证，不是推测）
+
+`RankRoute.kt:114-118`（V7A 写的）：
+```kotlin
+val indicatorModifier = with(LocalDensity.current) {
+    Modifier
+        .offset { IntOffset(leftDp.roundToPx(), 0) }
+        .width(rightDp - leftDp)      // ← 被父约束夹掉
+}
+```
+
+**官方 `TabRowDefaults.tabIndicatorOffset` 的真实 modifier 链**
+（`javap -c` 反编译 `androidx.compose.material3.TabRowDefaults$tabIndicatorOffset$2`，逐条方法调用）：
+
+```
+Modifier
+    .fillMaxWidth()                                  // SizeKt.fillMaxWidth$default
+    .wrapContentSize(Alignment.BottomStart)          // SizeKt.wrapContentSize$default
+                                                     //   + Alignment$Companion.getBottomStart
+    .offset { IntOffset(leftState.roundToPx(), 0) }  // OffsetKt.offset（lambda 版，与 V7A 同）
+    .width(widthState)                               // SizeKt."width-3ABfNKs"
+```
+（顺带发现：官方内部还包了 `animateDpAsState` + `tabRowIndicatorSpec`，所以官方切 tab 时 indicator 自带动画。）
+
+**差异只有前两步**。`TabRow` 测量 indicator 时传的是**固定宽度约束**（整行宽）；
+`Modifier.width(dp)` 默认 `enforceIncoming = true` ⇒ 宽度被 `constrainWidth` **夹到整行宽度**
+⇒ indicator 横贯整个 TabRow。官方靠 **`wrapContentSize(Alignment.BottomStart)`** 把父约束放宽
+（`wrapContentSize` 测量子内容时用宽松 `Constraints()`），后续 `.width(w)` 才生效。
+
+## 顺带修的第二处：反向滑动不跟手
+`currentPageOffsetFraction` 真实范围是 **[-0.5, +0.5]**（`currentPage` = 最近页）。
+原代码 `coerceIn(0f, 1f)` 把**反向滑动**的负 fraction 夹成 0 ⇒ 走 else 分支、indicator 不动，
+等 `currentPage` 翻页后才从 0.5 插值 ⇒ **跳变**。
+改为"连续页码"插值：`continuous = currentPage + currentPageOffsetFraction`，
+`lo = floor`、`hi = lo+1`、`t = continuous - lo` ⇒ 天然支持双向。
+
+## 🔴 通用教训（重要，会反复遇到）
+
+**写自定义 `Modifier` 链去替换官方实现时，必须先把官方实现 javap 出来逐条对齐**，
+不要凭"看起来差不多"就少写几步。本例少写的 `wrapContentSize` 表面无关（它只是对齐方式），
+实际是**解开父约束的关键开关** —— 少了它，后面所有 `width/size` 都会被父约束夹掉。
+
+**排查口诀**：自定义 modifier 的尺寸不生效 ⇒ 先怀疑**父约束**（`enforceIncoming` / `constrainWidth`），
+再看有没有 `wrapContentSize` / `requiredWidth` 之类能解开或忽略约束的节点。
+
+## V7G 波占用表
+
+| 任务 | 独占文件 | 核心 |
+| --- | --- | --- |
+| V7G-TAB-INDICATOR | `ui/screens/rank/RankRoute.kt`（+ 新建 `test/.../RankTabIndicatorTest.kt`） | indicator modifier 链补齐 `fillMaxWidth()` + `wrapContentSize(Alignment.BottomStart)`；插值改连续页码（双向跟手） |
+
+🔴 **不许去掉自定义插值**：改回官方静态 `tabIndicatorOffset` 会退回"indicator 不跟手"（用户上一次的投诉）。
+🔴 **不许动 `settledPage → selectTab`**（硬约束 1）。
+
+## V7G 收工验收（主代理独立复跑）
+
+| 棒 | commit | 结论 |
+| --- | --- | --- |
+| V7G-TAB-INDICATOR | `1f0bc6c`（生产）/ `62f834b`（测试）/ `081e3c4`（探针） | ✅ modifier 链补齐 `fillMaxWidth()` + `wrapContentSize(Alignment.BottomStart)`（在 `offset{}` 之前）；插值改连续页码（双向跟手）；import 精准增删（+`wrapContentSize`，−`tabIndicatorOffset`，−`LocalDensity`）；`settledPage → selectTab` / `selectedTabIndex` / `Tab(selected)` / `RankRow` / `medalColor` **零改动** |
+
+- 独立复跑：`assembleDebug + testDebugUnitTest --rerun-tasks` → **BUILD SUCCESSFUL in 10s**
+- `.task/count-tests.py` → **30 类 / 184 用例 / failures=0 / errors=0 / skipped=0** ✅（基线 178 + 6）
+- 变异验证：删 `wrapContentSize(Alignment.BottomStart)` → `RankTabIndicatorTest` **3 红**（核心三条），还原后 6/6 绿
+- 文件边界：`git log --name-only` 确认每个 commit 仅含本棒独占文件（**已采纳 pathspec 限定提交**）
+- 已装机（Redmi Note 7 `ac9bcc9a`）
+
+**⚠️ 仍未做端到端渲染验证**：静态断言只能证明"链写对了"，证明不了"渲染对了"。
+真机受限（MIUI 拒 `input tap`/`input swipe` 的 INJECT_EVENTS，且 `screencap` 对 Compose 返回纯黑），
+`SecondaryIndicator` 又是无语义节点（`uiautomator dump` 看不到）⇒ **必须用户肉眼复测**。
