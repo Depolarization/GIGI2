@@ -61,12 +61,6 @@ fun RankRoute(
     val visibleCount by viewModel.visibleCount.collectAsStateWithLifecycle()
 
     Column(modifier = modifier.fillMaxSize()) {
-        Text(
-            text = "点击列表项可查看玩家信息",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        )
         TabRow(selectedTabIndex = rankTabs.indexOf(state.activeTab)) {
             rankTabs.forEach { tab ->
                 Tab(
@@ -154,7 +148,7 @@ private fun RankRow(
             modifier = Modifier.width(36.dp),
         )
         Avatar(url = info.avatarUrl, size = 44.dp, contentDescription = info.nickname)
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = info.nickname.orEmpty(),
                 style = MaterialTheme.typography.bodyLarge,
