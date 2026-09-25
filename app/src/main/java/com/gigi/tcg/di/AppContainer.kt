@@ -3,9 +3,11 @@
 package com.gigi.tcg.di
 
 import android.content.Context
+import androidx.annotation.VisibleForTesting
 import com.gigi.tcg.data.ServerId
 import com.gigi.tcg.data.api.CredentialSource
 import com.gigi.tcg.data.api.MihoyoClient
+import com.gigi.tcg.data.auth.AuthFinalizeResult
 import com.gigi.tcg.data.auth.AuthManager
 import com.gigi.tcg.data.auth.CredentialStore
 import com.gigi.tcg.data.auth.StoredAccount
@@ -13,7 +15,9 @@ import com.gigi.tcg.data.cache.WikiDiskCache
 import com.gigi.tcg.data.repo.GigiApiTransport
 import com.gigi.tcg.data.repo.GigiRepository
 import com.gigi.tcg.data.repo.MihoyoClientEnvelopeTransport
+import com.gigi.tcg.data.repo.SessionRefresher
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -105,11 +109,60 @@ class AppContainer(private val appContext: Context) {
 
     private val apiTransport: GigiApiTransport by lazy { MihoyoClientEnvelopeTransport(mihoyoClient) }
 
+    /** 静默续命真身（设计 §3.3 续期）：激活账户 → AuthManager.refreshStoredSession →
+     *  成功后同步容器会话态（等价 AppGate 既有用法：refreshAccounts + updateSession(gameUid)）。
+     *  🔴 必须作为 repository 的构造参数注入——漏传即等于续命功能不存在。 */
+    private val sessionRefresher: SessionRefresher by lazy {
+        ContainerSessionRefresher(
+            accounts = { credentialStore.accounts() },
+            activeUid = { credentialStore.activeUid() },
+            refresh = { account -> authManager.refreshStoredSession(account) },
+            onRefreshed = { refreshed ->
+                refreshAccounts()
+                updateSession(refreshed.gameUid)
+            },
+        )
+    }
+
     val repository: GigiRepository by lazy {
         GigiRepository(
             transport = apiTransport,
             wikiDiskCache = wikiDiskCache,
             json = json,
+            sessionRefresher = sessionRefresher,
         )
+    }
+
+    /** 接线自检：单测经容器真实构造路径断言续命端口确已注入 repository（防"机制写了没接线"回归） */
+    @VisibleForTesting
+    internal fun isSessionRefreshWired(): Boolean = repository.isSessionRefreshWired()
+
+    /** 接线自检：暴露注入 repository 的同一实例，供单测验证真身链（AuthManager）可达 */
+    @VisibleForTesting
+    internal val sessionRefresherForTest: SessionRefresher get() = sessionRefresher
+}
+
+/** 续命端口真身：激活账户不出索引/无激活态时不动网络，直接 false；
+ *  网络/凭据异常折算 false（GigiRepository 据此抛原错误），CancellationException 照抛不吞。 */
+internal class ContainerSessionRefresher(
+    private val accounts: () -> List<StoredAccount>,
+    private val activeUid: () -> String?,
+    private val refresh: suspend (StoredAccount) -> AuthFinalizeResult,
+    private val onRefreshed: (AuthFinalizeResult.Success) -> Unit,
+) : SessionRefresher {
+
+    override suspend fun refreshActive(): Boolean {
+        val uid = activeUid() ?: return false
+        val account = accounts().firstOrNull { it.uid == uid } ?: return false
+        val result = try {
+            refresh(account)
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Throwable) {
+            return false
+        }
+        if (result !is AuthFinalizeResult.Success) return false
+        onRefreshed(result)
+        return true
     }
 }

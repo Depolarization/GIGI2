@@ -12,6 +12,7 @@
 package com.gigi.tcg.data.repo
 
 import android.util.LruCache
+import androidx.annotation.VisibleForTesting
 import com.gigi.tcg.data.ServerId
 import com.gigi.tcg.data.api.API_ERROR_KIND_NETWORK
 import com.gigi.tcg.data.api.API_ERROR_KIND_RETCODE
@@ -228,6 +229,10 @@ class GigiRepository(
 
     /** 登出/凭据失效：清全部私有内存缓存（磁盘只有公开图鉴数据，保留） */
     fun clearPrivateCache() = memoryCache.clearPrivateCache()
+
+    /** 接线自检：真身容器注入后应为 true——单测经 AppContainer 真实构造路径断言（防"机制写了没接线"回归） */
+    @VisibleForTesting
+    internal fun isSessionRefreshWired(): Boolean = sessionRefresher != null
 
     // ---- 内部 ----
 
