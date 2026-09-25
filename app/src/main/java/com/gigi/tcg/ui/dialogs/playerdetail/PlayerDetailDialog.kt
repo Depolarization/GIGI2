@@ -214,7 +214,7 @@ private fun RolesSection(roles: List<com.gigi.tcg.data.model.RoleInfo>) {
     ) {
         roles.forEach { role ->
             Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 1.dp) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                     Text(role.name ?: "未知", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                     Text(
                         text = "熟练度 ${role.proficiency ?: 0}",
@@ -245,12 +245,17 @@ private fun EntriesSection(entries: List<com.gigi.tcg.data.model.EntryExperience
             Text(
                 text = entry.competitionName ?: "未知",
                 style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             Text(
                 text = entry.competitionResult ?: "未知",
                 style = MaterialTheme.typography.labelLarge,
                 color = resultColor(entry.competitionResult, semantic),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(8.dp))
             Text(
@@ -267,7 +272,7 @@ private fun SectionTitle(title: String, count: Int) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         if (count > 0) {
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(4.dp))
             Text(
                 text = count.toString(),
                 style = MaterialTheme.typography.labelSmall,

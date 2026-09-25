@@ -201,11 +201,15 @@ private fun ProfileCard(
                         text = "UID:$uid",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = "段位:${tier.ifEmpty { "无段位" }}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -286,6 +290,7 @@ private fun RecordItem(
                     text = record.nickname ?: "未知",
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = "UID:$opponentUid\n${formatRecordTime(record.timestamp)}",
