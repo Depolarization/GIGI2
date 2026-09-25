@@ -8,6 +8,11 @@ import com.gigi.tcg.domain.CARD_TYPE_EVENT
 import com.gigi.tcg.domain.CARD_TYPE_MODIFY
 import com.gigi.tcg.domain.GcgCard
 import com.gigi.tcg.domain.GcgSummary
+import com.gigi.tcg.ui.export.CELL_PADDING_PX
+import com.gigi.tcg.ui.export.TEXT_SIZE_BODY_PX
+import com.gigi.tcg.ui.export.TEXT_SIZE_HEADER_PX
+import com.gigi.tcg.ui.export.TableSpec
+import com.gigi.tcg.ui.export.computeTableLayout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -178,10 +183,106 @@ class CardStatsExportTest {
     }
 
     @Test
-    fun `导出规格常量 1080宽与60行双栏阈值`() {
+    fun `导出规格常量 1600宽与60行双栏阈值`() {
         // 显式钉死：这两个值决定了分享图的规格统一性与双栏观感，改动须同步设计文档
-        assertEquals(1080, EXPORT_IMAGE_WIDTH_PX)
+        // （1080 → 1600 是 V8H 修"文本被大量省略"的根因修复，改回 1080 下面两条宽度断言必红）
+        assertEquals(1600, EXPORT_IMAGE_WIDTH_PX)
         assertEquals(60, EXPORT_TWO_COLUMN_THRESHOLD)
         assertTrue(EXPORT_TWO_COLUMN_THRESHOLD > 0)
+    }
+
+    // ---- V8H：保守字宽模型下的列宽验收（.task/tmp/verify_v8h.py 固化为测试）----
+    // 中文/全角（code ≥ 0x2E80）= 1.0×字号，其余 = 0.55×字号；真机字宽只小不大，故为保守下界。
+
+    private fun conservativeTextWidth(text: String, textSizePx: Float): Double =
+        text.sumOf { c ->
+            if (c.code >= 0x2E80) textSizePx.toDouble() else textSizePx * 0.55
+        }
+
+    private fun availOf(layoutColumnWidth: Int): Double =
+        layoutColumnWidth - 2.0 * CELL_PADDING_PX
+
+    private fun layoutFor(spec: TableSpec, charTable: Boolean) =
+        computeTableLayout(spec, EXPORT_IMAGE_WIDTH_PX, exportTwoColumnThreshold(charTable))
+
+    private fun assertHeadersFitWith8PercentMargin(spec: TableSpec, charTable: Boolean) {
+        val layout = layoutFor(spec, charTable)
+        spec.columns.forEachIndexed { i, column ->
+            val avail = availOf(layout.columnWidth[i])
+            val need = conservativeTextWidth(column.header, TEXT_SIZE_HEADER_PX)
+            assertTrue(
+                "列「${column.header}」表头放不下或余量不足 8%：width=${layout.columnWidth[i]} " +
+                    "avail=$avail need=$need need×1.08=${need * 1.08}",
+                avail >= need * 1.08,
+            )
+        }
+    }
+
+    private fun actionSpec(rowCount: Int) = buildActionTableSpec(
+        summary(actionTotalUse = rowCount), "u",
+        List(rowCount) { GcgCard(name = "卡", cardType = CARD_TYPE_EVENT, useCount = 1) },
+    )
+
+    @Test
+    fun `全部表头在1600px布局下完整放入各自列且留8%余量`() {
+        // 角色牌 147 行单栏 1600px / 行动牌 941 行双栏（真实最大规模，每栏仅 800px）
+        val charSpec = buildCharTableSpec(summary(), "u", List(147) { char(10, 5) })
+        assertHeadersFitWith8PercentMargin(charSpec, charTable = true)
+        assertHeadersFitWith8PercentMargin(actionSpec(941), charTable = false)
+        // 角色牌名称列（单栏）也要容得下 8 个中文字
+        val charLayout = layoutFor(charSpec, charTable = true)
+        val nameIndex = charSpec.columns.indexOfFirst { it.header == "名称" }
+        assertTrue(availOf(charLayout.columnWidth[nameIndex]) >= 8 * TEXT_SIZE_BODY_PX)
+    }
+
+    @Test
+    fun `行动牌双栏时名称列可容至少8个中文字`() {
+        val spec = actionSpec(941)
+        val layout = layoutFor(spec, charTable = false)
+        assertEquals(2, layout.columnsPerBand) // 前提：确为双栏
+        val nameIndex = spec.columns.indexOfFirst { it.header == "名称" }
+        val avail = availOf(layout.columnWidth[nameIndex])
+        val eightCjk = 8 * TEXT_SIZE_BODY_PX.toDouble()
+        assertTrue(
+            "双栏名称列容不下 8 个中文字：width=${layout.columnWidth[nameIndex]} avail=$avail < $eightCjk",
+            avail >= eightCjk,
+        )
+    }
+
+    @Test
+    fun `类别列放得下装备牌且数值列放得下六位数字`() {
+        val spec = actionSpec(941)
+        val layout = layoutFor(spec, charTable = false)
+        for (i in listOf(3, 4)) { // 使用次数 / 使用率%
+            assertTrue(
+                "数值列 ${spec.columns[i].header} 放不下 6 位数字",
+                availOf(layout.columnWidth[i]) >= conservativeTextWidth("999999", TEXT_SIZE_BODY_PX),
+            )
+        }
+        // 百分比列极端值 100.000（7 字符）
+        assertTrue(
+            availOf(layout.columnWidth[4]) >= conservativeTextWidth("100.000", TEXT_SIZE_BODY_PX),
+        )
+        val catIndex = spec.columns.indexOfFirst { it.header == "类别" }
+        assertTrue(
+            "类别列放不下「装备牌」",
+            availOf(layout.columnWidth[catIndex]) >= conservativeTextWidth("装备牌", TEXT_SIZE_BODY_PX),
+        )
+        val hashIndex = 0
+        assertTrue(
+            "# 列放不下 3 位数字（941 行）",
+            availOf(layout.columnWidth[hashIndex]) >= conservativeTextWidth("941", TEXT_SIZE_BODY_PX),
+        )
+    }
+
+    @Test
+    fun `列宽之和精确等于图宽或半图宽`() {
+        val charSpec = buildCharTableSpec(summary(), "u", List(147) { char(10, 5) })
+        val charLayout = layoutFor(charSpec, charTable = true)
+        assertEquals("角色牌恒单栏", 1, charLayout.columnsPerBand)
+        assertEquals(EXPORT_IMAGE_WIDTH_PX, charLayout.columnWidth.sum())
+        val actionLayout = layoutFor(actionSpec(941), charTable = false)
+        assertEquals(2, actionLayout.columnsPerBand)
+        assertEquals(EXPORT_IMAGE_WIDTH_PX / 2, actionLayout.columnWidth.sum())
     }
 }
