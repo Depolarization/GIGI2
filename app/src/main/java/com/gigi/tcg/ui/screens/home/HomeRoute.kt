@@ -7,7 +7,6 @@ package com.gigi.tcg.ui.screens.home
 import android.app.Application
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,8 +14,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -30,18 +27,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -73,16 +68,14 @@ fun HomeRoute(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val semantic = LocalSemanticColors.current
 
+    // 换会话（重新登录）才 force 重拉两块；首帧/首个 UID 由 VM init 串行化首刷处理，
+    // 若此处也 refresh 会与首刷并发，再次触发启动瞬态米游社保流（-500004）
+    var lastUid by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(sessionUid) {
-        // 换会话（重新登录）以 force 绕缓存重拉两块；VM init 已处理首帧未写入的会话
-        if (sessionUid != null) viewModel.refresh()
+        val uid = sessionUid
+        if (uid != null && lastUid != null && uid != lastUid) viewModel.refresh()
+        if (uid != null) lastUid = uid
     }
-
-    val density = LocalDensity.current
-    var lazyTopPx by remember { mutableStateOf(IntSize.Zero) }
-    var viewportPx by remember { mutableStateOf(IntSize.Zero) }
-    // 外层整页可滚：内层列表按"视口高 − 列表顶部偏移"限定高度，避免无限高嵌套
-    val lazyHeightPx = (viewportPx.height - lazyTopPx.height).coerceAtLeast(0)
 
     Column(
         modifier
@@ -127,19 +120,16 @@ fun HomeRoute(
                 if (records.value.isEmpty()) {
                     EmptyState(title = "暂无对局记录，打一场七圣召唤再来查看吧")
                 } else {
-                    // 外层整页可滚，此处按剩余视口高度测量，避免无限高嵌套列表
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .onSizeChanged { viewportPx = it }
-                            .height(with(density) { lazyHeightPx.toDp() })
-                            .onSizeChanged { lazyTopPx = it },
+                    // 服务端最多返回 10 条：外层整页已可滚，直接顺序渲染。
+                    // 不再嵌套 LazyColumn——原"视口高 − 列表顶部偏移"方案把两个
+                    // onSizeChanged 挂在同一个 Box 上，测的都是 Box 自身，
+                    // 差值恒为 0，列表被裁成 0 高不可见（取证报告 偏离-1 根因）
+                    Column(
+                        Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        LazyColumn(
-                            Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            items(records.value, key = { "${it.transNo ?: "na"}" }) { record ->
+                        records.value.forEachIndexed { index, record ->
+                            key("${record.transNo ?: "na"}-$index") {
                                 RecordItem(
                                     record = record,
                                     uid = sessionUid.orEmpty(),
