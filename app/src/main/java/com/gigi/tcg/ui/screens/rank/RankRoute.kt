@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -29,6 +31,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -40,8 +44,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -85,6 +92,8 @@ fun RankRoute(
 
     // pager 落定页 → VM 单选切换；selectTab 内有 activeTab 幂等保护（同 tab 直接 return），
     // 且 VM 不回写 pager，单向数据流无回环。
+    // ⚠️ 这里刻意用 settledPage（而非 currentPage）：数据加载只在滑动落定后触发，
+    // 来回拖拽不反复请求；indicator 的实时跟随（下方 TabRow 用 currentPage）与它无关。
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.settledPage }.collect { page ->
             viewModel.selectTab(rankTabs[page])
@@ -92,10 +101,31 @@ fun RankRoute(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = pagerState.settledPage.coerceIn(0, rankTabs.lastIndex)) {
+        TabRow(
+            selectedTabIndex = pagerState.currentPage.coerceIn(0, rankTabs.lastIndex),
+            indicator = { tabPositions ->
+                val page = pagerState.currentPage.coerceIn(0, rankTabs.lastIndex)
+                val current = tabPositions[page]
+                val next = tabPositions.getOrNull(page + 1)
+                val fraction = pagerState.currentPageOffsetFraction.coerceIn(0f, 1f)
+                if (next != null && fraction > 0f) {
+                    // 手指滑动中：在相邻两个 TabPosition（left/right 为 Dp）间线性插值，indicator 实时跟随
+                    val leftDp: Dp = current.left + (next.left - current.left) * fraction
+                    val rightDp: Dp = current.right + (next.right - current.right) * fraction
+                    val indicatorModifier = with(LocalDensity.current) {
+                        Modifier
+                            .offset { IntOffset(leftDp.roundToPx(), 0) }
+                            .width(rightDp - leftDp)
+                    }
+                    TabRowDefaults.SecondaryIndicator(indicatorModifier)
+                } else {
+                    TabRowDefaults.SecondaryIndicator(Modifier.tabIndicatorOffset(current))
+                }
+            },
+        ) {
             rankTabs.forEachIndexed { index, tab ->
                 Tab(
-                    selected = pagerState.settledPage == index,
+                    selected = pagerState.currentPage == index,
                     onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
                     text = { Text(tabTitle(tab)) },
                 )
