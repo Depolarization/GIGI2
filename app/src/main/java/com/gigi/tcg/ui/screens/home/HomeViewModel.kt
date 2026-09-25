@@ -80,6 +80,12 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
+    // 下拉刷新指示器：只由用户主动刷新（refresh()）置位，两块都落定后经
+    // maybeEndRefreshing 清零（对齐 RankViewModel._refreshing 的形状：
+    // isRefreshing 不由 Async.Loading 派生，否则首屏顶部圈 + 居中圈同转）
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
     /** 会话 UID（容器镜像）：路由据此决定点击回调传参 */
     val sessionUid: StateFlow<String?> = container.sessionUid
 
@@ -102,10 +108,12 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 顶栏刷新：两块同时 force 绕缓存 */
+    /** 下拉刷新 / 刷新按钮：两块同时 force 绕缓存；置位必有人清零（见 maybeEndRefreshing） */
     fun refresh() {
         val uid = container.sessionUid.value ?: return
         val server = container.currentServer.value
+        // 置位在 uid 提前返回之后：未登录不会留下无人清零的 true
+        _refreshing.value = true
         loadProfile(uid, server, force = true)
         loadRecords(uid, server, force = true)
     }
@@ -124,7 +132,9 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private fun loadProfile(uid: String, server: ServerId, force: Boolean) {
         val gen = ++profileGeneration
         val current = _uiState.value.profile
-        val silent = current is Async.Content && !force
+        // force 只决定是否绕缓存，不再把已有内容打成 Loading（下拉刷新保留整页）；
+        // 首载（初值 Loading）与 Error 重试仍进 Loading 转圈
+        val silent = current is Async.Content
         if (!silent) _uiState.value = _uiState.value.copy(profile = Async.Loading)
         viewModelScope.launch {
             val next: Async<PageInfo> = try {
@@ -138,6 +148,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (gen == profileGeneration) {
                 _uiState.value = _uiState.value.copy(profile = next)
+                maybeEndRefreshing()
             }
         }
     }
@@ -145,7 +156,8 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private fun loadRecords(uid: String, server: ServerId, force: Boolean) {
         val gen = ++recordsGeneration
         val current = _uiState.value.records
-        val silent = current is Async.Content && !force
+        // 同 loadProfile：有内容即静默，force 不再打回 Loading
+        val silent = current is Async.Content
         if (!silent) _uiState.value = _uiState.value.copy(records = Async.Loading)
         viewModelScope.launch {
             val next: Async<List<GameRecord>> = try {
@@ -160,7 +172,18 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (gen == recordsGeneration) {
                 _uiState.value = _uiState.value.copy(records = next)
+                maybeEndRefreshing()
             }
+        }
+    }
+
+    /** 统一判定：两块都落定（不再 Loading）即收回下拉刷新指示器 */
+    private fun maybeEndRefreshing() {
+        if (_refreshing.value &&
+            _uiState.value.profile !is Async.Loading &&
+            _uiState.value.records !is Async.Loading
+        ) {
+            _refreshing.value = false
         }
     }
 

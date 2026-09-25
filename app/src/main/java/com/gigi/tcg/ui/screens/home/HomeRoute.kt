@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -83,8 +84,9 @@ fun HomeRoute(
         if (uid != null) lastUid = uid
     }
 
-    // 下拉刷新指示器：任一块在途即转圈，两块都落定后自动收回
-    val isRefreshing = state.profile is Async.Loading || state.records is Async.Loading
+    // 下拉刷新指示器：只由用户主动下拉（VM.refreshing）驱动，不从"是否在加载"派生，
+    // 否则冷启动首屏顶部圈会与居中 LoadingView 同转（两个 progressbar）
+    val isRefreshing by viewModel.refreshing.collectAsStateWithLifecycle()
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -193,6 +195,7 @@ private fun ProfileCard(
                         text = profile.nickname ?: "未知",
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = "UID:$uid",
