@@ -6,24 +6,30 @@ import android.graphics.Paint
 import java.io.IOException
 import kotlin.math.ceil
 
-// 字号：正文 30px、表头 32px、标题 40px（1080px 定宽图上直接按 px 定，不随密度）
-private const val TEXT_SIZE_BODY_PX = 30f
-private const val TEXT_SIZE_HEADER_PX = 32f
-private const val TEXT_SIZE_TITLE_PX = 40f
+// 字号：正文 28px、表头 26px、标题 38px（1600px 定宽图上直接按 px 定，不随密度）。
+// internal 供单测做"表头能否放进列"的字宽断言（V8H：防回归）。
+internal const val TEXT_SIZE_BODY_PX = 28f
+internal const val TEXT_SIZE_HEADER_PX = 26f
+private const val TEXT_SIZE_TITLE_PX = 38f
 
-// 行/头/留白（行高 56px 为跨棒约定）
-private const val ROW_HEIGHT_PX = 56
+// 行/头/留白（行高 64px 为跨棒约定）
+internal const val ROW_HEIGHT_PX = 64
 internal const val HEADER_HEIGHT_PX = 64
 internal const val TITLE_LINE_HEIGHT_PX = 72
 internal const val SUBTITLE_LINE_HEIGHT_PX = 48
 internal const val BADGES_LINE_HEIGHT_PX = 52
 internal const val BOTTOM_PADDING_PX = 48
 
-internal const val MIN_COLUMN_WIDTH_PX = 64
-private const val CELL_PADDING_PX = 12
+internal const val MIN_COLUMN_WIDTH_PX = 40
+internal const val CELL_PADDING_PX = 20
 
 // ARGB_8888 估算内存超过它则降级 RGB_565
 private const val MAX_BITMAP_MEMORY_BYTES = 64L * 1024L * 1024L
+
+// 降级到 RGB_565 后仍超过它就不渲染，直接抛可读 IOException。
+// 取 100MB：真实最大用例（行动牌 941 行双栏 1600px）RGB_565 ≈ 93MB 必须放行，
+// 再大（约 1030 行以上）在低端机堆上必 OOM，不如提前失败。
+private const val MAX_RENDERABLE_MEMORY_BYTES = 100L * 1024L * 1024L
 
 private const val ELLIPSIS = "…"
 
@@ -81,7 +87,7 @@ data class TableLayout(
  * 双栏契约：`columnX` / `columnWidth` **只描述第一栏**（带宽 = widthPx / 2 内的分配），
  * 第二栏的 x 偏移由 [renderTableBitmap] 加 `widthPx / 2`，[TableLayout] 不额外存字段。
  *
- * @param widthPx 目标总宽（固定 1080）
+ * @param widthPx 目标总宽（固定 1600）
  * @param twoColumnThreshold 行数超过它才分双栏
  */
 fun computeTableLayout(
@@ -176,6 +182,22 @@ internal fun chooseBitmapConfig(widthPx: Int, heightPx: Int): Bitmap.Config {
     return if (argbBytes > MAX_BITMAP_MEMORY_BYTES) Bitmap.Config.RGB_565 else Bitmap.Config.ARGB_8888
 }
 
+/** 位图占用的字节数（纯算术，可 JVM 单测） */
+internal fun bitmapMemoryBytes(widthPx: Int, heightPx: Int, config: Bitmap.Config): Long {
+    val bytesPerPixel = if (config == Bitmap.Config.RGB_565) 2L else 4L
+    return widthPx.toLong() * heightPx.toLong() * bytesPerPixel
+}
+
+/** 渲染前预算闸：降级 RGB_565 后仍超限就拒绝，不等 createBitmap 抛 OOM */
+internal fun checkRenderMemoryBudget(widthPx: Int, heightPx: Int, config: Bitmap.Config) {
+    val bytes = bitmapMemoryBytes(widthPx, heightPx, config)
+    if (bytes > MAX_RENDERABLE_MEMORY_BYTES) {
+        throw IOException(
+            "内容过多，无法导出（约需 ${bytes / (1024 * 1024)}MB 显存，超出安全上限）",
+        )
+    }
+}
+
 /**
  * 截断超长文本（可 JVM 单测：测量器由参数注入，不依赖 Paint）。
  * 未超长时原样返回；超长时二分找最长的能放下「前缀 + …」的截断点。
@@ -205,6 +227,7 @@ internal fun ellipsize(text: String, maxWidthPx: Float, measure: (String) -> Flo
  */
 fun renderTableBitmap(spec: TableSpec, layout: TableLayout): Bitmap {
     val config = chooseBitmapConfig(layout.widthPx, layout.heightPx)
+    checkRenderMemoryBudget(layout.widthPx, layout.heightPx, config)
     val bitmap = try {
         Bitmap.createBitmap(layout.widthPx, layout.heightPx, config)
     } catch (e: OutOfMemoryError) {

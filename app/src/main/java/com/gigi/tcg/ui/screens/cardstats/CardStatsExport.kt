@@ -14,10 +14,21 @@ import com.gigi.tcg.ui.export.TableSpec
 import java.util.Locale
 
 /** 长图固定宽度（px，与屏幕密度无关，保证分享出去的图规格统一） */
-internal const val EXPORT_IMAGE_WIDTH_PX = 1080
+internal const val EXPORT_IMAGE_WIDTH_PX = 1600
 
 /** 行动牌行数超过它就分双栏（对齐参考图） */
 internal const val EXPORT_TWO_COLUMN_THRESHOLD = 60
+
+/**
+ * 角色牌恒单栏。147 行上限 ⇒ 单栏高约 9692px / ARGB 约 59MB，可控；
+ * 若套 60 行阈值折成双栏，每栏 800px 装 6 列在约束下无解
+ * （表头 8% 余量 + 名称 ≥8 中文字 + 6 位数字共需约 671px，而可用 slack 只有 560px）。
+ */
+internal const val EXPORT_CHAR_TWO_COLUMN_THRESHOLD = Int.MAX_VALUE
+
+/** 按表选择双栏阈值：角色牌恒单栏，行动牌超 60 行双栏 */
+internal fun exportTwoColumnThreshold(charTable: Boolean): Int =
+    if (charTable) EXPORT_CHAR_TWO_COLUMN_THRESHOLD else EXPORT_TWO_COLUMN_THRESHOLD
 
 private const val UNKNOWN_CARD_NAME = "未知"
 
@@ -26,11 +37,11 @@ internal fun buildCharTableSpec(summary: GcgSummary, uid: String, cards: List<Gc
     // 而非"游玩场次数"——说明文案与原版代码的差异照原版保留）
     val totalUse = cards.sumOf { it.useCount ?: 0 }
     val columns = listOf(
-        TableColumn("#", 0.6f, alignEnd = false),
+        TableColumn("#", 1.0f, alignEnd = false),
         TableColumn("名称", 5.0f, alignEnd = false),
         TableColumn("出场数", 1.3f, alignEnd = true),
         TableColumn("出场率%", 1.7f, alignEnd = true),
-        TableColumn("胜率%", 1.7f, alignEnd = true),
+        TableColumn("胜率%", 1.6f, alignEnd = true),
         TableColumn("胜局数", 1.3f, alignEnd = true),
     )
     val rows = cards.mapIndexed { index, card ->
@@ -57,12 +68,15 @@ internal fun buildCharTableSpec(summary: GcgSummary, uid: String, cards: List<Gc
 internal fun buildActionTableSpec(summary: GcgSummary, uid: String, cards: List<GcgCard>): TableSpec {
     // 使用率分母 = GcgSummary.actionTotalUse（= Σ行动牌 use_count）
     val totalUse = summary.actionTotalUse
+    // 权重按 .task/tmp/verify_v8h.py 的列宽约束验算（表头 8% 余量、名称 ≥8 中文字、
+    // 「装备牌」3 字、"100.000" 7 字符），派单初值 1.0/1.6/3.9/1.9/1.8 会让
+    // 「使用次数」表头余量只剩 6.3%（<8%），故微调为下面这组（总权重 10.0）。
     val columns = listOf(
-        TableColumn("#", 0.6f, alignEnd = false),
-        TableColumn("类别", 1.8f, alignEnd = false),
-        TableColumn("名称", 5.0f, alignEnd = false),
-        TableColumn("使用次数", 1.5f, alignEnd = true),
-        TableColumn("使用率%", 1.7f, alignEnd = true),
+        TableColumn("#", 0.9f, alignEnd = false),
+        TableColumn("类别", 1.5f, alignEnd = false),
+        TableColumn("名称", 3.8f, alignEnd = false),
+        TableColumn("使用次数", 1.9f, alignEnd = true),
+        TableColumn("使用率%", 1.9f, alignEnd = true),
     )
     val rows = cards.mapIndexed { index, card ->
         val useCount = card.useCount ?: 0

@@ -79,6 +79,8 @@ import com.gigi.tcg.ui.theme.Motion
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 private val TAB_LABELS = listOf("角色牌", "行动牌")
@@ -148,30 +150,39 @@ private fun CardStatsContent(
 
     val appContext = LocalContext.current.applicationContext
     val coroutineScope = rememberCoroutineScope()
-    var exporting by remember { mutableStateOf(false) }
+    // 两个导出按钮各自独立的 loading 态（点哪个转哪个，另一个仍可点）；
+    // 底层渲染用互斥锁串行：行动牌 1600px 双栏长图降级后仍约 93MB，两张巨图同时分配必 OOM。
+    var exportingChar by remember { mutableStateOf(false) }
+    var exportingAction by remember { mutableStateOf(false) }
+    val exportMutex = remember { Mutex() }
 
     // 角色牌/行动牌各出一张长图（DESIGN-V8 决策 4）。导出的是全量列表，
     // 不跟随本页的排序按钮与类型筛选（产品决策：分享出去的图要完整可比对）。
     val startExport: (Boolean) -> Unit = { charTable ->
         val summary = state.summary
-        if (summary != null && !exporting) {
-            exporting = true
+        val busy = if (charTable) exportingChar else exportingAction
+        if (summary != null && !busy) {
+            if (charTable) exportingChar = true else exportingAction = true
             coroutineScope.launch {
                 try {
                     withContext(Dispatchers.Default) {
-                        val cards = if (charTable) state.charList else state.actionList
-                        val spec = if (charTable) {
-                            buildCharTableSpec(summary, uid, cards)
-                        } else {
-                            buildActionTableSpec(summary, uid, cards)
-                        }
-                        val layout = computeTableLayout(spec, EXPORT_IMAGE_WIDTH_PX, EXPORT_TWO_COLUMN_THRESHOLD)
-                        val bitmap = renderTableBitmap(spec, layout)
-                        try {
-                            CardImageSaver(appContext).saveBitmap(bitmap, spec.title)
-                        } finally {
-                            // 回收放 finally：saveBitmap 抛异常也不能漏大图（长图可达数百 KB×行数像素）
-                            bitmap.recycle()
+                        exportMutex.withLock {
+                            val cards = if (charTable) state.charList else state.actionList
+                            val spec = if (charTable) {
+                                buildCharTableSpec(summary, uid, cards)
+                            } else {
+                                buildActionTableSpec(summary, uid, cards)
+                            }
+                            val layout = computeTableLayout(
+                                spec, EXPORT_IMAGE_WIDTH_PX, exportTwoColumnThreshold(charTable),
+                            )
+                            val bitmap = renderTableBitmap(spec, layout)
+                            try {
+                                CardImageSaver(appContext).saveBitmap(bitmap, spec.title)
+                            } finally {
+                                // 回收放 finally：saveBitmap 抛异常也不能漏大图（长图可达数百 KB×行数像素）
+                                bitmap.recycle()
+                            }
                         }
                     }
                     onShowToast("已保存到相册：$ALBUM_TOAST_PATH")
@@ -181,7 +192,8 @@ private fun CardStatsContent(
                     // CardImageSaver 抛的 IOException message 已是中文可读文案（含缺存储权限提示）
                     onShowToast(e.message ?: "导出失败")
                 } finally {
-                    exporting = false
+                    // 各自复位：只影响自己按钮的可用性/文案
+                    if (charTable) exportingChar = false else exportingAction = false
                 }
             }
         }
@@ -197,25 +209,30 @@ private fun CardStatsContent(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             state.summary?.let { summary ->
                 PlayerInfoCard(summary, state.avatarUrl, detailOpen = state.detailOpen, onToggle = viewModel::toggleDetail)
             }
 
+            // 按钮行上下间距显式取 14/10（原先随 spacedBy 各 12）：按钮高 40dp、TabRow 高 48dp，
+            // 文字都在各自容器内垂直居中 ⇒ 等值外边距时，下方"按钮文字↔Tab 文字"视觉间距
+            // 比上方"Card 边缘↔按钮文字"大 (48-40)/2 = 4dp。上+2/下-2 后两侧相等：
+            // 上 = 14+(40-文字高)/2，下 = 10+(48-文字高)/2，差值恰好抵消。
             Row(
-                modifier = ComposeModifier.fillMaxWidth(),
+                modifier = ComposeModifier
+                    .fillMaxWidth()
+                    .padding(top = 14.dp, bottom = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 ExportButton(
-                    exporting = exporting,
+                    exporting = exportingChar,
                     label = "导出角色牌",
                     enabled = state.summary != null,
                     onClick = { startExport(true) },
                     modifier = ComposeModifier.weight(1f),
                 )
                 ExportButton(
-                    exporting = exporting,
+                    exporting = exportingAction,
                     label = "导出行动牌",
                     enabled = state.summary != null,
                     onClick = { startExport(false) },
@@ -237,6 +254,7 @@ private fun CardStatsContent(
                         (slideOutHorizontally(Motion.emphasizedSpring<IntOffset>()) { -it / 6 } +
                             fadeOut(Motion.emphasized<Float>()))
                 },
+                modifier = ComposeModifier.padding(top = 12.dp),
                 label = "cardStatsTab",
             ) { tab ->
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
