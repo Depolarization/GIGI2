@@ -161,11 +161,14 @@ class CredentialStore(context: Context) : CredentialSource {
         val aliases = buildSet {
             add(LEGACY_KEY_ALIAS)
             addAll(accounts().map { keyAlias(it.uid) })
-            keyStore?.aliases()?.let { entries ->
-                while (entries.hasMoreElements()) {
-                    val alias = entries.nextElement()
-                    if (alias.startsWith(keyAlias(""))) add(alias)
+            try {
+                keyStore?.aliases()?.let { entries ->
+                    while (entries.hasMoreElements()) {
+                        val alias = entries.nextElement()
+                        if (alias.startsWith(keyAlias(""))) add(alias)
+                    }
                 }
+            } catch (e: GeneralSecurityException) {
             }
         }
         prefs.edit().clear().apply()

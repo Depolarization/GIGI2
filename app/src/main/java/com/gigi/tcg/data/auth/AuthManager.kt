@@ -36,6 +36,7 @@ import kotlin.coroutines.resumeWithException
 /** finalize 结果：Success 仅在凭据交换成功（已落盘）时返回；NoRole 绝不落盘（设计 §3.3） */
 sealed interface AuthFinalizeResult {
     data class Success(
+        val mergedCookie: String,
         val gameUid: String,
         val nickname: String?,
         val exchanged: Boolean,
@@ -184,6 +185,7 @@ class AuthManager(
             ),
         )
         return AuthFinalizeResult.Success(
+            mergedCookie = mergedCookie,
             gameUid = gameRoleId,
             nickname = exchange.nickname ?: previous?.nickname,
             exchanged = true,
