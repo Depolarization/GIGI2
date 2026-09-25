@@ -1,6 +1,6 @@
 // 排行榜状态机：移植 web/src/pages/RankPage.tsx。
 // - 巅峰/赛事两 Tab 独立懒加载（首次切换才请求，对应 loadedTabs Set）；
-// - 刷新重取两表（force=true，绕 3 分钟 TTL 缓存）；
+// - 刷新重取两表（force=true，绕 3 分钟 TTL 缓存）；下拉刷新/retry 只重取当前 Tab 并带 refreshing 标志；
 // - 分页渲染：首屏 PAGE_CHUNK 条，滚动到底追加（对应 visibleCount + IntersectionObserver）；
 // - retcode 判定集中在数据层，本层只经 describeApiError 转文案（设计红线 2）。
 
@@ -42,6 +42,9 @@ class RankViewModel(private val container: AppContainer) : ViewModel() {
     private val _visibleCount = MutableStateFlow(PAGE_CHUNK)
     val visibleCount: StateFlow<Int> = _visibleCount.asStateFlow()
 
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
     init {
         // 会话 UID 就绪（badge_uid 参数）后才拉取当前 Tab；未登录时保持 NotLoaded 不发请求
         viewModelScope.launch {
@@ -58,8 +61,14 @@ class RankViewModel(private val container: AppContainer) : ViewModel() {
         ensureLoaded(tab)
     }
 
-    /** ErrorState 重试：重取当前 Tab */
+    /**
+     * 当前 Tab 的 force 刷新（绕缓存）：ErrorState 重试按钮与下拉刷新共用此入口。
+     * 与 refresh() 的区别：refresh() 是全局两表重取；retry() 只动 activeTab。
+     */
     fun retry() {
+        if (_refreshing.value) return
+        if (container.sessionUid.value == null) return
+        _refreshing.value = true
         ensureLoaded(_uiState.value.activeTab, force = true)
     }
 
@@ -111,6 +120,12 @@ class RankViewModel(private val container: AppContainer) : ViewModel() {
     private fun setState(tab: RankTab, value: AsyncRankList) {
         _uiState.update {
             if (tab == RankTab.Peak) it.copy(peak = value) else it.copy(competition = value)
+        }
+        // 当前 Tab 落定（Content/Error）即结束下拉刷新指示器
+        if (tab == _uiState.value.activeTab && value !is AsyncRankList.Loading &&
+            value !is AsyncRankList.NotLoaded
+        ) {
+            _refreshing.value = false
         }
     }
 

@@ -1,5 +1,6 @@
 // 积分排行榜页：移植 web/src/pages/RankPage.tsx（设计 §5.5）。
-// 巅峰/赛事两 Tab（TabRow）+ 分页 LazyColumn（首屏 60 条，滚到底自动追加）；
+// 巅峰/赛事两 Tab（TabRow 指示器 + HorizontalPager 左右滑动）+ 分页 LazyColumn
+// （首屏 60 条，滚到底自动追加）+ 下拉刷新当前 Tab（PullToRefreshBox → viewModel.retry）；
 // 名次 = 下标 + 1，前三名固定金/银/铜语义色（不参与动态取色，设计红线 8，
 // 色值对齐 tokens.css --color-gold/silver/bronze）；点击行回调 onOpenPlayerDetail(uid)。
 
@@ -7,6 +8,7 @@ package com.gigi.tcg.ui.screens.rank
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,14 +17,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,6 +47,7 @@ import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
 import com.gigi.tcg.ui.theme.GoldColor
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.contentOrNull
 
 private val RankSilverColor = Color(0xFF9AA2AD)
@@ -50,6 +59,10 @@ private fun tabTitle(tab: RankTab): String = if (tab == RankTab.Peak) "巅峰积
 
 private fun uidOf(info: RankInfo): String = info.uid?.contentOrNull.orEmpty()
 
+private fun rankListFor(state: RankUiState, tab: RankTab): AsyncRankList =
+    if (tab == RankTab.Peak) state.peak else state.competition
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RankRoute(
     container: AppContainer,
@@ -59,58 +72,105 @@ fun RankRoute(
     val viewModel: RankViewModel = viewModel(factory = RankViewModel.factory(container))
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val visibleCount by viewModel.visibleCount.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.refreshing.collectAsStateWithLifecycle()
+
+    val pagerState = rememberPagerState(pageCount = { rankTabs.size })
+    val scope = rememberCoroutineScope()
+
+    // pager 落定页 → VM 单选切换；selectTab 内有 activeTab 幂等保护（同 tab 直接 return），
+    // 且 VM 不回写 pager，单向数据流无回环。
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collect { page ->
+            viewModel.selectTab(rankTabs[page])
+        }
+    }
 
     Column(modifier = modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = rankTabs.indexOf(state.activeTab)) {
-            rankTabs.forEach { tab ->
+        TabRow(selectedTabIndex = pagerState.settledPage.coerceIn(0, rankTabs.lastIndex)) {
+            rankTabs.forEachIndexed { index, tab ->
                 Tab(
-                    selected = state.activeTab == tab,
-                    onClick = { viewModel.selectTab(tab) },
+                    selected = pagerState.settledPage == index,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
                     text = { Text(tabTitle(tab)) },
                 )
             }
         }
-        when (val list = if (state.activeTab == RankTab.Peak) state.peak else state.competition) {
-            AsyncRankList.Loading, AsyncRankList.NotLoaded -> LoadingView(modifier = Modifier.fillMaxWidth())
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = viewModel::retry,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                RankPageContent(
+                    tab = rankTabs[page],
+                    list = rankListFor(state, rankTabs[page]),
+                    visibleCount = visibleCount,
+                    onRetry = viewModel::retry,
+                    onLoadMore = viewModel::loadMore,
+                    onOpenPlayerDetail = onOpenPlayerDetail,
+                )
+            }
+        }
+    }
+}
 
-            is AsyncRankList.Error -> ErrorState(
-                modifier = Modifier.fillMaxWidth(),
-                message = list.message,
-                onRetry = { viewModel.retry() },
-            )
+@Composable
+private fun RankPageContent(
+    tab: RankTab,
+    list: AsyncRankList,
+    visibleCount: Int,
+    onRetry: () -> Unit,
+    onLoadMore: () -> Unit,
+    onOpenPlayerDetail: (String) -> Unit,
+) {
+    when (list) {
+        AsyncRankList.Loading, AsyncRankList.NotLoaded -> Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            LoadingView()
+        }
 
-            is AsyncRankList.Content -> {
-                if (list.items.isEmpty()) {
-                    EmptyState(
-                        modifier = Modifier.fillMaxWidth(),
-                        title = "${tabTitle(state.activeTab)}暂无上榜玩家",
-                    )
-                } else {
-                    val shown = remember(list.items, visibleCount) { list.items.take(visibleCount) }
-                    val hasMore = shown.size < list.items.size
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        itemsIndexed(shown, key = { index, info -> "${uidOf(info)}-$index" }) { index, info ->
-                            RankRow(
-                                info = info,
-                                rank = index + 1,
-                                tab = state.activeTab,
-                                onClick = { onOpenPlayerDetail(uidOf(info)) },
+        is AsyncRankList.Error -> Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            ErrorState(modifier = Modifier.fillMaxWidth(), message = list.message, onRetry = onRetry)
+        }
+
+        is AsyncRankList.Content -> {
+            if (list.items.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    EmptyState(modifier = Modifier.fillMaxWidth(), title = "${tabTitle(tab)}暂无上榜玩家")
+                }
+            } else {
+                val shown = remember(list.items, visibleCount) { list.items.take(visibleCount) }
+                val hasMore = shown.size < list.items.size
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    itemsIndexed(shown, key = { index, info -> "${uidOf(info)}-$index" }) { index, info ->
+                        RankRow(
+                            info = info,
+                            rank = index + 1,
+                            tab = tab,
+                            onClick = { onOpenPlayerDetail(uidOf(info)) },
+                        )
+                    }
+                    if (hasMore) {
+                        item(key = "rank-sentinel") {
+                            // 哨兵进入组合即触底：自动追加一页（对齐 IntersectionObserver 语义）
+                            LaunchedEffect(Unit) { onLoadMore() }
+                            Text(
+                                text = "已显示 ${shown.size} / ${list.items.size} 名",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
                             )
-                        }
-                        if (hasMore) {
-                            item(key = "rank-sentinel") {
-                                // 哨兵进入组合即触底：自动追加一页（对齐 IntersectionObserver 语义）
-                                LaunchedEffect(Unit) { viewModel.loadMore() }
-                                Text(
-                                    text = "已显示 ${shown.size} / ${list.items.size} 名",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                )
-                            }
                         }
                     }
                 }
