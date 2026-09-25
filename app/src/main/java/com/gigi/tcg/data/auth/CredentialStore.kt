@@ -7,7 +7,6 @@ import android.util.Base64
 import com.gigi.tcg.data.api.CredentialSource
 import java.security.GeneralSecurityException
 import java.security.KeyStore
-import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -24,17 +23,16 @@ class CredentialStore(context: Context) : CredentialSource {
     private val prefs =
         appContext.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
 
-    private val secureRandom = SecureRandom()
-
     fun save(cookieFragments: String) {
-        val iv = ByteArray(GCM_IV_BYTES).also(secureRandom::nextBytes)
+        // Keystore 密钥要求随机加密（setRandomizedEncryptionRequired(true)），
+        // 加密 IV 必须由系统生成并从 cipher.iv 回读，调用方传入会抛
+        // InvalidAlgorithmParameterException: Caller-provided IV not permitted。
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, obtainKey(), GCMParameterSpec(GCM_TAG_BITS, iv))
-        // Keystore 可能自行重生成 GCM IV，以 cipher.iv 为实际使用的 IV
-        val actualIv = cipher.iv ?: iv
+        cipher.init(Cipher.ENCRYPT_MODE, obtainKey())
+        val iv = requireNotNull(cipher.iv) { "Keystore did not provide a GCM IV" }
         val ciphertext = cipher.doFinal(cookieFragments.toByteArray(Charsets.UTF_8))
-        val payload = ByteArray(actualIv.size + ciphertext.size)
-        System.arraycopy(actualIv, 0, payload, 0, actualIv.size)
+        val payload = ByteArray(iv.size + ciphertext.size)
+        System.arraycopy(iv, 0, payload, 0, iv.size)
         System.arraycopy(ciphertext, 0, payload, iv.size, ciphertext.size)
         prefs.edit()
             .putString(KEY_CIPHERTEXT, Base64.encodeToString(payload, Base64.NO_WRAP))
