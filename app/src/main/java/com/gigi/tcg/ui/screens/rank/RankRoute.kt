@@ -8,19 +8,18 @@
 package com.gigi.tcg.ui.screens.rank
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
@@ -250,17 +249,22 @@ private fun RankRow(
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        // 排名槽位：固定 32dp 宽 + 居中 ⇒ 玩家信息列左边缘恒定不随位数漂移；
+        // 与右侧玩家信息块之间 16dp，等于行左 padding，使"排名"成为左右留白对称的
+        // 独立视觉单元，避免数字与头像粘连混淆（V7F，M3 跨语义组间距）。
+        // 刻意用显式 Spacer 而非 spacedBy：spacedBy 对所有子元素同间距，
+        // 表达不了"排名↔头像 16dp（跨组）> 头像↔信息列 12dp（同组）"的层次。
         Text(
             text = "$rank",
             style = MaterialTheme.typography.titleMedium,
             color = medalColor,
             textAlign = TextAlign.Center,
-            modifier = Modifier.widthIn(min = 28.dp),
+            modifier = Modifier.width(32.dp),
         )
+        Spacer(Modifier.width(16.dp))
         Avatar(url = info.avatarUrl, size = 44.dp, contentDescription = info.nickname)
-        Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
+        Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
             Text(
                 text = info.nickname.orEmpty(),
                 style = MaterialTheme.typography.bodyLarge,
