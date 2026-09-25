@@ -9,11 +9,16 @@ package com.gigi.tcg.ui.login
 
 import android.app.Application
 import android.util.Log
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -59,7 +64,12 @@ sealed interface GateUiState {
         val addAccount: Boolean = false,
     ) : GateUiState
 
-    data class Main(val verified: Boolean) : GateUiState
+    /**
+     * 主界面态。addAccount=true 是"叠加层"标记：AppGate 仍在 Main 分支内（GigiNavHost
+     * 不离开组合、导航栈与滚动位置保留），仅在其上盖一层添加账号 LoginScreen；
+     * 🔴 添加账号的进入/退出不切分支、不 invalidateVerification（V7B）。
+     */
+    data class Main(val verified: Boolean, val addAccount: Boolean = false) : GateUiState
 }
 
 /**
@@ -222,17 +232,22 @@ class GateViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun addAccount() {
-        if (container.credentialStore.cookieHeader() == null) return
-        invalidateVerification()
-        _uiState.value = GateUiState.Login(addAccount = true)
+        if (container.credentialStore.cookieHeader() == null) {
+            _uiState.value = GateUiState.Login()
+            return
+        }
+        // 🔴 不调 invalidateVerification()：添加账号是叠加层，不该重跑启动校验（V7B）
+        val verified = (_uiState.value as? GateUiState.Main)?.verified ?: true
+        _uiState.value = GateUiState.Main(verified = verified, addAccount = true)
     }
 
     fun cancelAddAccount() {
-        invalidateVerification()
-        if (container.credentialStore.cookieHeader() != null) {
-            verifiedForCurrentSession = true
-            _uiState.value = GateUiState.Main(verified = true)
+        val current = _uiState.value
+        if (current is GateUiState.Main) {
+            // 只摘掉叠加层：Main 分支不切换 ⇒ GigiNavHost 不重建，导航栈/滚动保留
+            _uiState.value = current.copy(addAccount = false)
         } else {
+            // 兜底：确实没 cookie 的情况
             container.updateSession(null)
             _uiState.value = GateUiState.Login()
         }
@@ -300,7 +315,40 @@ fun AppGate(viewModel: GateViewModel) {
         ),
     ) {
         when (val current = state) {
-            is GateUiState.Main -> GigiNavHost()
+            is GateUiState.Main -> {
+                // GigiNavHost 始终留在组合里：addAccount 只叠加/摘除覆盖层，不切分支，
+                // 导航栈与滚动位置在"添加账号→返回"路径上自然保留（V7B 核心）。
+                Box(Modifier.fillMaxSize()) {
+                    GigiNavHost()
+                    if (current.addAccount) {
+                        val loginViewModel: LoginViewModel = viewModel(
+                            key = "login-add-account",
+                            factory = LoginViewModel.factory(app, true),
+                        )
+                        val loginState by loginViewModel.uiState.collectAsStateWithLifecycle()
+                        LaunchedEffect(loginViewModel) { loginViewModel.begin() }
+                        // 不透明全屏覆盖：盖住顶栏与底部导航，阻断穿透点击
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.background),
+                        ) {
+                            LoginScreen(
+                                viewModel = loginViewModel,
+                                expiredNotice = false,
+                                addAccount = true,
+                                onCancelAddAccount = {
+                                    loginViewModel.cancel()
+                                    viewModel.cancelAddAccount()
+                                },
+                            )
+                        }
+                        LaunchedEffect(loginState) {
+                            (loginState as? LoginUiState.LoggedIn)?.let { viewModel.onLoggedIn(it.uid) }
+                        }
+                    }
+                }
+            }
 
             is GateUiState.Login -> {
                 val loginViewModel: LoginViewModel = viewModel(
