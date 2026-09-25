@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -52,16 +53,17 @@ fun AppImage(
     val painter = rememberAsyncImagePainter(request)
 
     Box(modifier) {
+        // 必须无条件先绘制 painter：drawSize 只在 onDraw 中更新，而 coil 默认 SizeResolver
+        // 会挂起等待正尺寸——若等 Success 才绘制，请求与绘制互相死锁，永远停在 Loading。
+        Image(
+            painter = painter,
+            contentDescription = contentDescription,
+            contentScale = contentScale,
+            modifier = Modifier.fillMaxSize(),
+        )
         when (painter.state) {
-            is AsyncImagePainter.State.Success -> Image(
-                painter = painter,
-                contentDescription = contentDescription,
-                contentScale = contentScale,
-                modifier = Modifier.fillMaxSize(),
-            )
-
+            is AsyncImagePainter.State.Success -> Unit
             is AsyncImagePainter.State.Error -> LoadFailurePlaceholder()
-
             else -> ShimmerPlaceholder()
         }
     }
@@ -85,8 +87,8 @@ private fun ShimmerPlaceholder() {
     )
 
     var width by remember { mutableFloatStateOf(0f) }
-    // 亮带宽约一个自身宽度，中心从画布左外侧扫到右外侧
-    val band = (width.coerceAtLeast(1f))
+    // 亮带宽约一个自身宽度，中心从画布左外侧扫到右外侧；宽度未知时先落纯底色，避免 1px 退化的贴边渐变
+    val band = width.coerceAtLeast(1f)
     val center = band * (progress * 3f - 1f)
 
     Box(
@@ -94,11 +96,15 @@ private fun ShimmerPlaceholder() {
             .fillMaxSize()
             .onSizeChanged { size: IntSize -> width = size.width.toFloat() }
             .background(
-                Brush.linearGradient(
-                    colors = listOf(base, highlight, base),
-                    start = Offset(center - band, 0f),
-                    end = Offset(center + band, 0f),
-                )
+                if (width > 0f) {
+                    Brush.linearGradient(
+                        colors = listOf(base, highlight, base),
+                        start = Offset(center - band, 0f),
+                        end = Offset(center + band, 0f),
+                    )
+                } else {
+                    SolidColor(base)
+                }
             ),
     )
 }
