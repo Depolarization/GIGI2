@@ -28,7 +28,10 @@ fun LoadingView(modifier: Modifier = Modifier, label: String? = null) {
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        CircularProgressIndicator()
+        CircularProgressIndicator(
+            modifier = Modifier.size(32.dp),
+            strokeWidth = 2.dp,
+        )
         if (label != null) {
             Text(
                 text = label,

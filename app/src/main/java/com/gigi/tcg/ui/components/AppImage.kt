@@ -69,11 +69,11 @@ fun AppImage(
     }
 }
 
-/** 加载中：surfaceVariant 底色上一条 surface 亮带横向扫过，无第三方依赖 */
+/** 加载中：surfaceVariant 底色上一条 onSurface 低透明亮带横向扫过，暗/亮两主题下均与底色形成反差，无第三方依赖 */
 @Composable
 private fun ShimmerPlaceholder() {
     val base = MaterialTheme.colorScheme.surfaceVariant
-    val highlight = MaterialTheme.colorScheme.surface
+    val highlight = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)
 
     val transition = rememberInfiniteTransition(label = "shimmer")
     val progress by transition.animateFloat(
