@@ -1,6 +1,6 @@
 // 玩家信息弹窗：移植 web/src/components/PlayerDetailDialog.tsx 的内容与布局，适配 M3 居中 Dialog。
 // 四入口共用，参数 (uid, onClose)；弹窗开关由调用页持有，本组件不持全局 controller。
-// 版式：头部（头像/昵称+段位/UID）+ 查询码（仅本人）+ 天梯/巅峰积分 + 展示角色 + 参赛经历；
+// 版式：头部（头像/昵称+段位/UID）+ 天梯/巅峰积分 + 展示角色 + 参赛经历；
 // is_shield / 无 pageInfo 走独立分支；胜负语义色来自 LocalSemanticColors。
 
 package com.gigi.tcg.ui.dialogs.playerdetail
@@ -73,7 +73,7 @@ fun PlayerDetailDialog(uid: String?, onClose: () -> Unit) {
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 when {
-                    content != null -> PlayerDetailBody(content, semantic, isSelf)
+                    content != null -> PlayerDetailBody(content, semantic)
                     state is DetailUiState.Error -> {
                         val e = state as DetailUiState.Error
                         ErrorState(message = e.message, onRetry = if (e.canRetry) viewModel::retry else null)
@@ -97,7 +97,7 @@ fun PlayerDetailDialog(uid: String?, onClose: () -> Unit) {
 }
 
 @Composable
-private fun PlayerDetailBody(content: DetailUiState.Content, semantic: SemanticColors, isSelf: Boolean) {
+private fun PlayerDetailBody(content: DetailUiState.Content, semantic: SemanticColors) {
     val pageInfo = content.data.pageInfo
     when {
         // T10：接口无该玩家数据 → 说明式版式（区别于加载失败）
@@ -125,11 +125,6 @@ private fun PlayerDetailBody(content: DetailUiState.Content, semantic: SemanticC
                 tier = formatTier(getTierStars(pageInfo.ladderScore ?: 0)),
             )
             Spacer(Modifier.height(8.dp))
-            if (isSelf) {
-                // 查询码由 UID 本地推算，是取该玩家资料的凭据式参数：只在本人详情里露出
-                CodeCard(code = content.code)
-                Spacer(Modifier.height(12.dp))
-            }
             ScoresRow(
                 ladder = pageInfo.ladderScore ?: 0,
                 peak = pageInfo.peakScore ?: 0,
@@ -148,14 +143,15 @@ private fun HeaderRow(uid: String, nickname: String?, avatarUrl: String?, tier: 
         Avatar(url = avatarUrl, size = 64.dp, contentDescription = nickname)
         Spacer(Modifier.width(16.dp))
         Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // 昵称与段位字号不同，基线对齐避免视觉不齐；Bottom 兜底无基线的子项
+            Row(verticalAlignment = Alignment.Bottom) {
                 Text(
                     text = nickname ?: "未知",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f, fill = false).alignByBaseline(),
                 )
                 if (tier.isNotEmpty()) {
                     Spacer(Modifier.width(8.dp))
@@ -165,6 +161,7 @@ private fun HeaderRow(uid: String, nickname: String?, avatarUrl: String?, tier: 
                         fontWeight = FontWeight.Medium,
                         color = gold,
                         maxLines = 1,
+                        modifier = Modifier.alignByBaseline(),
                     )
                 }
             }
@@ -172,28 +169,6 @@ private fun HeaderRow(uid: String, nickname: String?, avatarUrl: String?, tier: 
                 text = "UID $uid",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun CodeCard(code: String) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-    ) {
-        Column(Modifier.padding(12.dp)) {
-            Text(
-                text = "查询码",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = code,
-                style = MaterialTheme.typography.bodySmall,
             )
         }
     }
