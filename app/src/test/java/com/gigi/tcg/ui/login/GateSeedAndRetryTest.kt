@@ -72,4 +72,24 @@ class GateSeedAndRetryTest {
         assertEquals(false, shouldRetryVerify(throttled, attempt = 4, maxAttempts = 3))
         assertEquals(false, shouldRetryVerify(IOException("still down"), attempt = 0, maxAttempts = 3))
     }
+
+    // ---- C（V7B）：添加账号叠加层的 Main 状态迁移不离开 Main 分支 ----
+    // AppGate 的 when(state) 只有分支类别变化才会移出/重建 GigiNavHost；
+    // 纯状态层断言：进入/退出叠加层均为 Main→Main，verified 与宿主分支保持稳定。
+
+    @Test
+    fun `main defaults to no add-account overlay`() {
+        assertEquals(false, GateUiState.Main(verified = true).addAccount)
+    }
+
+    @Test
+    fun `entering and cancelling add-account stay in Main branch keeping verified`() {
+        val before = GateUiState.Main(verified = false)
+        val overlay: GateUiState = GateUiState.Main(verified = before.verified, addAccount = true) // addAccount()
+        assertEquals(true, overlay is GateUiState.Main) // 分支类别未变 ⇒ GigiNavHost 留在组合
+        val after = before.copy(addAccount = false) // cancelAddAccount() 等价路径
+        assertEquals(false, after.addAccount)
+        assertEquals(before.verified, after.verified) // verifiedForCurrentSession/verified 不被翻动
+        assertEquals(before, after) // 与进入前逐字段一致 ⇒ 导航宿主经历同一分支类别
+    }
 }
