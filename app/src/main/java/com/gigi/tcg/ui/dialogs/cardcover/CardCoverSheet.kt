@@ -1,6 +1,8 @@
 // 卡面预览弹层：设计文档 §4.5 —— CardCoverDialog 内容为竖版长卡面，故选 ModalBottomSheet。
 // 状态机与切换语义移植 web/src/components/CardCoverDialog.tsx（PNG↔GIF、打开复位 PNG、
 // 下载按钮在 info 缺失时禁用）；图片加载态由 AppImage 的 shimmer 承担。
+// 与 Web 版差异：① 保存成功后 onDismiss 关闭弹层（toast 由宿主渲染，会被 Sheet 遮挡）；
+// ② gold_img 缺失/空串的卡隐藏格式选择器，只允许下载普通卡面。
 //
 // 折叠态布局约束：ModalBottomSheet 半屏时只有内容上部落在屏内（超出部分在屏幕下方），
 // 所以"格式切换 + 下载"必须留在滚动区之外的固定块里，否则被长图挤到屏外；
@@ -94,13 +96,13 @@ fun CardCoverSheet(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (granted) viewModel.download(showToast)
+        if (granted) viewModel.download(showToast, onDismiss)
     }
     val startDownload: () -> Unit = {
         if (requiresWriteExternalPermission() && !hasWriteExternalPermission(context)) {
             permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         } else {
-            viewModel.download(showToast)
+            viewModel.download(showToast, onDismiss)
         }
     }
 
@@ -135,22 +137,24 @@ fun CardCoverSheet(
                 }
             }
 
-            SingleChoiceSegmentedButtonRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-            ) {
-                CoverFormat.entries.forEachIndexed { index, format ->
-                    SegmentedButton(
-                        selected = content?.format == format,
-                        enabled = content != null,
-                        onClick = { viewModel.selectFormat(format) },
-                        shape = SegmentedButtonDefaults.itemShape(
-                            index = index,
-                            count = CoverFormat.entries.size,
-                        ),
-                        label = { Text(format.label) },
-                    )
+            // 无动态卡面（gold_img 缺失/空串）或数据未就绪时整块隐藏选择器，只保留普通卡面下载
+            if (content != null && content.hasDynamic) {
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                ) {
+                    CoverFormat.entries.forEachIndexed { index, format ->
+                        SegmentedButton(
+                            selected = content.format == format,
+                            onClick = { viewModel.selectFormat(format) },
+                            shape = SegmentedButtonDefaults.itemShape(
+                                index = index,
+                                count = CoverFormat.entries.size,
+                            ),
+                            label = { Text(format.label) },
+                        )
+                    }
                 }
             }
 

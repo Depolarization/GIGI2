@@ -37,12 +37,15 @@ sealed interface CoverUiState {
         val info: CardBasicInfo?,
         val format: CoverFormat = CoverFormat.Png,
     ) : CoverUiState {
-        /** 当前格式无图（服务端字段缺失）时为 null：预览位显示空态、下载按钮禁用 */
+        /** 当前格式无图（服务端字段缺失或空串）时为 null：预览位显示空态、下载按钮禁用 */
         val imageUrl: String?
             get() = when (format) {
                 CoverFormat.Png -> info?.commonImg
                 CoverFormat.Gif -> info?.goldImg
-            }
+            }?.takeIf { it.isNotBlank() }
+
+        /** 该卡是否有动态卡面：gold_img 缺失/空串的卡不提供 GIF 切换 */
+        val hasDynamic: Boolean get() = !info?.goldImg.isNullOrBlank()
     }
 
     data class Error(val message: String) : CoverUiState
@@ -89,13 +92,18 @@ class CardCoverViewModel(app: Application) : AndroidViewModel(app) {
 
     fun selectFormat(format: CoverFormat) {
         val current = _uiState.value
-        if (current is CoverUiState.Content && current.format != format) {
+        if (current is CoverUiState.Content && current.format != format &&
+            (format != CoverFormat.Gif || current.hasDynamic)
+        ) {
             _uiState.value = current.copy(format = format)
         }
     }
 
-    /** 预览与下载相互独立：只取当前格式的 URL，经 1 秒节流后写相册 */
-    fun download(show: (String) -> Unit) {
+    /**
+     * 预览与下载相互独立：只取当前格式的 URL，经 1 秒节流后写相册。
+     * [onSaved] 仅在保存成功后回调（失败保持对话框打开，让用户看到错误并重试）。
+     */
+    fun download(show: (String) -> Unit, onSaved: () -> Unit = {}) {
         val state = _uiState.value as? CoverUiState.Content ?: return
         val info = state.info ?: return
         val url = state.imageUrl ?: return
@@ -105,6 +113,7 @@ class CardCoverViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 saver.save(url, info.name ?: FALLBACK_NAME, state.format)
                 show(SAVED_TOAST)
+                onSaved()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
