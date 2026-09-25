@@ -1,6 +1,6 @@
 // 卡牌使用详情状态：移植 web/src/pages/CardStatsPage.tsx（§5.6）。
-// - load 取 fetchGcgCardListCached（统计主体，5min 缓存），头像取 fetchMyHomePageCached
-//   （与主页共用缓存通常直接命中；失败不影响统计主流程，展开详情时才懒取）；
+// - load 取 fetchGcgCardListCached（统计主体，5min 缓存），头像随 summary 一起取 fetchMyHomePageCached
+//   （与主页共用 45s 缓存，通常直接命中；失败不影响统计主流程）；
 // - retcode 业务失败 → "卡牌信息获取失败: {message}"（对齐原 game.lua，不跳登录），
 //   其余归因 → "请检查网络重试"（可重试）；归因只经 ApiError.kind，页面不判 retcode 值。
 
@@ -116,6 +116,9 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
     /** ErrorState 重试按钮：force 绕过 TTL 缓存重新拉取 */
     fun retry() = load(force = true)
 
+    /** 下拉刷新：force 绕过 TTL 缓存重新拉取 */
+    fun refresh() = load(force = true)
+
     fun setCharSort(key: CharSortKey) {
         _uiState.update { it.copy(charSort = key) }
     }
@@ -124,11 +127,9 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
         _uiState.update { it.copy(actionType = filter) }
     }
 
-    /** 展开"玩家信息"详情：首次展开且无头像时懒取 my_home_page（与主页共用缓存） */
+    /** 展开/收起"玩家信息"详情面板 */
     fun toggleDetail() {
-        val open = !_uiState.value.detailOpen
-        _uiState.update { it.copy(detailOpen = open) }
-        if (open && _uiState.value.avatarUrl == null) fetchAvatar()
+        _uiState.update { it.copy(detailOpen = !it.detailOpen) }
     }
 
     private fun load(force: Boolean) {
@@ -162,8 +163,9 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
                         )
                     }
                 }
-                // 头像失败不影响统计主流程（对齐 web 的 .catch(() => undefined)）
-                if (_uiState.value.detailOpen) fetchAvatar()
+                // 头像随统计主体一起就绪（首屏 PlayerInfoCard 即可显示），
+                // 失败不影响统计主流程（对齐 web 的 .catch(() => undefined)）
+                fetchAvatar()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

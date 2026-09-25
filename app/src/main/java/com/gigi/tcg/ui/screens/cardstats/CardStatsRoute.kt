@@ -1,6 +1,6 @@
 // 卡牌使用详情页面：移植 web/src/pages/CardStatsPage.tsx 的版式与文案（§5.6）。
-// 两 Tab（角色牌/行动牌）+ 角色牌三键排序 + 行动牌类型筛选 + "玩家信息"可展开详情
-// （默认折叠，字段与 StatsDetailPanel 分组一致）。搜索框本版未含（派单范围外）。
+// 两 Tab（角色牌/行动牌）+ 角色牌三键排序 + 行动牌类型筛选 + 玩家信息卡可展开详情
+// （默认折叠，分组对齐 web 的"行动牌详情 / 足迹"）。搜索框本版未含（派单范围外）。
 
 package com.gigi.tcg.ui.screens.cardstats
 
@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -40,6 +41,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -95,9 +97,10 @@ fun CardStatsRoute(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     // 三态与其余三页统一：共享组件内部 fillMaxWidth 会覆盖外部 align，
-    // 统一用 Box 居中承载，避免 LoadingView 被拉成整屏高
+    // 统一用 Box 居中承载，避免 LoadingView 被拉成整屏高。
+    // 全屏加载仅在"首屏无数据"时出现；下拉刷新（有 summary 的 loading）保留内容 + 刷新指示器。
     when {
-        state.loading -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        state.loading && state.summary == null -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             LoadingView(label = "卡牌统计加载中")
         }
 
@@ -114,6 +117,7 @@ fun CardStatsRoute(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CardStatsContent(
     state: StatsUiState,
@@ -121,74 +125,80 @@ private fun CardStatsContent(
     modifier: ComposeModifier,
 ) {
     var tabIndex by rememberSaveable { mutableIntStateOf(0) }
-    Column(
-        modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+    PullToRefreshBox(
+        isRefreshing = state.loading,
+        onRefresh = viewModel::refresh,
+        modifier = modifier.fillMaxSize(),
     ) {
-        state.summary?.let { summary ->
-            PlayerInfoCard(summary, state.avatarUrl, detailOpen = state.detailOpen, onToggle = viewModel::toggleDetail)
-        }
-
-        TabRow(selectedTabIndex = tabIndex) {
-            TAB_LABELS.forEachIndexed { index, label ->
-                Tab(selected = tabIndex == index, onClick = { tabIndex = index }, text = { Text(label) })
+        Column(
+            ComposeModifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            state.summary?.let { summary ->
+                PlayerInfoCard(summary, state.avatarUrl, detailOpen = state.detailOpen, onToggle = viewModel::toggleDetail)
             }
-        }
 
-        AnimatedContent(
-            targetState = tabIndex,
-            transitionSpec = {
-                (slideInHorizontally(Motion.emphasizedSpring<IntOffset>()) { it / 6 } +
-                    fadeIn(Motion.emphasized<Float>())) togetherWith
-                    (slideOutHorizontally(Motion.emphasizedSpring<IntOffset>()) { -it / 6 } +
-                        fadeOut(Motion.emphasized<Float>()))
-            },
-            label = "cardStatsTab",
-        ) { tab ->
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (tab == 0) {
-                    SingleChoiceSegmentedButtonRow(modifier = ComposeModifier.fillMaxWidth()) {
-                        CharSortKey.entries.forEachIndexed { index, key ->
-                            SegmentedButton(
-                                selected = state.charSort == key,
-                                onClick = { viewModel.setCharSort(key) },
-                                shape = SegmentedButtonDefaults.itemShape(index = index, count = CharSortKey.entries.size),
-                            ) {
-                                Text(key.label)
+            TabRow(selectedTabIndex = tabIndex) {
+                TAB_LABELS.forEachIndexed { index, label ->
+                    Tab(selected = tabIndex == index, onClick = { tabIndex = index }, text = { Text(label) })
+                }
+            }
+
+            AnimatedContent(
+                targetState = tabIndex,
+                transitionSpec = {
+                    (slideInHorizontally(Motion.emphasizedSpring<IntOffset>()) { it / 6 } +
+                        fadeIn(Motion.emphasized<Float>())) togetherWith
+                        (slideOutHorizontally(Motion.emphasizedSpring<IntOffset>()) { -it / 6 } +
+                            fadeOut(Motion.emphasized<Float>()))
+                },
+                label = "cardStatsTab",
+            ) { tab ->
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (tab == 0) {
+                        SingleChoiceSegmentedButtonRow(modifier = ComposeModifier.fillMaxWidth()) {
+                            CharSortKey.entries.forEachIndexed { index, key ->
+                                SegmentedButton(
+                                    selected = state.charSort == key,
+                                    onClick = { viewModel.setCharSort(key) },
+                                    shape = SegmentedButtonDefaults.itemShape(index = index, count = CharSortKey.entries.size),
+                                ) {
+                                    Text(key.label)
+                                }
                             }
                         }
-                    }
-                    if (state.sortedCharList.isEmpty()) {
-                        NoMatchHint("没有匹配的角色牌")
-                    } else {
-                        CharTableHeader()
-                        state.sortedCharList.forEach { card ->
-                            CharCardRow(card, charTotalUse = state.charTotalUse)
+                        if (state.sortedCharList.isEmpty()) {
+                            NoMatchHint("没有匹配的角色牌")
+                        } else {
+                            CharTableHeader()
+                            state.sortedCharList.forEach { card ->
+                                CharCardRow(card, charTotalUse = state.charTotalUse)
+                            }
                         }
-                    }
-                } else {
-                    Row(
-                        modifier = ComposeModifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ActionTypeFilter.entries.forEach { filter ->
-                            FilterChip(
-                                selected = state.actionType == filter,
-                                onClick = { viewModel.setActionType(filter) },
-                                label = { Text(filter.label) },
-                            )
-                        }
-                    }
-                    if (state.filteredActionList.isEmpty()) {
-                        NoMatchHint("没有匹配的行动牌")
                     } else {
-                        state.filteredActionList.forEach { card ->
-                            ActionCardRow(card)
+                        Row(
+                            modifier = ComposeModifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            ActionTypeFilter.entries.forEach { filter ->
+                                FilterChip(
+                                    selected = state.actionType == filter,
+                                    onClick = { viewModel.setActionType(filter) },
+                                    label = { Text(filter.label) },
+                                )
+                            }
+                        }
+                        if (state.filteredActionList.isEmpty()) {
+                            NoMatchHint("没有匹配的行动牌")
+                        } else {
+                            state.filteredActionList.forEach { card ->
+                                ActionCardRow(card)
+                            }
                         }
                     }
                 }
@@ -322,21 +332,19 @@ private fun PlayerInfoCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Avatar(url = avatarUrl, size = 64.dp, contentDescription = summary.nickname)
                 Spacer(ComposeModifier.width(12.dp))
-                Column {
-                    Text("玩家信息", style = MaterialTheme.typography.labelMedium)
-                    Text(summary.nickname, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        "牌手等级 ${summary.level}　总胜率 ${summary.winRate}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Text(
+                    summary.nickname,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = ComposeModifier.weight(1f),
+                )
             }
             Row(ComposeModifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Metric("总对局", summary.totalGames.toString())
                 Metric("获胜对局", summary.winGames.toString())
                 Metric("打出行动牌", summary.actionTotalUse.toString())
-                Metric("角色牌收集", summary.avatarCardNum.toString())
+                Metric("总胜率", summary.winRate)
             }
             FilledTonalButton(onClick = onToggle, modifier = ComposeModifier.fillMaxWidth()) {
                 Text(if (detailOpen) "收起详情" else "展开详情")
@@ -357,8 +365,9 @@ private fun PlayerInfoCard(
                         ),
                     )
                     DetailGroup(
-                        "收集进度",
+                        "足迹",
                         listOf(
+                            Triple("牌手等级", summary.level.toString(), null),
                             Triple("角色牌收集", summary.avatarCardNum.toString(), null),
                             Triple("行动牌收集", summary.actionCardNum.toString(), null),
                         ),
