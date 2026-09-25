@@ -13,6 +13,7 @@
 | --- | --- | --- |
 | 功能 2 渲染器 `ui/export/TableImageRenderer.kt` | ✅ 已完成（V8B） | `72402c0` |
 | 功能 2 接线 `CardStatsExport.kt` + `CardImageSaver.saveBitmap` + `CardStatsRoute` 导出按钮 | ✅ 已完成（V8E） | `e6ad702` / `f283211` |
+| 长图打磨（V8H）：图宽 1600、列宽/间距重算、导出按钮各自独立状态、按钮间距 | ✅ 已完成 | `663c342` / `c7cba37` |
 | 深色档 win/lose 对比度修到 WCAG AA | ✅ 已完成（V8F） | `e7993bd` |
 | **功能 1（§2 全节：总览卡 + 区块 A/B/C/D）** | ⏸️ **暂缓，未实施** | — |
 | §4.1 `domain/StatsAggregate.kt`（V8A） | ⏸️ 暂缓（属功能 1） | — |
@@ -36,6 +37,13 @@
 5. **导出数据范围（产品决策）**：取 `state.charList` / `state.actionList`（**全量、已按 useCount 降序**），
    **不跟随页面上的排序按钮/类型筛选** —— 长图是分享制品，口径必须稳定可复现。
 6. **`onShowToast`** 已接入导出成功/失败反馈（该参数原先一直未被使用）。
+7. 🔴 **角色牌恒单栏**（V8H 修，原为"套 60 行阈值"导致角色牌 147 行被误分双栏）：
+   `EXPORT_CHAR_TWO_COLUMN_THRESHOLD = Int.MAX_VALUE`，经 `exportTwoColumnThreshold(charTable)` 分发。
+   理由：角色牌 6 列在双栏每栏 800px 下**无解**（表头 8% 余量 + 名称 ≥8 中文字 + 6 位数字共需约 671px，
+   而可用 slack 仅 560px）。这也符合 §3.5「角色牌表保持单栏」。
+8. **列权重以约束验算为准，不是拍脑袋**（V8H）：派单给的初版权重实测「使用次数」表头余量仅 6.7%
+   （不足 8% 底线），已重算为 `#`0.9 / `类别`1.5 / `名称`3.8 / `使用次数`1.9 / `使用率%`1.9。
+   ⇒ **今后改列宽，必须跑列宽校验脚本而非手算**。
 
 **新增测试**：`TableLayoutTest`（16）、`SemanticContrastTest`（8）、`CardStatsExportTest`（11）。
 基线 184 → **219 用例 / 33 类**，全绿。
@@ -178,10 +186,15 @@ winRate    = winGames / totalGames
 理由：`GraphicsLayer` 必须把整张表放进一个可组合并完成布局，**超长内容会撞 GPU 纹理上限（常见 4096/8192）而失败**；而纯文字表格正是原生 Canvas 的强项，尺寸与内存完全可控。
 
 **规格**
-- 宽度固定 **1080px**（不随屏幕密度变化，保证分享出去的图规格统一）
-- 行高、字号按 density 换算后固定（建议行高 56px、正文 30px、表头 32px）
+- 宽度固定 **1600px**（不随屏幕密度变化，保证分享出去的图规格统一）
+  - ⚠️ 原设计写 1080px，**真机实测装不下**（行动牌双栏每栏仅 540px，连表头都放不下），已上调
+- 行高、字号按 density 换算后固定（行高 64px、正文 28px、表头 26px、标题 38px、
+  单元格左右内边距 20px、列最小宽 40px）
+  - ⚠️ 原设计写 56/30/32，同样因实测放不下而调整
 - 高度 = 头部 + 表头 + 行数 × 行高 + 底部留白
 - `Bitmap.Config`：默认 `ARGB_8888`；若估算内存 > 64MB 则降 `RGB_565`（省一半）
+- 🔴 **渲染前预算门**：降级后仍 > 100MB 时直接抛可读 `IOException`，**不等** `Bitmap.createBitmap` 抛 OOM。
+  （行动牌 941 行双栏实测高 30428px：ARGB 约 186MB ⇒ 降级 RGB_565 约 93MB，低端机仍有风险）
 - **不限行数**（用户明确要求）；`Canvas` 本身支持任意尺寸，只要 Bitmap 能分配
 
 **分块绘制**：按行分批 `canvas.drawText`（每批如 200 行），避免一次性构建大量 `StaticLayout` 对象；表头不重复绘制。
@@ -309,7 +322,7 @@ data class TableLayout(
 
 /**
  * 纯函数：算布局。**不得引用任何 android.graphics 类型**。
- * @param widthPx 目标总宽（固定 1080）
+ * @param widthPx 目标总宽（固定 1600）
  * @param twoColumnThreshold 行数超过它才分双栏
  */
 fun computeTableLayout(
