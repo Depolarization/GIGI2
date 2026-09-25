@@ -342,3 +342,30 @@ Modifier
 **⚠️ 仍未做端到端渲染验证**：静态断言只能证明"链写对了"，证明不了"渲染对了"。
 真机受限（MIUI 拒 `input tap`/`input swipe` 的 INJECT_EVENTS，且 `screencap` 对 Compose 返回纯黑），
 `SecondaryIndicator` 又是无语义节点（`uiautomator dump` 看不到）⇒ **必须用户肉眼复测**。
+
+---
+
+# 🔴 守望脚本的状态解析坑（2026-09-26 00:22 实测）
+
+## 现象
+早期派出的守望进程（轮询 V7A~V7D 四棒是否落定）**空转了 5 分钟**才因 55 次上限自然退出，
+期间每轮日志都显示 `V7A=done V7B=done（构建+171/171 V7C=done V7D=done` —— **四棒明明都 done，却从不判 ALL_SETTLED**。
+
+## 根因
+守望脚本里的解析是临时手写的：
+```bash
+grep -oE '^[[:space:]>*-]*(status|状态)[[:space:]]*[:：][[:space:]]*[`*]*[^ ]+' ... \
+  | tail -1 | sed -E 's/.*[:：][[:space:]]*[`*]*//'
+```
+`[^ ]+` 会**吞到第一个空格为止**。而 `V7B-ADDACCOUNT.md` 首行是
+`status: done（构建+171/171 单测全绿；commit …）` ⇒ 提取出 `done（构建+171/171`，
+**不等于 `done`** ⇒ `case "$s" in done|已完成|blocked|阻塞)` 不匹配 ⇒ `alldone` 永远为 0。
+
+## 🔴 纪律
+**守望/轮询脚本不要自己写状态解析** —— 直接复用 `tools/task_scheduler.py` 的 `_read_probe()`：
+它的正则 `([A-Za-z_\u4e00-\u9fff]+)` **只取字母/汉字前缀**，`done（说明）` 能正确解析成 `done`，
+且它已处理"取最后一条匹配"（探针惯例：开工 doing → 收工追加 done）与中文同义词归一。
+自己手写 `[^ ]+` / `\w+` 之类一定会踩"状态行带尾随说明文字"这个坑。
+
+（同类坑的另一面早已在 `task_scheduler.py` 的 `_read_probe()` 注释里记录：取首条会误判、
+取 `[^ ]+` 会吞尾随文字。**这次是守望脚本没跟上调度器的修复**。）
