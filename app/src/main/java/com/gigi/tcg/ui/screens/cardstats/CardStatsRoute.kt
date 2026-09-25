@@ -125,8 +125,11 @@ private fun CardStatsContent(
     modifier: ComposeModifier,
 ) {
     var tabIndex by rememberSaveable { mutableIntStateOf(0) }
+    // 指示器只由下拉手势（refresh()）驱动；不能用 state.loading——
+    // 其默认值为 true，冷启动首屏会与居中 LoadingView 叠成两个圈。
+    val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     PullToRefreshBox(
-        isRefreshing = state.loading,
+        isRefreshing = refreshing,
         onRefresh = viewModel::refresh,
         modifier = modifier.fillMaxSize(),
     ) {

@@ -106,6 +106,11 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
     private val _uiState = MutableStateFlow(StatsUiState())
     val uiState: StateFlow<StatsUiState> = _uiState.asStateFlow()
 
+    // 下拉刷新指示器独立于 loading（形状对齐 RankViewModel）：
+    // loading 默认 true，若直接喂给 PullToRefreshBox 会与首屏 LoadingView 同屏出现两个圈。
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
     private var generation = 0
     private var loadJob: Job? = null
 
@@ -113,11 +118,14 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
         load(force = false)
     }
 
-    /** ErrorState 重试按钮：force 绕过 TTL 缓存重新拉取 */
+    /** ErrorState 重试按钮：force 绕过 TTL 缓存重新拉取。非下拉入口，不置刷新指示器 */
     fun retry() = load(force = true)
 
-    /** 下拉刷新：force 绕过 TTL 缓存重新拉取 */
-    fun refresh() = load(force = true)
+    /** 下拉刷新：force 绕过 TTL 缓存重新拉取，仅由用户下拉手势驱动指示器 */
+    fun refresh() {
+        _refreshing.value = true
+        load(force = true)
+    }
 
     fun setCharSort(key: CharSortKey) {
         _uiState.update { it.copy(charSort = key) }
@@ -140,6 +148,7 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
             val uid = container.sessionUid.value
             val server = container.currentServer.value
             if (uid.isNullOrBlank()) {
+                _refreshing.value = false
                 _uiState.update { it.copy(loading = false, error = null, summary = null, charList = emptyList(), actionList = emptyList()) }
                 return@launch
             }
@@ -148,11 +157,13 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
                 if (gen != generation) return@launch
                 val cardList = data.cardList.orEmpty().map { it.toDomainCard() }
                 if (cardList.isEmpty()) {
+                    _refreshing.value = false
                     _uiState.update {
                         it.copy(loading = false, error = null, summary = null, charList = emptyList(), actionList = emptyList())
                     }
                 } else {
                     val lists = prepareCardLists(cardList)
+                    _refreshing.value = false
                     _uiState.update {
                         it.copy(
                             loading = false,
@@ -171,6 +182,7 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 if (gen != generation) return@launch
                 val isRetcode = e is ApiError && e.kind == API_ERROR_KIND_RETCODE
+                _refreshing.value = false
                 _uiState.update {
                     it.copy(
                         loading = false,
