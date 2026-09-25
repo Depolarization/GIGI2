@@ -1,12 +1,13 @@
 // 卡牌图鉴页（卡面下载）：移植 CardWikiPage.tsx 的渲染层。
-// 三分类 TabRow + 紧凑搜索框 + 四维筛选（每维度一个独立原生下拉框，纵向一列）+ 竖版卡牌三列固定网格。
+// 三分类 TabRow + 紧凑搜索框 + 四维筛选（一行横向可滑动的原生下拉框）+ 竖版卡牌三列固定网格。
 // 点击卡牌→上抛 onOpenCover(contentId)；contentId 缺失时提示数据异常。加载/空/错误态复用共享组件。
-// 图鉴是 1h TTL 的公开静态数据：进页加载 + 筛选驱动即可，无手动刷新入口（仅错误态保留"重试"）。
+// 图鉴是 1h TTL 的公开静态数据：进页加载 + 筛选驱动即可，无手动刷新入口、无下拉刷新（仅错误态保留"重试"）。
 
 package com.gigi.tcg.ui.screens.cardwiki
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -81,6 +83,14 @@ private val GRID_CONTENT_PADDING = 12.dp
 
 /** M3 文本框默认 56dp，图鉴要留出网格高度：48dp 仍满足最小触控目标且高于清空按钮的触摸目标下限 */
 private val SEARCH_FIELD_HEIGHT = 48.dp
+
+/**
+ * 下拉框固定宽度推导：浮动 label 12sp 中文 5 字（如"元素类型X"）≈ 60dp，
+ * 当前值 16sp 中文 4 字（如"单手剑"3 字 + 余量）≈ 64dp；
+ * 150dp − 左右内边距 24dp − trailingIcon 48dp = 文本可见区 78dp ≥ 64dp，label 浮动区亦不截断。
+ * 393dp 屏宽（减页面边距 24dp）≈ 每屏 2.2 个，第 3 个露出大半可辨认，横向滑动补全 4 维。
+ */
+private val FILTER_DROPDOWN_WIDTH = 150.dp
 
 @Composable
 fun CardWikiRoute(
@@ -162,7 +172,7 @@ private fun WikiTabs(
     }
 }
 
-/** 搜索框独立一行 + 每维度一个下拉框纵向一列（对齐官方图鉴：维度名与当前值同屏可见），整栏吸顶不随网格滚动 */
+/** 搜索框独立一行 + 四个维度下拉框排成一行横向可滑动（一屏可见 2~3 个，左右滑动查看全部），整栏吸顶不随网格滚动 */
 @Composable
 private fun FilterBar(
     category: CategoryVm,
@@ -178,15 +188,20 @@ private fun FilterBar(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         KeywordField(keyword = keyword, onKeywordChange = onKeywordChange)
-        category.filterDefs.forEach { def ->
-            val label = def.label
-            if (!label.isNullOrEmpty()) {
-                FilterDropdown(
-                    label = label,
-                    children = def.children.mapNotNull { it.label },
-                    selected = selections[label] ?: "",
-                    onSelectionChange = onSelectionChange,
-                )
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            category.filterDefs.forEach { def ->
+                val label = def.label
+                if (!label.isNullOrEmpty()) {
+                    FilterDropdown(
+                        label = label,
+                        children = def.children.mapNotNull { it.label },
+                        selected = selections[label] ?: "",
+                        onSelectionChange = onSelectionChange,
+                    )
+                }
             }
         }
     }
@@ -252,9 +267,12 @@ private fun KeywordField(keyword: String, onKeywordChange: (String) -> Unit) {
 }
 
 /**
- * 单个筛选维度：一个原生下拉框。
+ * 单个筛选维度：一个固定宽度的原生下拉框（横向滑动行内不随内容伸缩，四框等宽对齐）。
  * 闭状态同时可见维度名（label）与当前值（未选显示"不限"）；选项文本只显示选项值本身，不重复维度名。
- * 选中某项后关闭本菜单（单选下拉常规行为）；菜单宽度由 ExposedDropdownMenu 默认对齐锚点宽度。
+ * 选中某项后关闭本菜单（单选下拉常规行为）。
+ * 菜单在 horizontalScroll Row 内仍能正常展开：menuAnchor 按锚点屏幕绝对坐标上报 Popup 位置，
+ * 父级横向偏移已被计入；菜单宽度默认对齐锚点（ExposedDropdownMenu 即 this 宽度语义），
+ * 与闭状态可见区域一致，无需 exposedDropdownSize 修正。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -279,7 +297,7 @@ private fun FilterDropdown(
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier
                 .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                .fillMaxWidth(),
+                .width(FILTER_DROPDOWN_WIDTH),
         )
         ExposedDropdownMenu(
             expanded = expanded,
