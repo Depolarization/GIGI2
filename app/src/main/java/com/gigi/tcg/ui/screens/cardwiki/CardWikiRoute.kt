@@ -1,5 +1,5 @@
 // 卡牌图鉴页（卡面下载）：移植 CardWikiPage.tsx 的渲染层。
-// 三分类 TabRow + 紧凑搜索框 + 单行横向滚动筛选 chips + 竖版卡牌自适应网格。
+// 三分类 TabRow + 紧凑搜索框 + 筛选下拉菜单（每维度一组、组内横向滚动）+ 竖版卡牌两列固定网格。
 // 点击卡牌→上抛 onOpenCover(contentId)；contentId 缺失时提示数据异常。加载/空/错误态复用共享组件。
 // 图鉴是 1h TTL 的公开静态数据：进页加载 + 筛选驱动即可，无手动刷新入口（仅错误态保留"重试"）。
 
@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,7 +19,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,18 +32,23 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,16 +71,16 @@ private const val CARD_DATA_ERROR = "卡牌数据异常"
 private const val NO_IMAGE = "无图"
 private const val SEARCH_PLACEHOLDER = "搜索卡牌名称"
 private const val CLEAR_KEYWORD = "清空搜索"
+private const val FILTER_ENTRY = "筛选"
+private const val FILTER_ALL = "全部"
 
 /** 官方卡面 420x720 竖版，网格缩略图按同比例铺位 */
 private const val CARD_ASPECT_RATIO: Float = 7f / 12f
 
-/** 一屏可见卡牌数对齐 Web 版 `minmax(150px, 1fr)`；宽屏自动多列 */
-private val GRID_CARD_MIN_WIDTH = 156.dp
 private val GRID_SPACING = 8.dp
 private val GRID_CONTENT_PADDING = 12.dp
 
-/** M3 文本框默认 56dp，图鉴要留出网格高度：48dp 仍满足最小触控目标 */
+/** M3 文本框默认 56dp，图鉴要留出网格高度：48dp 仍满足最小触控目标且高于清空按钮的触摸目标下限 */
 private val SEARCH_FIELD_HEIGHT = 48.dp
 
 @Composable
@@ -158,7 +163,7 @@ private fun WikiTabs(
     }
 }
 
-/** 搜索框一行 + 全部筛选维度共用一行横向滚动：固定两行高，不与网格争垂直空间 */
+/** 搜索框独立一行 + 筛选入口按钮一行：两行各 48dp，上下留白与行距统一 8dp，不与网格争垂直空间 */
 @Composable
 private fun FilterBar(
     category: CategoryVm,
@@ -170,12 +175,12 @@ private fun FilterBar(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         KeywordField(keyword = keyword, onKeywordChange = onKeywordChange)
         if (category.filterDefs.isNotEmpty()) {
-            FilterRow(
+            FilterMenu(
                 category = category,
                 selections = selections,
                 onSelectionChange = onSelectionChange,
@@ -192,7 +197,7 @@ private fun KeywordField(keyword: String, onKeywordChange: (String) -> Unit) {
         onValueChange = onKeywordChange,
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = SEARCH_FIELD_HEIGHT)
+            .height(SEARCH_FIELD_HEIGHT) // 固定高度：清空按钮的 48dp 触摸目标不再把框撑高
             .clip(CircleShape) // M3 corner=Full（stadium）：搜索框用胶囊形
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(horizontal = 12.dp),
@@ -243,42 +248,99 @@ private fun KeywordField(keyword: String, onKeywordChange: (String) -> Unit) {
     )
 }
 
+/**
+ * 筛选入口：单个按钮展开下拉菜单，菜单内每个维度一组，组内条件横向滚动。
+ * 选中后菜单保持展开——用户常要连调多个维度，展开态可连续点选，关闭交给点击外部/系统返回；
+ * 入口按钮文本带已选维度数（未选只显示"筛选"），避免筛选静默生效导致结果对不上。
+ */
 @Composable
-private fun FilterRow(
+private fun FilterMenu(
     category: CategoryVm,
     selections: Map<String, String>,
     onSelectionChange: (String, String) -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        category.filterDefs.forEachIndexed { index, def ->
-            val label = def.label ?: return@forEachIndexed
-            if (index > 0) {
-                VerticalDivider(modifier = Modifier.height(28.dp))
+    val defs = category.filterDefs.filter { !it.label.isNullOrEmpty() }
+    if (defs.isEmpty()) return
+    val activeCount = defs.count { (selections[it.label] ?: "").isNotEmpty() }
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        // 菜单宽度对齐入口按钮宽度，组内横向滚动区才有稳定可视宽度
+        val menuWidth = maxWidth
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = if (activeCount > 0) "$FILTER_ENTRY · 已选 $activeCount 项" else FILTER_ENTRY,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Icon(
+                    imageVector = Icons.Outlined.KeyboardArrowDown,
+                    contentDescription = null,
+                )
             }
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
-            val selected = selections[label] ?: ""
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            Column(
+                modifier = Modifier
+                    .width(menuWidth)
+                    .padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                defs.forEach { def ->
+                    val label = def.label ?: return@forEach
+                    FilterMenuGroup(
+                        label = label,
+                        children = def.children.mapNotNull { it.label },
+                        selected = selections[label] ?: "",
+                        onSelectionChange = onSelectionChange,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 单个筛选维度：标题固定可见，全部/子项 chips 只在组内横向滚动 */
+@Composable
+private fun FilterMenuGroup(
+    label: String,
+    children: List<String>,
+    selected: String,
+    onSelectionChange: (String, String) -> Unit,
+) {
+    Column(modifier = Modifier.padding(horizontal = 12.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             FilterChip(
                 selected = selected.isEmpty(),
                 onClick = { onSelectionChange(label, "") },
-                label = { Text("全部") },
+                label = { Text(FILTER_ALL) },
             )
-            def.children.forEach { child ->
-                val childLabel = child.label ?: return@forEach
+            children.forEach { child ->
                 FilterChip(
-                    selected = selected == childLabel,
-                    onClick = { onSelectionChange(label, childLabel) },
-                    label = { Text(childLabel) },
+                    selected = selected == child,
+                    onClick = { onSelectionChange(label, child) },
+                    label = { Text(child) },
                 )
             }
         }
@@ -291,7 +353,8 @@ private fun CardGrid(
     onCardClick: (CardVm) -> Unit,
 ) {
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(GRID_CARD_MIN_WIDTH),
+        // 固定 2 列：对齐 Web 版两列卡片墙，宽屏也不加列（卡面不被摊薄）
+        columns = GridCells.Fixed(2),
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(GRID_CONTENT_PADDING),
         horizontalArrangement = Arrangement.spacedBy(GRID_SPACING),
