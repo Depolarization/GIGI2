@@ -14,9 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 
-/** 圆形头像：Coil 加载，占位/失败/空 url 均为灰底 Person 图标兜底 */
+/** 圆形头像：网络图走 AppImage 统一加载，空 url 为灰底 Person 图标兜底 */
 @Composable
 fun Avatar(
     url: String?,
@@ -37,10 +36,12 @@ fun Avatar(
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (!url.isNullOrBlank()) {
-            AsyncImage(
+            AppImage(
                 model = url,
                 contentDescription = contentDescription,
-                modifier = Modifier.size(size),
+                modifier = Modifier
+                    .size(size)
+                    .clip(CircleShape),
             )
         }
     }
