@@ -5,6 +5,7 @@
 package com.gigi.tcg.ui.login
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -15,6 +16,7 @@ import com.gigi.tcg.GigiApp
 import com.gigi.tcg.data.ServerId
 import com.gigi.tcg.data.auth.AuthFinalizeResult
 import com.gigi.tcg.data.auth.AuthManager
+import com.gigi.tcg.data.auth.QrCreateException
 import com.gigi.tcg.data.auth.QrSession
 import com.gigi.tcg.di.AppContainer
 import java.io.IOException
@@ -27,6 +29,9 @@ import kotlinx.coroutines.launch
 
 /** 二维码存活期限：超过后即便上游未报 -3501 也主动换码（米游社二维码实测约 180s 失效） */
 private const val QR_LIFETIME_MS = 180_000L
+
+/** 二维码失败诊断日志 tag（真机 logcat -s GigiQr 定位瞬时失败是网络类还是业务类） */
+private const val QR_LOG_TAG = "GigiQr"
 
 /** 二维码阶段：等待扫码 / 已扫描待确认 / 过期取消后换码中 */
 enum class QrPhase { Waiting, Scanned, Refreshing }
@@ -144,11 +149,21 @@ class LoginViewModel(
                 throw cancel
             } catch (e: Exception) {
                 if (gen == generation) {
-                    _uiState.value = LoginUiState.Failed(e.message ?: "二维码生成失败")
+                    // 只记类别与 message：二维码 url / cookie / deviceId 一律不入日志
+                    Log.w(QR_LOG_TAG, "createQrLogin 失败：${e.javaClass.name}: ${e.message}")
+                    _uiState.value = LoginUiState.Failed(qrFailureMessage(e))
                 }
             }
         }
     }
+
+    /** 失败文案分流：网络类（AuthManager 重试已耗尽）给统一指引；业务类透出米哈游原始 message */
+    private fun qrFailureMessage(e: Exception): String =
+        if (e is QrCreateException && e.isNetwork) {
+            "网络不稳定，请重试"
+        } else {
+            e.message ?: "二维码生成失败"
+        }
 
     private suspend fun poll(gen: Int, created: QrSession.Created, deadline: Long) {
         authManager.pollQrStatus(created).collect { session ->

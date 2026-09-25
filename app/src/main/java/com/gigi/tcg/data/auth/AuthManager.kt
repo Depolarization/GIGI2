@@ -7,6 +7,7 @@ package com.gigi.tcg.data.auth
 
 import com.gigi.tcg.data.ServerApi
 import com.gigi.tcg.data.ServerId
+import com.gigi.tcg.data.api.RETRYABLE_RETCODES
 import java.io.IOException
 import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
@@ -46,29 +47,68 @@ sealed interface AuthFinalizeResult {
     data class NoRole(val region: String) : AuthFinalizeResult
 }
 
+/**
+ * 二维码创建重试耗尽（或遇到不可重试的业务码）后的最终失败，由 [AuthManager.createQrLogin] 抛出。
+ * [isNetwork] 供上层分流文案：true=网络不稳定；false=米哈游业务拒绝（message 即其原始文案）。
+ * 继承 IOException：调用方既有的 IOException 处理路径不变。
+ */
+class QrCreateException(
+    message: String,
+    val isNetwork: Boolean,
+    internal val retryable: Boolean,
+    cause: Throwable? = null,
+) : IOException(message, cause)
+
 class AuthManager(
     private val http: OkHttpClient,
     private val credentialStore: CredentialStore,
     private val json: Json,
 ) {
 
-    /** 步骤①：直连 createQRLogin，返回 [QrSession.Created]（url 供登录页生成二维码展示） */
+    /**
+     * 步骤①：直连 createQRLogin，返回 [QrSession.Created]（url 供登录页生成二维码展示）。
+     * 本调用落在 App 冷启动关键路径上（DNS/连接池/TLS 全冷），瞬时失败按 [QR_CREATE_MAX_ATTEMPTS]
+     * 次重试，间隔与 MihoyoClient 限流退避同范式（基础 + 0..300ms 抖动）；
+     * 重试只换传输时机，deviceId 沿用同一个。不可重试的业务码立即失败，全部失败抛 [QrCreateException]。
+     */
     suspend fun createQrLogin(): QrSession.Created {
         val deviceId = UUID.randomUUID().toString()
-        val request = Request.Builder()
-            .url(PASSPORT_CREATE_URL)
-            .post(EMPTY_BODY)
-            .header("x-rpc-app_id", QR_APP_ID)
-            .header("x-rpc-device_id", deviceId)
-            .build()
-        val envelope = execute(request) { it.parseAs<QrCreateEnvelope>() }
-        val url = envelope.data?.url
-        val ticket = envelope.data?.ticket
-        if (envelope.retcode != 0 || url.isNullOrEmpty() || ticket.isNullOrEmpty()) {
-            throw IOException(envelope.message?.takeIf { it.isNotEmpty() } ?: "二维码生成失败")
+        var attempt = 0
+        while (true) {
+            attempt++
+            val failure = try {
+                val envelope = execute(qrCreateRequest(deviceId)) { it.parseAs<QrCreateEnvelope>() }
+                val url = envelope.data?.url
+                val ticket = envelope.data?.ticket
+                if (envelope.retcode == 0 && !url.isNullOrEmpty() && !ticket.isNullOrEmpty()) {
+                    return QrSession.Created(url = url, ticket = ticket, deviceId = deviceId)
+                }
+                QrCreateException(
+                    message = envelope.message?.takeIf { it.isNotEmpty() } ?: "二维码生成失败",
+                    isNetwork = false,
+                    retryable = RETRYABLE_RETCODES.contains(envelope.retcode),
+                )
+            } catch (e: IOException) {
+                // 传输层瞬时失败（DNS/连接/读取超时、TLS、socket 断开）都值得重发一次
+                QrCreateException(
+                    message = e.message ?: "网络请求失败",
+                    isNetwork = true,
+                    retryable = true,
+                    cause = e,
+                )
+            }
+            if (!failure.retryable || attempt >= QR_CREATE_MAX_ATTEMPTS) throw failure
+            delay(QR_CREATE_RETRY_DELAY_MS + (0..QR_CREATE_RETRY_JITTER_SPAN_MS).random())
         }
-        return QrSession.Created(url = url, ticket = ticket, deviceId = deviceId)
     }
+
+    /** 每次尝试都重建 Request（OkHttp 的 Call 不可复用），deviceId 由调用方保持同一会话 */
+    private fun qrCreateRequest(deviceId: String): Request = Request.Builder()
+        .url(PASSPORT_CREATE_URL)
+        .post(EMPTY_BODY)
+        .header("x-rpc-app_id", QR_APP_ID)
+        .header("x-rpc-device_id", deviceId)
+        .build()
 
     /**
      * 步骤②：Flow + delay(2500) 轮询 queryQRLoginStatus（对齐 auth-core.mjs qrQuery）。
@@ -270,6 +310,15 @@ class AuthManager(
         const val RETCODE_EXPIRED: Int = -3501
         const val RETCODE_CANCELLED: Int = -3505
         const val E_HK4E_TOKEN_PREFIX: String = "e_hk4e_token="
+
+        /** 二维码创建重试的基础间隔（冷启动首请求走完整 DNS+TCP+TLS，米哈游侧限流窗口也很短） */
+        const val QR_CREATE_RETRY_DELAY_MS: Long = 800L
+
+        /** 二维码创建重试间隔之上的随机抖动上界（0..300ms），与 MihoyoClient 同范式 */
+        const val QR_CREATE_RETRY_JITTER_SPAN_MS: Long = 300L
+
+        /** 二维码创建最大尝试次数：首发 + 最多 2 次重试 */
+        const val QR_CREATE_MAX_ATTEMPTS: Int = 3
 
         fun hasFreshEhk4e(fragments: List<String>): Boolean =
             fragments.any { it.startsWith(E_HK4E_TOKEN_PREFIX) }
