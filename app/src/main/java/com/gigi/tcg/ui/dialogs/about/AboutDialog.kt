@@ -1,5 +1,7 @@
 package com.gigi.tcg.ui.dialogs.about
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -10,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -22,11 +25,12 @@ import androidx.compose.ui.unit.dp
 // 说明/关于：移植 Web 版 AboutDialog.tsx 的分区结构与文案骨架，适配 M3 Dialog。
 // 形态/凭据两条口径已按 Android 原生改写，回抄 Web 版即回归 bug。
 
+private const val FEEDBACK_URL = "https://space.bilibili.com/560719483"
+
 private data class Fact(val label: String, val value: String)
 
 private val PROJECT_FACTS = listOf(
     Fact("项目名", "GIGI（Genshin Impact Genius Invokation TCG Tool）"),
-    Fact("性质", "免费开源项目，仅供学习交流使用"),
     Fact("形态", "Android 原生应用 —— 安装即用，米游社或云·原神扫码登录"),
 )
 
@@ -52,6 +56,7 @@ private val DATA_SOURCE_TIPS: List<AnnotatedString.Builder.() -> Unit> = listOf(
 
 @Composable
 fun AboutDialog(onClose: () -> Unit) {
+    val context = LocalContext.current
     AlertDialog(
         onDismissRequest = onClose,
         title = { Text("说明") },
@@ -86,17 +91,23 @@ fun AboutDialog(onClose: () -> Unit) {
                 }
 
                 SectionTitle("反馈")
-                AboutParagraph {
-                    append("若在使用中遇到任何异常错误，欢迎通过")
-                    appendLink("@Dexphase 的 B 站空间", "https://space.bilibili.com/560719483")
-                    append("反馈。")
-                }
+                AboutParagraph { append("若在使用中遇到任何异常错误，欢迎反馈。") }
 
                 SectionTitle("版本")
                 AboutParagraph { append("版本 1.0.0") }
             }
         },
         confirmButton = {
+            TextButton(
+                onClick = {
+                    // 设备无浏览器等无 VIEW 处理器时静默忽略，避免 ActivityNotFoundException 崩溃
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(FEEDBACK_URL)))
+                    }
+                },
+            ) { Text("反馈") }
+        },
+        dismissButton = {
             TextButton(onClick = onClose) { Text("关闭") }
         },
     )
