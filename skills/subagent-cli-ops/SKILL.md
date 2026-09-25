@@ -111,23 +111,39 @@ OpenRouter 无官方 CLI，用 **opencode** 作 harness（原生支持 OpenRoute
 ### 2.2 通道 ③：百炼（`bl`）—— 模型池与**额度耗尽接力**
 
 **百炼是第三条额度池**（与 Qoder Credits、OpenRouter **互相独立**）。
+下表是 **CLI 子代理专用池（24 个）**，与 WorkBuddy 的 `models.json` 清单【互斥】：
+已写入 WorkBuddy 的模型不得再出现在这里（用户 2026-09-25 明确要求）。
 模型池由 `C:/Users/oscur/.workbuddy-ai/tools/sync_bailian_models.py` 从百炼官方目录同步
-（口径 = 2026 年上架 + 工具调用 + 推理 + 文本/多模态 + 排除老/小型号）。
+（口径 = 2026 年上架 + 工具调用 + 推理 + 文本/多模态 + 排除老/小型号）；
+重新生成：`"$PY" C:/Users/oscur/.workbuddy-ai/tools/sync_bailian_models.py --emit-skill <输出.md>`
+（该命令默认已排除已入 `models.json` 的模型，见 `--exclude-in-models-json`）。
 
-**可当主 agent 的精选 17 个**（已写入 WorkBuddy `~/.workbuddy-ai/models.json`）：
-
-| 家族 | 模型 |
-| :-- | :-- |
-| DeepSeek | `deepseek-v4.1-flash`（越级智能）· `deepseek-v4-pro-0813` · `deepseek-v4-pro` · `deepseek-v4-flash-0731` · `deepseek-v4-flash` |
-| GLM | `glm-5.3-prime` · `glm-5.3` · `glm-5.2` |
-| Kimi | `kimi-k3` · `kimi/kimi-k2.8-preview` · `kimi-k2.7-code` · `kimi-k2.6` |
-| Qwen | `qwen3.8-max-0902` · `qwen3.8-max` · `qwen3.8-flash` |
-| 其它 | `MiniMax/MiniMax-M3` · `stepfun/step-5-preview` |
-
-完整候选池（52 个）随时可重新生成：
-```bash
-"$PY" C:/Users/oscur/.workbuddy-ai/tools/sync_bailian_models.py --emit-skill <输出.md>
-```
+| 收录 | 发布时间 | 模型 | 供应商 | 上下文 | 视觉 | 说明 |
+| :--: | :-- | :-- | :-- | --: | :--: | :-- |
+|  | 2026-07-21 | `qwen3.7-flash-2026-07-15` | aliyun-bailian | 1000000 | 是 | Qwen3.7原生视觉语言系列Flash模型，相较3.6-Flash全面提升多模态理解与Agent执行能力。重点强化… |
+|  | 2026-07-21 | `qwen3.7-flash` | aliyun-bailian | 1000000 | 是 | Qwen3.7原生视觉语言系列Flash模型，相较3.6-Flash全面提升多模态理解与Agent执行能力。重点强化… |
+|  | 2026-06-09 | `qwen3.7-max-2026-06-08` | aliyun-bailian | 1000000 | 是 | Qwen3.7系列中规模最大、综合能力最强的Max模型，相较于5月20日快照增加了视觉模态理解能力，能够感知真实世界… |
+|  | 2026-06-01 | `qwen3.7-plus-2026-05-26` | aliyun-bailian | 1000000 | 是 | Qwen3.7系列中高性价比Plus模型，在强大文本能力的基础上全面升级了视觉-语言能力，同时保持了在编码、工具使用… |
+|  | 2026-06-01 | `qwen3.7-plus` | aliyun-bailian | 1000000 | 是 | Qwen3.7系列中高性价比Plus模型，在强大文本能力的基础上全面升级了视觉-语言能力，同时保持了在编码、工具使用… |
+|  | 2026-05-21 | `qwen3.7-max-2026-05-20` | aliyun-bailian | 1000000 |  | Qwen3.7系列中规模最大、综合能力最强的Max模型，当前开放纯文本模型能力供体验。Qwen3.7是面向智能体时代… |
+|  | 2026-05-21 | `qwen3.7-max` | aliyun-bailian | 1000000 |  | Qwen3.7系列中规模最大、综合能力最强的Max模型，当前开放纯文本模型能力供体验。Qwen3.7是面向智能体时代… |
+|  | 2026-05-20 | `qwen3.7-max-2026-05-17` | aliyun-bailian | 1000000 |  | Qwen3.7系列中Max模型的早期版本，仅支持思考模式，开放纯文本模型能力供体验。Qwen3.7是面向智能体时代的… |
+|  | 2026-05-20 | `qwen3.7-max-preview` | aliyun-bailian | 1000000 |  | Qwen3.7系列中规模最大、综合能力最强的Max模型预览版，仅支持思考模式，开放纯文本模型能力供体验。主要优化面向… |
+|  | 2026-04-23 | `qwen3.5-plus-2026-04-20` | aliyun-bailian | 1000000 | 是 | Qwen3.5原生视觉语言系列Plus模型，相较于2月15日快照，本模型在Agentic coding能力上大幅提升… |
+|  | 2026-04-20 | `qwen3.6-max-preview` | aliyun-bailian | 262144 |  | Qwen3.6系列中规模最大、综合能力最强的Max模型Preview版本，当前开放纯文本模型能力供体验。相较于此前发… |
+|  | 2026-04-16 | `qwen3.6-flash` | aliyun-bailian | 1000000 | 是 | Qwen3.6原生视觉语言系列Flash模型，模型效果相较3.5-Flash显著提升。本模型重点提升agentic … |
+|  | 2026-04-16 | `qwen3.6-flash-2026-04-16` | aliyun-bailian | 1000000 | 是 | Qwen3.6原生视觉语言系列Flash模型，模型效果相较3.5-Flash显著提升。本模型重点提升agentic … |
+|  | 2026-04-14 | `glm-5.1` | aliyun-bailian | 202745 |  | GLM-5.1是智谱AI推出的面向长程任务（Long Horizon Task）设计的模型，总参数744B，支持20… |
+|  | 2026-04-01 | `qwen3.6-plus-2026-04-02` | aliyun-bailian | 1000000 | 是 | Qwen3.6原生视觉语言系列Plus模型，展现出与当前顶尖前沿模型相媲美的卓越性能，模型效果相较3.5系列显著提升… |
+|  | 2026-04-01 | `qwen3.6-plus` | aliyun-bailian | 1000000 | 是 | Qwen3.6原生视觉语言系列Plus模型，展现出与当前顶尖前沿模型相媲美的卓越性能，模型效果相较3.5系列显著提升… |
+|  | 2026-02-24 | `MiniMax-M2.5` | aliyun-bailian | 204800 |  | MiniMax-M2.5是MiniMax推出的旗舰级开源大模型，经过数十万个真实复杂环境中的大规模强化学习训练，M2… |
+|  | 2026-02-23 | `qwen3.5-122b-a10b` | aliyun-bailian | 262144 | 是 | Qwen3.5系列122B-A10B原生视觉语言模型，基于混合架构设计，融合了线性注意力机制与稀疏混合专家模型，实现… |
+|  | 2026-02-23 | `qwen3.5-flash` | aliyun-bailian | 1000000 | 是 | Qwen3.5原生视觉语言系列Flash模型，基于混合架构设计，融合了线性注意力机制与稀疏混合专家模型，实现了更高的… |
+|  | 2026-02-23 | `qwen3.5-flash-2026-02-23` | aliyun-bailian | 1000000 | 是 | Qwen3.5原生视觉语言系列Flash模型，基于混合架构设计，融合了线性注意力机制与稀疏混合专家模型，实现了更高的… |
+|  | 2026-02-18 | `glm-5` | aliyun-bailian | 202752 |  | GLM-5是面向Coding与Agent场景的新一代大模型，在复杂系统工程与长程任务中达到开源 SOTA，真实编程体… |
+|  | 2026-02-15 | `qwen3.5-397b-a17b` | aliyun-bailian | 262144 | 是 | Qwen3.5系列397B-A17B原生视觉语言模型，基于混合架构设计，融合了线性注意力机制与稀疏混合专家模型，实现… |
+|  | 2026-02-15 | `qwen3.5-plus-2026-02-15` | aliyun-bailian | 1000000 | 是 | Qwen3.5原生视觉语言系列Plus模型，基于混合架构设计，融合了线性注意力机制与稀疏混合专家模型，实现了更高的推… |
+|  | 2026-02-15 | `qwen3.5-plus` | aliyun-bailian | 1000000 | 是 | Qwen3.5原生视觉语言系列Plus模型，基于混合架构设计，融合了线性注意力机制与稀疏混合专家模型，实现了更高的推… |
 
 **🔴🔴 额度耗尽接力（用户 2026-09-25 指定，最高优先级）**
 
@@ -140,6 +156,66 @@ OpenRouter 无官方 CLI，用 **opencode** 作 harness（原生支持 OpenRoute
 3. **不丢进度**：派单在 `.task/dispatch/`、进度在 `.task/progress/`、产物在磁盘
    ⇒ 新模型起来**先读探针**即可接续（见 §6 强制增量落盘）。
 4. ⚠️ **不要拿 `bl usage freetier` 当查询命令**（不带 `--on/--off` 时默认批量开启，会改状态）。
+5. **接力前先拉黑**：确认是额度类错误后，先
+   `"$PY" C:/Users/oscur/.workbuddy-ai/tools/bailian_quota.py block <旧模型> --reason free-quota-exhausted`，
+   再换 `-m <新模型>` 重派。这样下次派发不会再撞上同一个死模型（见 §2.3）。
+
+### 2.3 派发前额度预检 & 额度耗尽自动拉黑（2026-09-25 建立）
+
+**要解决的问题**：省得派发时一次又一次撞额度报错浪费时间 —— 先预检；确认额度耗尽的模型直接拉黑，不再重试。
+
+**(a) 工具与文件**
+
+- 工具：`C:/Users/oscur/.workbuddy-ai/tools/bailian_quota.py`
+  （调用方式：`"$PY" C:/Users/oscur/.workbuddy-ai/tools/bailian_quota.py <子命令>`）
+- 黑名单：`C:/Users/oscur/.workbuddy-ai/bailian_blacklist.json`
+  - `protected`：**永不拉黑**的模型（阿里直供 deepseek 四个：
+    `deepseek-v4-pro` / `deepseek-v4-pro-0813` / `deepseek-v4-flash` / `deepseek-v4-flash-0731`）
+  - `blocked`：已确认不可用的模型（含 `reason` / `detail` / `at`）
+- 额度快照：`C:/Users/oscur/.workbuddy-ai/bailian_quota_snapshot.json`
+  （`bl usage free --output json --all` 的原始输出）
+
+**(b) 子命令表**
+
+| 命令 | 用途 | 备注 |
+| :-- | :-- | :-- |
+| `probe` | 对 models.json 里所有百炼模型**逐个实测调用**，判定可用性；不可用的**自动写入黑名单**（protected 除外） | 最权威 |
+| `status` | 读本地快照，打印各模型剩余额度%、expires、autoStop，并标注快照时间 | 快 |
+| `refresh` | 刷新额度快照 | **需要 Console 会话**，过期则提示 `bl auth login --console` |
+| `block <模型> --reason <R>` / `unblock <模型>` / `list` | 黑名单管理 | `block` 命中 protected 会被拒绝 |
+| `sync [--write]` | 把黑名单同步到 `models.json`（**移除**对应条目，自动备份 `models.json.bak-*`） | 默认 dry-run |
+
+**(c) 错误分类判据**（实测得到，务必照抄）
+
+| 错误文本（大小写不敏感） | reason | 处置 |
+| :-- | :-- | :-- |
+| `Free quota exhausted` | `free-quota-exhausted` | **拉黑**（免费额度耗尽） |
+| `The product is not activated` | `not-activated` | **拉黑**（产品未开通） |
+| `Model not exist` | `model-not-exist` | **拉黑**（模型不存在） |
+| `Arrearage` / 欠费 | `arrearage` | **拉黑** |
+| `Console session is not logged in or has expired` | `console-session-expired` | **不拉黑**（查询侧问题，去登录） |
+| `InvalidApiKey` | `invalid-api-key` | **不拉黑**（凭证问题） |
+| 其它 / 超时 | `unknown` | **不拉黑**，只报告，交人判断 |
+
+**(d) 🔴 必须记住的坑：workspace 端点列表 ≠ 可用性判据**
+
+> **workspace 端点 `GET <base_url>/compatible-mode/v1/models` 的列表不能当可用性判据。**
+> 实测：`kimi-k3` 免费额度已耗尽（调用报 `Free quota exhausted`），
+> 但它**依然出现在该列表里**。该列表只表示「账户开通了这些模型」，不反映额度状态。
+> **唯一权威的判据是实测调用**（`bailian_quota.py probe`）。
+
+**(e) 派发前动作（写进「派发命令」流程）**
+
+1. 派发前先跑一次 `bailian_quota.py probe`（或至少 `status`）确认目标模型可用；
+2. 目标模型不可用 ⇒ **直接换池里其它模型**，不要拿它去试；
+3. 若因额度类错误派发失败 ⇒ `bailian_quota.py block <模型> --reason <分类>`
+   拉黑它，然后按 §2.2「额度耗尽接力」换模型重派（**同一份派单文件**）。
+
+**(f) 与「额度耗尽接力」的衔接**
+
+见 §2.2 接力段第 5 条：**接力前先拉黑** —— 确认是额度类错误后，
+先 `block <旧模型> --reason free-quota-exhausted`，再换 `-m <新模型>` 重派，
+下次派发不会再撞上同一个死模型。
 
 ## 3. 报错与回退链（严格按序，不跳步）
 
