@@ -83,6 +83,7 @@ CLI = Path("C:/Users/oscur/.qoder-cn/bin/qoderclicn/qoderclicn.exe")
 DEFAULT_MODEL = "Qwen3.8-Max"
 SCAN_INTERVAL = 20          # 秒：守候扫描间隔
 STALE_LIMIT = 45 * 60       # 秒：某棒超过这个时长无任何活动 ⇒ 判卡死（不再等）
+PROBE_GRACE = 15 * 60       # 秒：进程已不在且探针仍 `doing` 时的宽限（期内算 running，避免误判 dead 重复派发）
 RETRY_LIMIT = 1
 
 
@@ -138,9 +139,18 @@ def _read_probe(proj: Path, tid: str) -> tuple[str, float | None]:
         text = p.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return "", None
-    # 兼容两种探针写法：`status: done` 与 markdown 列表 `- status: done`
-    mst = re.search(r"(?m)^[\s>*-]*status\s*[:：]\s*[`*]*([A-Za-z_]+)", text)
-    return (mst.group(1).lower() if mst else ""), m
+    # 兼容三种探针写法：`status: done`、markdown 列表 `- status: done`、中文 `状态：done`。
+    # 🔴 取**最后一条**匹配：探针惯例是"开工写 doing → 收工追加 done"，
+    # 子代理常把 `done` 追加在文件中段、尾部还留着旧的 `doing`；取首条会永久误判为未完工
+    # ⇒ 接力链卡在 wait_only 永不推进（2026-09-25 V6-WAVE2 实测踩到）。
+    hits = re.findall(
+        r"(?m)^[\s>*-]*(?:status|状态)\s*[:：]\s*[`*]*([A-Za-z_\u4e00-\u9fff]+)", text
+    )
+    st = hits[-1].lower() if hits else ""
+    # 中文同义词归一，避免 `状态：已完成` 之类被当成未知状态而永不推进
+    st = {"已完成": "done", "完成": "done", "阻塞": "blocked",
+          "进行中": "doing", "已阻塞": "blocked"}.get(st, st)
+    return st, m
 
 
 def _pid_alive_for(proj: Path, tid: str) -> int | None:
@@ -161,7 +171,15 @@ def _pid_alive_for(proj: Path, tid: str) -> int | None:
     e = re.escape(tid)
     # 派单/日志文件名可能是 tid 本身，也可能带后缀（如 T4b-GUARD）
     pats = [re.compile(r"dispatch[\\/]%s(?:-[\w.]+)?\.txt" % e, re.I),
-            re.compile(r"\.agent_work[\\/]%s(?:-[\w.]+)?\.log" % e, re.I)]
+            re.compile(r"\.agent_work[\\/]%s(?:-[\w.]+)?\.log" % e, re.I),
+            # 🔴🔴 实测（2026-09-25 GIGI V6-WAVE2）：`dispatch()` 是把**派单正文**当参数传给 CLI 的
+            # （`cmd = [CLI, "-p", ..., prompt]`），命令行里**根本没有** `dispatch/xxx.txt`
+            # 或 `.agent_work/xxx.log` 路径 ⇒ 上面两条正则永不命中 ⇒ pid 恒为 None
+            # ⇒ `classify()` 退化成"探针 120s 没更新就判 dead" ⇒ 把还在读文件/编译的棒误判死
+            # ⇒ **重复派发同一任务**（两个进程改同一批文件，违反文件独占）。
+            # 补第三条：按**任务 ID** 匹配 —— 派单正文以「[角色]\n你是 <TID> 子代理」开头，
+            # 该 ID 必然出现在命令行里。用边界断言避免 `V6F` 命中 `V6F-COVER` 之外的词。
+            re.compile(r"(?<![A-Za-z0-9_-])%s(?![A-Za-z0-9_-])" % e, re.I)]
     for r in rows or []:
         cmd = r.get("CommandLine") or ""
         if any(p.search(cmd) for p in pats):
@@ -230,7 +248,9 @@ def classify(s: dict) -> str:
         return "running"
     if st == "doing":
         # 探针说在干、进程没了 ⇒ 刚结束还在落盘 or 真死了
-        if s["age"] is not None and s["age"] < 120:
+        # 🔴 宽限取 15 分钟（原 120s 太短：棒在"读大量文件/跑 Gradle"期间不会更新探针，
+        # 120s 就把活着的棒判 dead ⇒ 重复派发。配合 `_pid_alive_for` 的 ID 匹配双保险）。
+        if s["age"] is not None and s["age"] < PROBE_GRACE:
             return "running"
         return "dead"
     # 从未开工（无探针） 或 已结束但状态非 done
@@ -575,11 +595,15 @@ def _install_task(chain_path: Path) -> int:
     3. 包装脚本必须 **CRLF + GBK**（Windows 批处理），否则 `goto`/路径解析异常。
     4. 创建与启动要**分步检查 returncode**，否则失败被静默吞掉。
     """
+    # 🔴 /TR 与包装脚本里的 --run 目标都必须是绝对路径：
+    # 计划任务的进程 CWD = C:\Windows\system32，传相对路径会解析失败 ⇒
+    # 任务建了但跑不起来（LastTaskResult=1、scheduler.out.log 全 0B、scheduler.log 无启动行）。
+    chain_path = chain_path.resolve()
     cid = chain_path.stem
     name = "GIGIChain_%s" % cid
     py = sys.executable
     script = str(Path(__file__).resolve())
-    chain_dir = chain_path.parent / cid
+    chain_dir = (chain_path.parent / cid).resolve()
     chain_dir.mkdir(parents=True, exist_ok=True)
     launcher = chain_dir / "_launch.cmd"
 

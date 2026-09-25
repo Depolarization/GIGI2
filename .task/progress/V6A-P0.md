@@ -61,5 +61,3 @@ status: done — BUILD SUCCESSFUL 150/0，三次提交 b13335a / 2d1d634 / efe6e
    logcat 出现 3 行 `verify retry n/3`；恢复网络后切页/切账户可再次触发校验。
 3. 主页菜单"退出登录"（最后一个账户）→ 回登录页，冷重启前 sessionUid 不应被自动填回
    （表现为退出后立即回到登录页且各页不再拉数据）。
-
-status: doing — A/B/C 实施中
