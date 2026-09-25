@@ -1,0 +1,35 @@
+[角色] 你是 FIX-ICON 子代理；[标识] 本派单文件 .task/dispatch/FIX-ICON.txt；工作目录 D:\AndroidStudioProjects\GIGI。
+[探针] .task/progress/FIX-ICON.md（doing→done）。
+[背景（已证实）]
+  工程无 app/src/main/res 目录、Manifest 无 android:icon 属性 ⇒ 启动器无图标
+  （MuMu RecentTaskMonitor: "Unable to get the icon of app: com.gigi.tcg"）。
+  主题语义色：品牌绿 #3f8f5f、负色 #c25656、金色 #d4a643（见 ui/theme 或手册）。
+[独占文件（仅这些）]
+  app/src/main/AndroidManifest.xml（已存在，仅加两个属性）
+  app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml（新建）
+  app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml（新建）
+  app/src/main/res/drawable/ic_launcher_background.xml（新建）
+  app/src/main/res/drawable/ic_launcher_foreground.xml（新建）
+  app/src/main/res/mipmap-xxxhdpi/ic_launcher.png（新建，API24/25 回退）
+  app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png（新建）
+  禁改其它任何文件。
+[改前闸门] git status --porcelain -- app/src/main/AndroidManifest.xml 应为空。非空→blocked。
+[要做什么]
+  1. ic_launcher_background.xml：矢量（或纯色 <color> 资源亦可，用 #12352b 深绿底 + 简单几何点缀）；
+     ic_launcher_foreground.xml：108dp 安全区适配的矢量图形——简洁"七圣召唤"主题：
+     白色描边字母"G"或卡牌+星形组合，居中于 72/108dp 中心区（距边 ≥18dp）；用品牌绿/金色。
+  2. mipmap-anydpi-v26 两个 adaptive-icon：background=@drawable/ic_launcher_background，
+     foreground=@drawable/ic_launcher_foreground；round 版同样内容即可。
+  3. API24/25 回退 PNG：用矢量渲染或任何可用手段生成 192x192 PNG（可借助 python/PIL 或直接编写
+     简易位图；若本机无工具，可用一次 HTTP 请求取得图标素材：
+     Invoke-WebRequest "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=GIGI%20TCG%20app%20icon%2C%20green%20card%20with%20gold%20star%2C%20minimalist%2C%20flat%20design&image_size=square_hd"
+     下载后缩放到 192x192（PIL；PIL 不可用→只放原图并在探针注明）），圆形版做中心圆形裁剪。
+  4. Manifest：<application> 标签仅新增 android:icon="@mipmap/ic_launcher"
+     android:roundIcon="@mipmap/ic_launcher_round"，其余不动。
+[验收门槛] ① .\gradlew :app:assembleDebug → 0（AAPT 能解析全部资源）
+  ② .\gradlew :app:lintDebug → Error 0
+  ③ .\gradlew :app:testDebugUnitTest → 95 全绿
+  ④ 装包验证：adb -s 127.0.0.1:7555 install -r app/build/outputs/apk/debug/app-debug.apk；
+     adb -s 127.0.0.1:7555 shell dumpsys package com.gigi.tcg | Select-String "icon=" 须出现非 0 资源 id
+[提交] "feat: add adaptive launcher icon with pre-26 png fallback"；禁 git add -A。
+[收工] 探针 done（资源清单/dumpsys icon 行）→ 报告 ≤200 字（hash）。达标即停。
