@@ -19,14 +19,15 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 
-// 说明/关于：移植 Web 版 AboutDialog.tsx 文案与分区结构，适配 M3 Dialog。
+// 说明/关于：移植 Web 版 AboutDialog.tsx 的分区结构与文案骨架，适配 M3 Dialog。
+// 形态/凭据两条口径已按 Android 原生改写，回抄 Web 版即回归 bug。
 
 private data class Fact(val label: String, val value: String)
 
 private val PROJECT_FACTS = listOf(
     Fact("项目名", "GIGI（Genshin Impact Genius Invokation TCG Tool）"),
     Fact("性质", "免费开源项目，仅供学习交流使用"),
-    Fact("形态", "网页应用 —— 浏览器打开即用，米游社或云·原神扫码登录"),
+    Fact("形态", "Android 原生应用 —— 安装即用，米游社或云·原神扫码登录"),
 )
 
 private val USAGE_TIPS = listOf(
@@ -41,12 +42,12 @@ private val DATA_SOURCE_TIPS: List<AnnotatedString.Builder.() -> Unit> = listOf(
     {
         append("• ")
         withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("卡面下载") }
-        append("数据无需登录即可浏览；")
+        append("来自公开接口、不含个人战绩数据；")
         withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("卡牌使用详情") }
         append("需要登录凭据支持。")
     },
     { append("• 所有信息均来自七圣赛事与米游社，卡牌数据及卡面图片来自米游社七圣 Wiki。") },
-    { append("• 登录凭据仅保存在本机浏览器，不会上传至任何服务器。") },
+    { append("• 登录凭据仅保存在本机加密存储区（Keystore 加密），不会上传至任何服务器。") },
 )
 
 @Composable
