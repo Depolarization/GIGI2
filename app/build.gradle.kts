@@ -15,6 +15,8 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
+        // T11 取证用：instrumentation 注入凭据（仅 debug/androidTest 路径，不触业务逻辑）
+        testInstrumentationRunner = "com.gigi.tcg.debug.DebugCredentialInjector"
     }
 
     buildTypes {
