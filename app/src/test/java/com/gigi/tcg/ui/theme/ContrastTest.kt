@@ -42,8 +42,9 @@ class ContrastTest {
 
     @Test
     fun darkTierColors_areLocked() {
-        assertEquals(Color(0xFF3F8F5F), WinColor)
-        assertEquals(Color(0xFFC25656), LoseColor)
+        // V8F：深色档 win/lose 提亮到过 WCAG AA（对 dark surface 各约 4.83:1），锁新值
+        assertEquals(Color(0xFF439865), WinColor)
+        assertEquals(Color(0xFFCA6D6D), LoseColor)
         assertEquals(Color(0xFFD4A643), GoldColor)
     }
 }
