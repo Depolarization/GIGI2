@@ -390,6 +390,8 @@ def run_chain(chain_path: Path) -> int:
                 pid = dispatch(chain, fa, chain_dir)
                 if pid:
                     chain["final_dispatched"] = {"pid": pid, "at": now_ts()}
+                    # 登记进 dispatched：下一循环 fa 命中"已派发"分支，只守候不重发
+                    chain.setdefault("dispatched", {})[fa["id"]] = {"pid": pid, "at": now_ts()}
                     log(chain_dir, "🏁 已拉起收尾代理 %s（pid=%s）" % (fa["id"], pid))
                     save_state(chain, chain_dir)
                     # 继续守候收尾代理
