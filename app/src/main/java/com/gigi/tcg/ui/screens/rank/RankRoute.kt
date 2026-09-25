@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.MaterialTheme
@@ -139,16 +139,17 @@ private fun RankRow(
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
             text = "$rank",
             style = MaterialTheme.typography.titleMedium,
             color = medalColor,
-            modifier = Modifier.width(36.dp),
+            textAlign = TextAlign.Center,
+            modifier = Modifier.widthIn(min = 28.dp),
         )
         Avatar(url = info.avatarUrl, size = 44.dp, contentDescription = info.nickname)
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
             Text(
                 text = info.nickname.orEmpty(),
                 style = MaterialTheme.typography.bodyLarge,
