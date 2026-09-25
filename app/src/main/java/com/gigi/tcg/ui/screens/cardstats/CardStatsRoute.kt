@@ -5,7 +5,15 @@
 package com.gigi.tcg.ui.screens.cardstats
 
 import android.app.Application
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
@@ -39,7 +47,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier as ComposeModifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -47,13 +60,26 @@ import com.gigi.tcg.di.AppContainer
 import com.gigi.tcg.domain.GcgCard
 import com.gigi.tcg.domain.GcgSummary
 import com.gigi.tcg.domain.calcPercent
-import com.gigi.tcg.domain.formatPercent
 import com.gigi.tcg.ui.components.Avatar
 import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
+import com.gigi.tcg.ui.theme.Motion
 
 private val TAB_LABELS = listOf("角色牌", "行动牌")
+
+/** 统计数值列定义：固定列宽 + 右对齐 + 等宽数字，保证四列纵向对齐。 */
+private data class StatColumn(val label: String, val width: Dp)
+
+private val StatCountWidth: Dp = 48.dp
+private val StatPercentWidth: Dp = 60.dp
+private val ListRowVerticalPadding = 8.dp
+private val CHAR_STAT_COLUMNS = listOf(
+    StatColumn("出场", StatCountWidth),
+    StatColumn("出场率", StatPercentWidth),
+    StatColumn("胜率", StatPercentWidth),
+    StatColumn("胜场", StatCountWidth),
+)
 
 // 签名由派单固定：container 供 VM factory、onShowToast 预留给后续接线（刷新/提示），本页暂无调用点。
 @Suppress("UNUSED_PARAMETER")
@@ -105,39 +131,88 @@ private fun CardStatsContent(
             }
         }
 
-        if (tabIndex == 0) {
-            SingleChoiceSegmentedButtonRow(modifier = ComposeModifier.fillMaxWidth()) {
-                CharSortKey.entries.forEachIndexed { index, key ->
-                    SegmentedButton(
-                        selected = state.charSort == key,
-                        onClick = { viewModel.setCharSort(key) },
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = CharSortKey.entries.size),
+        AnimatedContent(
+            targetState = tabIndex,
+            transitionSpec = {
+                (slideInHorizontally(Motion.emphasizedSpring<IntOffset>()) { it / 6 } +
+                    fadeIn(Motion.emphasized<Float>())) togetherWith
+                    (slideOutHorizontally(Motion.emphasizedSpring<IntOffset>()) { -it / 6 } +
+                        fadeOut(Motion.emphasized<Float>()))
+            },
+            label = "cardStatsTab",
+        ) { tab ->
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (tab == 0) {
+                    SingleChoiceSegmentedButtonRow(modifier = ComposeModifier.fillMaxWidth()) {
+                        CharSortKey.entries.forEachIndexed { index, key ->
+                            SegmentedButton(
+                                selected = state.charSort == key,
+                                onClick = { viewModel.setCharSort(key) },
+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = CharSortKey.entries.size),
+                            ) {
+                                Text(key.label)
+                            }
+                        }
+                    }
+                    if (state.sortedCharList.isEmpty()) {
+                        NoMatchHint("没有匹配的角色牌")
+                    } else {
+                        CharTableHeader()
+                        state.sortedCharList.forEach { card ->
+                            CharCardRow(card, charTotalUse = state.charTotalUse)
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = ComposeModifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text(key.label)
+                        ActionTypeFilter.entries.forEach { filter ->
+                            FilterChip(
+                                selected = state.actionType == filter,
+                                onClick = { viewModel.setActionType(filter) },
+                                label = { Text(filter.label) },
+                            )
+                        }
+                    }
+                    if (state.filteredActionList.isEmpty()) {
+                        NoMatchHint("没有匹配的行动牌")
+                    } else {
+                        state.filteredActionList.forEach { card ->
+                            ActionCardRow(card)
+                        }
                     }
                 }
             }
-            state.sortedCharList.forEach { card ->
-                CharCardRow(card, charTotalUse = state.charTotalUse)
-            }
-        } else {
-            Row(
-                modifier = ComposeModifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ActionTypeFilter.entries.forEach { filter ->
-                    FilterChip(
-                        selected = state.actionType == filter,
-                        onClick = { viewModel.setActionType(filter) },
-                        label = { Text(filter.label) },
-                    )
-                }
-            }
-            state.filteredActionList.forEach { card ->
-                ActionCardRow(card)
-            }
+        }
+    }
+}
+
+@Composable
+private fun CharTableHeader() {
+    Row(
+        ComposeModifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "角色牌",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = ComposeModifier.weight(1f),
+        )
+        CHAR_STAT_COLUMNS.forEach { col ->
+            Text(
+                col.label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.End,
+                maxLines = 1,
+                modifier = ComposeModifier.width(col.width),
+            )
         }
     }
 }
@@ -146,10 +221,16 @@ private fun CardStatsContent(
 private fun CharCardRow(card: GcgCard, charTotalUse: Int) {
     val useCount = card.useCount ?: 0
     val wins = card.proficiency ?: 0
+    val values = listOf(
+        useCount.toString(),
+        formatStatPercent(calcPercent(useCount.toDouble(), charTotalUse.toDouble())),
+        formatStatPercent(calcPercent(wins.toDouble(), useCount.toDouble())),
+        wins.toString(),
+    )
     Row(
         ComposeModifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
+            .padding(vertical = ListRowVerticalPadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -159,13 +240,18 @@ private fun CharCardRow(card: GcgCard, charTotalUse: Int) {
             overflow = TextOverflow.Ellipsis,
             modifier = ComposeModifier.weight(1f),
         )
-        Spacer(ComposeModifier.width(12.dp))
-        Text(
-            "出场:$useCount　出场率:${formatPercent(calcPercent(useCount.toDouble(), charTotalUse.toDouble()))}" +
-                "　胜率:${formatPercent(calcPercent(wins.toDouble(), useCount.toDouble()))}　胜场:$wins",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        values.forEachIndexed { index, value ->
+            Text(
+                value,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+                textAlign = TextAlign.End,
+                maxLines = 1,
+                modifier = ComposeModifier.width(CHAR_STAT_COLUMNS[index].width),
+            )
+        }
     }
 }
 
@@ -174,7 +260,7 @@ private fun ActionCardRow(card: GcgCard) {
     Row(
         ComposeModifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = ListRowVerticalPadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -186,11 +272,35 @@ private fun ActionCardRow(card: GcgCard) {
         )
         Spacer(ComposeModifier.width(12.dp))
         Text(
-            "出场:${card.useCount ?: 0}",
-            style = MaterialTheme.typography.bodyMedium,
+            "出场",
+            style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(ComposeModifier.width(8.dp))
+        Text(
+            (card.useCount ?: 0).toString(),
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            ),
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            modifier = ComposeModifier.width(StatCountWidth),
+        )
     }
+}
+
+@Composable
+private fun NoMatchHint(message: String) {
+    Text(
+        message,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = ComposeModifier
+            .fillMaxWidth()
+            .padding(vertical = 16.dp),
+    )
 }
 
 @Composable
@@ -225,7 +335,11 @@ private fun PlayerInfoCard(
                 Text(if (detailOpen) "收起详情" else "展开详情")
                 Icon(if (detailOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null)
             }
-            AnimatedVisibility(visible = detailOpen) {
+            AnimatedVisibility(
+                visible = detailOpen,
+                enter = expandVertically(Motion.emphasized<IntSize>()) + fadeIn(Motion.emphasized<Float>()),
+                exit = shrinkVertically(Motion.emphasized<IntSize>()) + fadeOut(Motion.emphasized<Float>()),
+            ) {
                 Column {
                     DetailGroup(
                         "行动牌详情",
