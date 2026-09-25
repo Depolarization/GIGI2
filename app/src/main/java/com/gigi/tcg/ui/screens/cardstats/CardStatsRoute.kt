@@ -35,6 +35,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -45,6 +46,9 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -68,9 +72,19 @@ import com.gigi.tcg.ui.components.Avatar
 import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
+import com.gigi.tcg.ui.dialogs.cardcover.CardImageSaver
+import com.gigi.tcg.ui.export.computeTableLayout
+import com.gigi.tcg.ui.export.renderTableBitmap
 import com.gigi.tcg.ui.theme.Motion
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val TAB_LABELS = listOf("角色牌", "行动牌")
+
+/** 相册落盘目录，与 CardImageSaver 的 ALBUM_PARENT/ALBUM_NAME 保持一致 */
+private const val ALBUM_TOAST_PATH = "Pictures/GIGI"
 
 /** 统计数值列定义：固定列宽 + 右对齐 + 等宽数字，保证四列纵向对齐。 */
 private data class StatColumn(val label: String, val width: Dp)
@@ -85,8 +99,7 @@ private val CHAR_STAT_COLUMNS = listOf(
     StatColumn("胜场", StatCountWidth),
 )
 
-// 签名由派单固定：container 供 VM factory、onShowToast 预留给后续接线（刷新/提示），本页暂无调用点。
-@Suppress("UNUSED_PARAMETER")
+// 签名由派单固定：container 供 VM factory 与 sessionUid（导出长图副标题）、onShowToast 供导出结果反馈。
 @Composable
 fun CardStatsRoute(
     container: AppContainer,
@@ -96,6 +109,7 @@ fun CardStatsRoute(
     val app = LocalContext.current.applicationContext as Application
     val viewModel: CardStatsViewModel = viewModel(key = "cardStats", factory = CardStatsViewModel.factory(app))
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val uid = container.sessionUid.value.orEmpty()
 
     // 三态与其余三页统一：共享组件内部 fillMaxWidth 会覆盖外部 align，
     // 统一用 Box 居中承载，避免 LoadingView 被拉成整屏高。
@@ -114,7 +128,7 @@ fun CardStatsRoute(
             EmptyState(title = "返回数据为空")
         }
 
-        else -> CardStatsContent(state, viewModel, modifier)
+        else -> CardStatsContent(state, viewModel, uid, onShowToast, modifier)
     }
 }
 
@@ -123,12 +137,56 @@ fun CardStatsRoute(
 private fun CardStatsContent(
     state: StatsUiState,
     viewModel: CardStatsViewModel,
+    uid: String,
+    onShowToast: (String) -> Unit,
     modifier: ComposeModifier,
 ) {
     var tabIndex by rememberSaveable { mutableIntStateOf(0) }
     // 指示器只由下拉手势（refresh()）驱动；不能用 state.loading——
     // 其默认值为 true，冷启动首屏会与居中 LoadingView 叠成两个圈。
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
+
+    val appContext = LocalContext.current.applicationContext
+    val coroutineScope = rememberCoroutineScope()
+    var exporting by remember { mutableStateOf(false) }
+
+    // 角色牌/行动牌各出一张长图（DESIGN-V8 决策 4）。导出的是全量列表，
+    // 不跟随本页的排序按钮与类型筛选（产品决策：分享出去的图要完整可比对）。
+    val startExport: (Boolean) -> Unit = { charTable ->
+        val summary = state.summary
+        if (summary != null && !exporting) {
+            exporting = true
+            coroutineScope.launch {
+                try {
+                    withContext(Dispatchers.Default) {
+                        val cards = if (charTable) state.charList else state.actionList
+                        val spec = if (charTable) {
+                            buildCharTableSpec(summary, uid, cards)
+                        } else {
+                            buildActionTableSpec(summary, uid, cards)
+                        }
+                        val layout = computeTableLayout(spec, EXPORT_IMAGE_WIDTH_PX, EXPORT_TWO_COLUMN_THRESHOLD)
+                        val bitmap = renderTableBitmap(spec, layout)
+                        try {
+                            CardImageSaver(appContext).saveBitmap(bitmap, spec.title)
+                        } finally {
+                            // 回收放 finally：saveBitmap 抛异常也不能漏大图（长图可达数百 KB×行数像素）
+                            bitmap.recycle()
+                        }
+                    }
+                    onShowToast("已保存到相册：$ALBUM_TOAST_PATH")
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // CardImageSaver 抛的 IOException message 已是中文可读文案（含缺存储权限提示）
+                    onShowToast(e.message ?: "导出失败")
+                } finally {
+                    exporting = false
+                }
+            }
+        }
+    }
+
     PullToRefreshBox(
         isRefreshing = refreshing,
         onRefresh = viewModel::refresh,
@@ -143,6 +201,26 @@ private fun CardStatsContent(
         ) {
             state.summary?.let { summary ->
                 PlayerInfoCard(summary, state.avatarUrl, detailOpen = state.detailOpen, onToggle = viewModel::toggleDetail)
+            }
+
+            Row(
+                modifier = ComposeModifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ExportButton(
+                    exporting = exporting,
+                    label = "导出角色牌",
+                    enabled = state.summary != null,
+                    onClick = { startExport(true) },
+                    modifier = ComposeModifier.weight(1f),
+                )
+                ExportButton(
+                    exporting = exporting,
+                    label = "导出行动牌",
+                    enabled = state.summary != null,
+                    onClick = { startExport(false) },
+                    modifier = ComposeModifier.weight(1f),
+                )
             }
 
             TabRow(selectedTabIndex = tabIndex) {
@@ -208,6 +286,23 @@ private fun CardStatsContent(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ExportButton(
+    exporting: Boolean,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: ComposeModifier,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled && !exporting,
+        modifier = modifier,
+    ) {
+        Text(if (exporting) "导出中…" else label, maxLines = 1)
     }
 }
 

@@ -9,10 +9,12 @@ import android.Manifest
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -66,6 +68,26 @@ class CardImageSaver(private val context: Context) {
     suspend fun save(url: String, name: String, format: CoverFormat) = withContext(Dispatchers.IO) {
         val bytes = downloadBytes(url)
         val fileName = coverFileName(name, format)
+        persist(bytes, fileName, format)
+    }
+
+    /**
+     * 长图导出（V8 §3.4）：调用方已渲染好 Bitmap，这里只负责编码 + 落盘。
+     * PNG 无损、quality 参数无意义但契约要求传 100。
+     * 不 recycle —— 位图生命周期归调用方（它在 finally 里回收，避免异常路径泄漏）。
+     */
+    suspend fun saveBitmap(bitmap: Bitmap, baseName: String) = withContext(Dispatchers.IO) {
+        val bytes = ByteArrayOutputStream().use { out ->
+            if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) {
+                throw IOException("图片编码失败")
+            }
+            out.toByteArray()
+        }
+        persist(bytes, coverFileName(baseName, CoverFormat.Png), CoverFormat.Png)
+    }
+
+    /** 两条落盘路径共用：Q+ 走 MediaStore 代理写入，API 24-28 走公共目录 + MediaScanner */
+    private fun persist(bytes: ByteArray, fileName: String, format: CoverFormat) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             saveScoped(bytes, fileName, format)
         } else {
