@@ -3,6 +3,7 @@
 
 package com.gigi.tcg.ui.login
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +48,12 @@ fun LoginScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val server by viewModel.serverFlow.collectAsStateWithLifecycle()
+
+    // 添加账户页存在上一级（当前账户主界面）：系统返回键等价"返回"按钮；
+    // 首登页无上一级，不接管，保持系统默认（退出应用）。
+    BackHandler(enabled = addAccount && onCancelAddAccount != null) {
+        onCancelAddAccount?.invoke()
+    }
 
     Scaffold(
         topBar = {
