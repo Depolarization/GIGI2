@@ -215,7 +215,7 @@ private fun CharTableHeader() {
     Row(
         ComposeModifier
             .fillMaxWidth()
-            .padding(top = 4.dp, bottom = 2.dp),
+            .padding(top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -231,6 +231,7 @@ private fun CharTableHeader() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.End,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = ComposeModifier.width(col.width),
             )
         }
@@ -269,6 +270,7 @@ private fun CharCardRow(card: GcgCard, charTotalUse: Int) {
                 ),
                 textAlign = TextAlign.End,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = ComposeModifier.width(CHAR_STAT_COLUMNS[index].width),
             )
         }
@@ -305,6 +307,7 @@ private fun ActionCardRow(card: GcgCard) {
             ),
             textAlign = TextAlign.End,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = ComposeModifier.width(StatCountWidth),
         )
     }
@@ -351,7 +354,10 @@ private fun PlayerInfoCard(
             }
             FilledTonalButton(onClick = onToggle, modifier = ComposeModifier.fillMaxWidth()) {
                 Text(if (detailOpen) "收起详情" else "展开详情")
-                Icon(if (detailOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null)
+                Icon(
+                    if (detailOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (detailOpen) "收起详情" else "展开详情",
+                )
             }
             AnimatedVisibility(
                 visible = detailOpen,

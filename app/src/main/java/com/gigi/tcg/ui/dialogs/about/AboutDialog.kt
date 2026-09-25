@@ -128,7 +128,7 @@ private fun AboutParagraph(build: AnnotatedString.Builder.() -> Unit) {
     Text(
         text = buildAnnotatedString(build),
         style = MaterialTheme.typography.bodyMedium,
-        modifier = Modifier.padding(vertical = 2.dp),
+        modifier = Modifier.padding(vertical = 4.dp),
     )
 }
 

@@ -166,7 +166,7 @@ private fun WikiTabs(
             Tab(
                 selected = category.id == activeCatId,
                 onClick = { onSelect(category.id) },
-                text = { Text(category.title) },
+                text = { Text(category.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             )
         }
     }
@@ -233,7 +233,7 @@ private fun KeywordField(keyword: String, onKeywordChange: (String) -> Unit) {
             ) {
                 Icon(
                     imageVector = Icons.Outlined.Search,
-                    contentDescription = null,
+                    contentDescription = "搜索",
                     modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -406,7 +406,7 @@ private fun WikiCard(card: CardVm, onClick: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
         )
     }
 }
