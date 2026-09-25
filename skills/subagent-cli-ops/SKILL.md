@@ -89,6 +89,10 @@ OpenRouter 无官方 CLI，用 **opencode** 作 harness（原生支持 OpenRoute
 （事故：曾误记"已配置"，实际只在临时 shell 设过 ⇒ 别的 agent 调用报
 `OpenRouter API key is missing`。**"跑通过一次" ≠ "已持久化"**。）
 
+✅ **已实测：经 `schtasks` 启动的进程能读到该变量**（`HAS_KEY=YES LEN=73`）。
+即**调度器（`--daemon-task`）及其派出的 opencode 子代理都能继承到 key**，无需在派单里 export。
+⇒ 派 opencode 任务时**不要**把 key 明文写进派单/命令行，直接调即可。
+
 **🔴 `small_model` 必须一起锁**（2026-09-25 实测）：
 `~/.config/opencode/opencode.jsonc` 里 `"model"` 和 `"small_model"` **都要**写成
 `openrouter/stealth/space-bunny-alpha`。不设 small_model 的话，opencode 生成会话标题时
