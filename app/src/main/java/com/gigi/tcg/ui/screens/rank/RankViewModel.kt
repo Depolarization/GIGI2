@@ -1,6 +1,7 @@
 // 排行榜状态机：移植 web/src/pages/RankPage.tsx。
 // - 巅峰/赛事两 Tab 独立懒加载（首次切换才请求，对应 loadedTabs Set）；
-// - 刷新重取两表（force=true，绕 3 分钟 TTL 缓存）；下拉刷新/retry 只重取当前 Tab 并带 refreshing 标志；
+// - 刷新重取两表（force=true，绕 3 分钟 TTL 缓存）；下拉刷新/retry 只重取当前 Tab，
+//   refreshing 标志由"发起刷新的 tab"（refreshingTab）落定时清除，与切换后的 activeTab 无关；
 // - 分页渲染：首屏 PAGE_CHUNK 条，滚动到底追加（对应 visibleCount + IntersectionObserver）；
 // - retcode 判定集中在数据层，本层只经 describeApiError 转文案（设计红线 2）。
 
@@ -34,6 +35,14 @@ data class RankUiState(
     val activeTab: RankTab = RankTab.Peak,
 )
 
+/**
+ * 下拉刷新指示器清除判定（缺陷 A，纯函数便于 JVM 测，风格对齐 AppGate.shouldRetryVerify）：
+ * 只认"本次刷新实际发起的那个 tab"（refreshingTab），与 activeTab 无关——
+ * 刷新途中横滑切走 Tab 后，原 Tab 落定仍须清除；其他 Tab 落定不得误清。
+ */
+internal fun shouldClearRefreshing(settledTab: RankTab, refreshingTab: RankTab?): Boolean =
+    refreshingTab != null && settledTab == refreshingTab
+
 class RankViewModel(private val container: AppContainer) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RankUiState())
@@ -44,6 +53,9 @@ class RankViewModel(private val container: AppContainer) : ViewModel() {
 
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
+    // 本次下拉刷新实际发起的 tab（缺陷 A 修复核心）：清除判定只认它，不认 activeTab
+    private var refreshingTab: RankTab? = null
 
     init {
         // 会话 UID 就绪（badge_uid 参数）后才拉取当前 Tab；未登录时保持 NotLoaded 不发请求
@@ -69,6 +81,7 @@ class RankViewModel(private val container: AppContainer) : ViewModel() {
         if (_refreshing.value) return
         if (container.sessionUid.value == null) return
         _refreshing.value = true
+        refreshingTab = _uiState.value.activeTab
         ensureLoaded(_uiState.value.activeTab, force = true)
     }
 
@@ -93,7 +106,16 @@ class RankViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     private fun fetch(tab: RankTab, force: Boolean) {
-        val uid = container.sessionUid.value ?: return
+        val uid = container.sessionUid.value ?: run {
+            // 兜底：发起刷新的 tab 因 uid 提前变 null 而在此返回（异步协程未启动，
+            // 永远不会再有 setState 调用）——就地清刷新标志，否则指示器再次卡死。
+            // 只清"本次刷新的那个 tab"，不波及其余在飞请求。
+            if (shouldClearRefreshing(tab, refreshingTab)) {
+                _refreshing.value = false
+                refreshingTab = null
+            }
+            return
+        }
         val server = container.currentServer.value
         // 已有数据时静默刷新（不显示骨架，避免切 Tab / 刷新整屏抖动）
         if (force || stateOf(_uiState.value, tab) !is AsyncRankList.Content) {
@@ -121,11 +143,12 @@ class RankViewModel(private val container: AppContainer) : ViewModel() {
         _uiState.update {
             if (tab == RankTab.Peak) it.copy(peak = value) else it.copy(competition = value)
         }
-        // 当前 Tab 落定（Content/Error）即结束下拉刷新指示器
-        if (tab == _uiState.value.activeTab && value !is AsyncRankList.Loading &&
-            value !is AsyncRankList.NotLoaded
-        ) {
+        // 发起刷新的那个 Tab 落定（Content/Error）即结束下拉刷新指示器；
+        // 判定不看 activeTab——刷新途中横滑切 Tab 会导致永久卡死（缺陷 A）。
+        val settled = value !is AsyncRankList.Loading && value !is AsyncRankList.NotLoaded
+        if (settled && shouldClearRefreshing(tab, refreshingTab)) {
             _refreshing.value = false
+            refreshingTab = null
         }
     }
 

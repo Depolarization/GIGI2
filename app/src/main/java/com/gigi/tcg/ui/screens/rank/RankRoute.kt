@@ -1,6 +1,7 @@
 // 积分排行榜页：移植 web/src/pages/RankPage.tsx（设计 §5.5）。
 // 巅峰/赛事两 Tab（TabRow 指示器 + HorizontalPager 左右滑动）+ 分页 LazyColumn
-// （首屏 60 条，滚到底自动追加）+ 下拉刷新当前 Tab（PullToRefreshBox → viewModel.retry）；
+// （首屏 60 条，滚到底自动追加）+ 下拉刷新当前 Tab（PullToRefreshBox → viewModel.retry，
+// Loading/Error/Empty 三态同样可下拉）；
 // 名次 = 下标 + 1，前三名固定金/银/铜语义色（不参与动态取色，设计红线 8，
 // 色值对齐 tokens.css --color-gold/silver/bronze）；点击行回调 onOpenPlayerDetail(uid)。
 
@@ -9,16 +10,21 @@ package com.gigi.tcg.ui.screens.rank
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
@@ -124,26 +130,17 @@ private fun RankPageContent(
     onOpenPlayerDetail: (String) -> Unit,
 ) {
     when (list) {
-        AsyncRankList.Loading, AsyncRankList.NotLoaded -> Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
+        AsyncRankList.Loading, AsyncRankList.NotLoaded -> CenteredScrollableBox {
             LoadingView()
         }
 
-        is AsyncRankList.Error -> Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
+        is AsyncRankList.Error -> CenteredScrollableBox {
             ErrorState(modifier = Modifier.fillMaxWidth(), message = list.message, onRetry = onRetry)
         }
 
         is AsyncRankList.Content -> {
             if (list.items.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
+                CenteredScrollableBox {
                     EmptyState(modifier = Modifier.fillMaxWidth(), title = "${tabTitle(tab)}暂无上榜玩家")
                 }
             } else {
@@ -176,6 +173,28 @@ private fun RankPageContent(
                 }
             }
         }
+    }
+}
+
+// 缺陷 B：Loading/Error/Empty 三态原本是不可滚动的 Box，PullToRefreshBox 收不到
+// nestedScroll 事件 → 这些状态下拉无反应。包一层 verticalScroll（外层先 fillMaxSize
+// 拿到有界视口高，内层 heightIn(min=视口高) 保证内容不足一屏时仍然居中、超一屏可滚），
+// 使错误/空/加载态也能下拉刷新；ErrorState 重试按钮的点击不受滚动容器影响。
+@Composable
+private fun CenteredScrollableBox(content: @Composable BoxScope.() -> Unit) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        val viewportHeight = maxHeight
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = viewportHeight),
+            contentAlignment = Alignment.Center,
+            content = content,
+        )
     }
 }
 
