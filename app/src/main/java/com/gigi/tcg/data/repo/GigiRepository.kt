@@ -6,6 +6,8 @@
 // - 卡面详情：android.util.LruCache(200)（对齐 CardCoverDialog DETAIL_CACHE_MAX），
 //   1 秒节流由 MihoyoClient tag=TAG_DETAIL 承担，本层只在调用点打 tag。
 // 传输经 [GigiApiTransport] 最小接口注入（真身 MihoyoClientEnvelopeTransport），便于本地 stub 测试。
+// 鉴权续命：[get] 是全部接口的唯一出口——retcode -100/-101（isAuthFailureError 集中判据）→
+// [SessionRefresher] 单飞续命一次 → 原请求原样重放；续命失败/二次失败抛错上抛，绝不递归循环。
 
 package com.gigi.tcg.data.repo
 
@@ -21,6 +23,7 @@ import com.gigi.tcg.data.api.cardDetailUrl
 import com.gigi.tcg.data.api.cardListUrl
 import com.gigi.tcg.data.api.competitionRankUrl
 import com.gigi.tcg.data.api.gameRecordsUrl
+import com.gigi.tcg.data.api.isAuthFailureError
 import com.gigi.tcg.data.api.myHomePageUrl
 import com.gigi.tcg.data.api.otherHomePageUrl
 import com.gigi.tcg.data.api.peakRankUrl
@@ -35,7 +38,10 @@ import com.gigi.tcg.data.model.RankData
 import com.gigi.tcg.data.model.WikiChannelNode
 import com.gigi.tcg.domain.TtlCache
 import kotlin.random.Random
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.SerializationException
@@ -98,6 +104,13 @@ private class LruDetailCache(maxSize: Int) : DetailCacheStore {
     }
 }
 
+/** 静默续命端口：真身接线 = CredentialStore 取当前账户 → AuthManager.refreshStoredSession；
+ *  返回 true 表示凭据已更新（调用方据以原样重放请求）；false = 未更新。
+ *  续命网络往返不经本 Repository，天然无递归重试风险。 */
+interface SessionRefresher {
+    suspend fun refreshActive(): Boolean
+}
+
 class GigiRepository(
     private val transport: GigiApiTransport,
     private val wikiDiskCache: WikiDiskStore,
@@ -107,6 +120,7 @@ class GigiRepository(
     private val retryJitterMs: Long = MihoyoClient.RETRY_JITTER_SPAN_MS,
     private val now: () -> Long = { System.currentTimeMillis() },
     private val detailCache: DetailCacheStore = LruDetailCache(DETAIL_CACHE_MAX),
+    private val sessionRefresher: SessionRefresher? = null,
 ) {
 
     // ---- mihoyo.ts 原始接口（无缓存） ----
@@ -217,12 +231,48 @@ class GigiRepository(
 
     // ---- 内部 ----
 
+    // 续命单飞态：generation 每次续命尝试（无论成败）自增；失败请求以"发出前的 generation"判定
+    // 自己是否属于同波——同波只允许一次真实续命，等待者复用其结果（含失败结果），绝不重复打接口。
+    private val refreshMutex = Mutex()
+
+    @Volatile
+    private var refreshGeneration = 0L
+    private var lastRefreshSucceeded = false
+
     private suspend fun fetchCardWikiList(): WikiListData =
         get(CARD_INFO_URL, WikiListData.serializer(), "")
 
+    /** 请求唯一出口：鉴权失败（isAuthFailureError，与 AppGate 同一判据）→ 静默续命 →
+     *  同一 URL 原样重放一次。续命失败抛原错误；重放在 try 之外，二次失败直接上抛（最多重试一次）。 */
+    private suspend fun <T> get(url: String, serializer: KSerializer<T>, tag: String): T {
+        val observedGeneration = refreshGeneration
+        try {
+            return fetchAndDecode(url, serializer, tag)
+        } catch (e: ApiError) {
+            if (!isAuthFailureError(e) || !refreshSessionOnce(observedGeneration)) throw e
+        }
+        return fetchAndDecode(url, serializer, tag)
+    }
+
+    /** 单飞续命：observedGeneration 已被推进 = 同波已完成一次续命尝试，直接复用其结果；
+     *  否则在锁内真正执行一次（并发调用者经 Mutex 串行等待）。续命自身异常折算 false，由调用方抛原错误。 */
+    private suspend fun refreshSessionOnce(observedGeneration: Long): Boolean = refreshMutex.withLock {
+        if (refreshGeneration == observedGeneration) {
+            lastRefreshSucceeded = try {
+                sessionRefresher?.refreshActive() == true
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Throwable) {
+                false
+            }
+            refreshGeneration++
+        }
+        lastRefreshSucceeded
+    }
+
     /** 对齐 mihoyo.ts unwrap：retcode 判定 + RETRYABLE 等待 700ms + 0-300ms 随机抖动
      *  自动重试一次（抖动避免并发请求同刻重发再次互撞）+ data 解码 */
-    private suspend fun <T> get(url: String, serializer: KSerializer<T>, tag: String): T {
+    private suspend fun <T> fetchAndDecode(url: String, serializer: KSerializer<T>, tag: String): T {
         var envelope = transport.fetchEnvelope(url, tag)
         if (RETRYABLE_RETCODES.contains(envelope.retcode)) {
             delay(retryDelayMs + if (retryJitterMs > 0) Random.nextLong(0L, retryJitterMs + 1) else 0L)
