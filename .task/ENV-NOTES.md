@@ -369,3 +369,62 @@ grep -oE '^[[:space:]>*-]*(status|状态)[[:space:]]*[:：][[:space:]]*[`*]*[^ ]
 
 （同类坑的另一面早已在 `task_scheduler.py` 的 `_read_probe()` 注释里记录：取首条会误判、
 取 `[^ ]+` 会吞尾随文字。**这次是守望脚本没跟上调度器的修复**。）
+
+## V8 波通道回退实录（2026-09-26 00:44）
+
+**现象**：V8B / V8F 两棒用 `-m DeepSeek-Flash` 派发，**秒级立即失败**，
+日志仅 131 字节：`You've reached your credit usage limit.`（两棒同时中招）。
+
+**处置**（按 skill `subagent-cli-ops` §2.2 回退链第 1 条「先换 -m 再判死」）：
+极小探针 `-m Qwen3.8-Flash "只回复两个字：可用"` → 正常返回内容 ⇒ **通道健康，是模型档位额度耗尽**
+⇒ 换 `Qwen3.8-Flash` 重派两棒，均正常启动。
+
+**教训固化**：qoder 的额度限制是**模型档级**而非**账号级**。遇到 credit 报错时，
+**不要**直接判"通道挂了"而改派其它通道或让用户等待；先换 `-m` 试一个极小探针即可。
+（V7E 时已踩过同一次，本条为第二次实录，说明这是**常态**而非偶发。）
+
+## 🔴🔴 V8 波 git 事故：工作区文件被回退（2026-09-26 00:47）
+
+**现象**：V8B / V8F 两棒**同时卡在"构建"步骤**，且**互相把对方当成阻塞原因**：
+- V8B 日志："报错全在并发棒（AuthManager/AppContainer/AppGate）中间态"
+- V8F 探针："被并发棒阻塞：错误在 ui/export/TableImageRenderer.kt（语法错）与 AppGate/CredentialStore（非我文件）"
+
+**根因（主代理取证）**：**不是并发冲突，是工作区被回退**。
+`app/src/main/java/com/gigi/tcg/data/auth/CredentialStore.kt` 与 `.task/progress/P4-ACCOUNT.md`
+的 mtime 均为 **00:47**（本轮派单后 3 分钟），内容被换成**旧版**：
+- `CredentialStore.kt`：删掉 `cookieHeaderFor(uid)`、`activeUid()` 去掉账户存在性校验、
+  `displayName()` 丢掉 `isNotBlank()`、`save()` 去掉 `clearLegacy()`（共 -60/+16 行）
+- `P4-ACCOUNT.md`：从 `status: done`（updated 09-25 12:15，owner P4-RESUME）
+  **回退成 `status: doing`（updated 09-25 11:18，owner P4-ACCOUNT）**
+
+⇒ `AuthManager.kt:162` 调用 `credentialStore.cookieHeaderFor(account.uid)`，
+而旧版**没有该方法** ⇒ **`compileDebugKotlin` 必然失败**。
+两个子代理看到的"对方的错"其实是**同一处被回退的文件的连带后果**。
+
+**数据安全性核查（只读取证）**：
+- `git reflog -15`：**无任何 reset/checkout 记录**（最近条目是我提交的 `8159877`）
+- `git stash list`：**空**
+- P4-RESUME 的 4 个 commit（`14812c2` / `62b2c7c` / `5ceef61` / `2f68134`）**全部完好**，
+  且 `git merge-base --is-ancestor` 全部为 **YES**（都在 HEAD 链上）
+⇒ **无数据丢失**，HEAD 是权威版本。
+
+**处置**：
+1. 取证留存 `.task/evidence/V8-git-incident/`（两份 diff + 回退版文件备份）
+2. `git checkout HEAD -- <上述两个文件>` 恢复（**不写 reflog**，因为 HEAD 未移动）
+3. 验证：`grep cookieHeaderFor` 回归；`compileDebugKotlin` → **BUILD SUCCESSFUL in 4s** ✅
+
+**🔴 教训**：
+1. **`git checkout <commit> -- <path>` / `git restore --source=` 这类"单文件恢复"不写 reflog**
+   ⇒ 出事后 `git reflog` 查不到，**不能因为 reflog 干净就断定没发生 git 写操作**。
+   排查要看 **mtime** + **内容 diff 方向**（`git diff` 的 `index <HEAD>..<worktree>` 两段 hash）。
+2. **多棒并发时，"构建失败"的第一嫌疑不是并发，而是工作区被谁改坏了**。
+   定位手法：`git status --short` 看**有没有独占清单之外的文件被改**（本次 `CredentialStore.kt`
+   和 `P4-ACCOUNT.md` 都不在任何一棒的独占清单里 ⇒ 立刻可疑）。
+3. **派单必须写明：禁止任何 `git checkout` / `git restore` / `git stash` / `git reset`
+   （含单文件形式），除 `git add` 自己独占文件 + `git commit` 外不得写 git**。
+   此前派单只禁了 `git add -A`，**不够**。
+4. 子代理**互相甩锅**（都说是"并发棒的中间态"）时，主代理必须**独立取证**，
+   不能采信任何一方的归因。
+
+**本次事故只影响 2 个文件**（其余 P4 轮文件如 `AppGate.kt`/`AuthManager.kt`/`AppContainer.kt`
+均未被改，仍是 HEAD 版）⇒ 像是**针对这 2 个文件的定点 checkout**，而非全仓 reset。
