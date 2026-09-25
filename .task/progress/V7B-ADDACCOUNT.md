@@ -1,7 +1,7 @@
 # V7B-ADDACCOUNT — 添加账号返回不刷新页面
 
-status: doing
-下一步：读 AppGate 全文 ✅ → 状态机改动 ✅ → AppGate 叠加层 ✅ → 构建+单测
+status: done（构建+171/171 单测全绿；commit 0d9f958 + 228ec24）
+内容：读 AppGate 全文 ✅ → 状态机改动 ✅ → AppGate 叠加层 ✅ → 构建+单测 ✅
 
 ## 现象
 主页点顶栏账户名 →"添加账号"→ 返回键 → 主页被重置（跳回首页 tab、滚动丢失）。
