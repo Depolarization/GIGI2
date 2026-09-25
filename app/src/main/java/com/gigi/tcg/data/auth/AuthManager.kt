@@ -36,7 +36,6 @@ import kotlin.coroutines.resumeWithException
 /** finalize 结果：Success 仅在凭据交换成功（已落盘）时返回；NoRole 绝不落盘（设计 §3.3） */
 sealed interface AuthFinalizeResult {
     data class Success(
-        val mergedCookie: String,
         val gameUid: String,
         val nickname: String?,
         val exchanged: Boolean,
@@ -115,8 +114,24 @@ class AuthManager(
      * 无匹配角色 → [AuthFinalizeResult.NoRole]（🔴 不调用 save、零副作用）；
      * 交换成功（合并结果含 e_hk4e_token）→ credentialStore.save(merged) 后返回 Success。
      */
-    suspend fun finalize(confirmedCookies: List<String>, server: ServerId): AuthFinalizeResult {
-        val fragments = mergeFragments(confirmedCookies)
+    suspend fun finalize(confirmedCookies: List<String>, server: ServerId): AuthFinalizeResult =
+        completeExchange(mergeFragments(confirmedCookies), server, previous = null)
+
+    suspend fun refreshStoredSession(account: StoredAccount): AuthFinalizeResult {
+        val cookie = credentialStore.cookieHeaderFor(account.uid)
+            ?: throw IOException("登录凭据已失效，请重新扫码")
+        return completeExchange(
+            fragments = mergeFragments(listOf(cookie)),
+            server = account.server(),
+            previous = account,
+        )
+    }
+
+    private suspend fun completeExchange(
+        fragments: List<String>,
+        server: ServerId,
+        previous: StoredAccount?,
+    ): AuthFinalizeResult {
         val baseCookie = fragments.joinToString("; ")
         val accountId =
             findPair(fragments, "account_id") ?: findPair(fragments, "account_id_v2")
@@ -125,7 +140,6 @@ class AuthManager(
             throw IOException("登录凭据不完整（缺少 account_id / cookie_token_v2）")
         }
 
-        // ① 按所选服务器发现原神 game_uid（auth-core.mjs getGameRecordCard：Cookie 为完整基础凭据）
         val cardRequest = Request.Builder()
             .url(
                 "$RECORD_ORIGIN/game_record/app/card/wapi/getGameRecordCard" +
@@ -139,30 +153,39 @@ class AuthManager(
         val role = findGameRoleForRegion(recordList, server.id)
             ?: return AuthFinalizeResult.NoRole(region = server.id)
 
-        // ② 交换 e_hk4e_token（auth-core.mjs 原文：Cookie 用 cookie_token=<cookie_token_v2 的值>，而非 _v2 键名）
         val region = role.region.orEmpty()
         val gameRoleId = role.gameRoleId.orEmpty()
+        if (previous != null && previous.uid != gameRoleId) {
+            throw IOException("账户角色不匹配")
+        }
         val exchangeRequest = Request.Builder()
             .url(BADGE_LOGIN_URL)
             .post(badgeLoginBody(json, region, gameRoleId))
             .header("Cookie", "account_id=$accountId; cookie_token=$cookieTokenV2")
             .build()
-        // auth-core.mjs 不校验交换接口 retcode：e_hk4e_token 是否下发是唯一判据（exchanged 语义）
         val exchange = execute(exchangeRequest) { resp ->
             ExchangePayload(setCookiePairs(resp), resp.parseAsOrNull<BadgeLoginEnvelope>()?.data?.nickname)
         }
-        val merged = mergeFragments(fragments + exchange.extraCookies)
-        val exchanged = merged.any { it.startsWith(E_HK4E_TOKEN_PREFIX) }
-        // 🔴 仅交换成功才落盘（设计 §3.3：拒绝半登录状态）
+        val exchanged = hasFreshEhk4e(exchange.extraCookies)
         if (!exchanged) {
             throw IOException("凭据交换失败：响应未携带 e_hk4e_token")
         }
+        if (previous != null && credentialStore.activeUid() != previous.uid) {
+            throw IOException("账户已切换，放弃本次续命")
+        }
+        val merged = mergeFragments(fragments + exchange.extraCookies)
         val mergedCookie = merged.joinToString("; ")
-        credentialStore.save(mergedCookie)
+        credentialStore.save(
+            mergedCookie,
+            StoredAccount(
+                uid = gameRoleId,
+                nickname = exchange.nickname ?: previous?.nickname,
+                serverId = server.id,
+            ),
+        )
         return AuthFinalizeResult.Success(
-            mergedCookie = mergedCookie,
             gameUid = gameRoleId,
-            nickname = exchange.nickname,
+            nickname = exchange.nickname ?: previous?.nickname,
             exchanged = true,
         )
     }
@@ -245,6 +268,9 @@ class AuthManager(
         const val RETCODE_EXPIRED: Int = -3501
         const val RETCODE_CANCELLED: Int = -3505
         const val E_HK4E_TOKEN_PREFIX: String = "e_hk4e_token="
+
+        fun hasFreshEhk4e(fragments: List<String>): Boolean =
+            fragments.any { it.startsWith(E_HK4E_TOKEN_PREFIX) }
 
         private val EMPTY_BODY = "".toRequestBody(null)
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()

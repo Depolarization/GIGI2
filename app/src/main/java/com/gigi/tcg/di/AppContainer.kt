@@ -8,6 +8,7 @@ import com.gigi.tcg.data.api.CredentialSource
 import com.gigi.tcg.data.api.MihoyoClient
 import com.gigi.tcg.data.auth.AuthManager
 import com.gigi.tcg.data.auth.CredentialStore
+import com.gigi.tcg.data.auth.StoredAccount
 import com.gigi.tcg.data.cache.WikiDiskCache
 import com.gigi.tcg.data.repo.GigiApiTransport
 import com.gigi.tcg.data.repo.GigiRepository
@@ -60,6 +61,43 @@ class AppContainer(private val appContext: Context) {
 
     /** 会话内已登录标记（内存级，对齐 auth.tsx sessionUidRef 语义的容器侧镜像） */
     val sessionUid: StateFlow<String?> = _sessionUid.asStateFlow()
+
+    private val _accounts = MutableStateFlow<List<StoredAccount>>(emptyList())
+    val accounts: StateFlow<List<StoredAccount>> = _accounts.asStateFlow()
+
+    private val _activeAccountUid = MutableStateFlow<String?>(null)
+    val activeAccountUid: StateFlow<String?> = _activeAccountUid.asStateFlow()
+
+    init {
+        refreshAccounts()
+    }
+
+    fun refreshAccounts() {
+        val storedAccounts = credentialStore.accounts()
+        _accounts.value = storedAccounts
+        val storedActiveUid = credentialStore.activeUid()
+        val activeUid = storedActiveUid ?: storedAccounts.firstOrNull()?.uid
+        if (storedActiveUid == null && activeUid != null) {
+            credentialStore.setActiveUid(activeUid)
+        }
+        _activeAccountUid.value = activeUid
+        if (activeUid == null) {
+            _currentServer.value = ServerId.DEFAULT
+        } else {
+            _currentServer.value = storedAccounts.first { it.uid == activeUid }.server()
+        }
+    }
+
+    fun activateAccount(uid: String): Boolean {
+        val account = credentialStore.accounts().firstOrNull { it.uid == uid } ?: return false
+        if (!CredentialStore.isSafeUid(uid)) return false
+        if (credentialStore.cookieHeaderFor(uid) == null) return false
+        credentialStore.setActiveUid(uid)
+        updateSession(account.uid)
+        selectServer(account.server())
+        refreshAccounts()
+        return true
+    }
 
     fun updateSession(uid: String?) {
         _sessionUid.value = uid

@@ -23,6 +23,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -35,7 +36,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gigi.tcg.data.ServerId
 
 @Composable
-fun LoginScreen(viewModel: LoginViewModel, expiredNotice: Boolean = false) {
+fun LoginScreen(
+    viewModel: LoginViewModel,
+    expiredNotice: Boolean = false,
+    addAccount: Boolean = false,
+    onCancelAddAccount: (() -> Unit)? = null,
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val server by viewModel.serverFlow.collectAsStateWithLifecycle()
 
@@ -48,6 +54,16 @@ fun LoginScreen(viewModel: LoginViewModel, expiredNotice: Boolean = false) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(24.dp))
+            if (addAccount) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = { onCancelAddAccount?.invoke() }) {
+                        Text("返回当前账户")
+                    }
+                }
+            }
             Card(Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(24.dp),
@@ -55,7 +71,7 @@ fun LoginScreen(viewModel: LoginViewModel, expiredNotice: Boolean = false) {
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     Text(
-                        "GIGI · 七圣召唤赛事工具",
+                        if (addAccount) "GIGI · 添加账户" else "GIGI · 七圣召唤赛事工具",
                         style = MaterialTheme.typography.titleLarge,
                         textAlign = TextAlign.Center,
                     )
@@ -103,8 +119,12 @@ fun LoginScreen(viewModel: LoginViewModel, expiredNotice: Boolean = false) {
                     }
 
                     Text(
-                        "二维码由米哈游通行证签发，确认后自动按当前所选服务器完成凭据交换。" +
-                            "凭据仅保存在本机加密区，不会上传至任何服务器。",
+                        if (addAccount) {
+                            "新扫码账户将加入本机账户列表，其他账户不会丢失。"
+                        } else {
+                            "二维码由米哈游通行证签发，确认后自动按当前所选服务器完成凭据交换。" +
+                                "凭据仅保存在本机加密区，不会上传至任何服务器。"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,

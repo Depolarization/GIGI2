@@ -38,7 +38,7 @@ data class StoredAccount(
     fun server(): ServerId = ServerId.from(serverId) ?: ServerId.DEFAULT
 
     /** 菜单展示名：昵称缺失时以 uid 尾号兜底，保证可区分 */
-    fun displayName(): String = nickname ?: "玩家${uid.takeLast(4)}"
+    fun displayName(): String = nickname?.takeIf { it.isNotBlank() } ?: "玩家${uid.takeLast(4)}"
 }
 
 class CredentialStore(context: Context) : CredentialSource {
@@ -52,17 +52,22 @@ class CredentialStore(context: Context) : CredentialSource {
 
     /** 当前激活账户的凭据（Cookie 头）；无激活账户时回退旧版单槽；均无 → null */
     override fun cookieHeader(): String? {
-        activeUid()?.let { uid ->
-            decryptForKey(cipherPrefsKey(uid), keyAlias(uid))?.let { return it }
-        }
+        val uid = activeUid()
+        if (uid != null) return decryptForKey(cipherPrefsKey(uid), keyAlias(uid))
         return decryptForKey(LEGACY_CIPHER_KEY, LEGACY_KEY_ALIAS)
+    }
+
+    fun cookieHeaderFor(uid: String): String? {
+        if (!isSafeUid(uid)) return null
+        return decryptForKey(cipherPrefsKey(uid), keyAlias(uid))
     }
 
     /** 账户索引（头 = 最近使用）；索引损坏时返回空列表，视为无账户 */
     fun accounts(): List<StoredAccount> = parseAccountIndex(prefs.getString(KEY_INDEX, null))
 
     /** 当前激活账户 uid（无/非法 → null） */
-    fun activeUid(): String? = prefs.getString(KEY_ACTIVE_UID, null)?.takeIf { isSafeUid(it) }
+    fun activeUid(): String? = prefs.getString(KEY_ACTIVE_UID, null)
+        ?.takeIf { isSafeUid(it) && accounts().any { account -> account.uid == it } }
 
     // ===== 写入（新登录 / 静默续命成功） =====
 
@@ -73,6 +78,7 @@ class CredentialStore(context: Context) : CredentialSource {
     fun save(cookieFragments: String, account: StoredAccount) {
         require(isSafeUid(account.uid)) { "非法 uid：拒绝用作存储键" }
         saveCiphertext(cipherPrefsKey(account.uid), keyAlias(account.uid), cookieFragments)
+        clearLegacy()
         val rest = accounts().filterNot { it.uid == account.uid }
         val record = account.copy(lastActiveEpochMs = System.currentTimeMillis())
         writeIndex(listOf(record) + rest)
@@ -87,6 +93,7 @@ class CredentialStore(context: Context) : CredentialSource {
         val uid = activeUid()
         if (uid != null && accounts().any { it.uid == uid }) {
             saveCiphertext(cipherPrefsKey(uid), keyAlias(uid), cookieFragments)
+            clearLegacy()
         } else {
             saveCiphertext(LEGACY_CIPHER_KEY, LEGACY_KEY_ALIAS, cookieFragments)
         }
@@ -97,7 +104,8 @@ class CredentialStore(context: Context) : CredentialSource {
         if (!isSafeUid(uid)) return
         val all = accounts()
         val hit = all.firstOrNull { it.uid == uid } ?: return
-        writeIndex(listOf(hit) + all.filterNot { it.uid == uid })
+        val recent = hit.copy(lastActiveEpochMs = System.currentTimeMillis())
+        writeIndex(listOf(recent) + all.filterNot { it.uid == uid })
         prefs.edit().putString(KEY_ACTIVE_UID, uid).apply()
     }
 
@@ -108,12 +116,12 @@ class CredentialStore(context: Context) : CredentialSource {
      * 旧槽密文解密后按账户槽重加密落盘，删除旧别名，建索引并激活。
      * 返回是否发生了收养。
      */
-    fun adoptActiveCookie(uid: String, server: ServerId): Boolean {
+    fun adoptActiveCookie(uid: String, server: ServerId, nickname: String? = null): Boolean {
         val active = activeUid()
         if (active != null && accounts().any { it.uid == active }) return false
         if (!isSafeUid(uid)) return false
         val legacy = decryptForKey(LEGACY_CIPHER_KEY, LEGACY_KEY_ALIAS) ?: return false
-        save(legacy, StoredAccount(uid = uid, nickname = null, serverId = server.id))
+        save(legacy, StoredAccount(uid = uid, nickname = nickname, serverId = server.id))
         prefs.edit().remove(LEGACY_CIPHER_KEY).apply()
         deleteAlias(LEGACY_KEY_ALIAS)
         return true
@@ -130,6 +138,7 @@ class CredentialStore(context: Context) : CredentialSource {
         prefs.edit().remove(cipherPrefsKey(uid)).apply()
         if (activeUid() == uid) {
             prefs.edit().remove(KEY_ACTIVE_UID).apply()
+            clearLegacy()
         }
         deleteAlias(keyAlias(uid))
         val rest = accounts().filterNot { it.uid == uid }
@@ -137,18 +146,36 @@ class CredentialStore(context: Context) : CredentialSource {
         return rest
     }
 
+    fun clearLegacy() {
+        prefs.edit().remove(LEGACY_CIPHER_KEY).apply()
+        deleteAlias(LEGACY_KEY_ALIAS)
+    }
+
     /** 旧版全清（androidTest 用）：清全部密文/索引/激活键 + 删除索引内与旧版全部 Keystore 别名 */
     fun clear() {
-        // 先取别名清单再清 prefs（索引随 prefs 一起被清）
-        val aliases = accounts().map { keyAlias(it.uid) } + LEGACY_KEY_ALIAS
+        val keyStore = try {
+            keyStore()
+        } catch (e: GeneralSecurityException) {
+            null
+        }
+        val aliases = buildSet {
+            add(LEGACY_KEY_ALIAS)
+            addAll(accounts().map { keyAlias(it.uid) })
+            keyStore?.aliases()?.let { entries ->
+                while (entries.hasMoreElements()) {
+                    val alias = entries.nextElement()
+                    if (alias.startsWith(keyAlias(""))) add(alias)
+                }
+            }
+        }
         prefs.edit().clear().apply()
         try {
-            val keyStore = keyStore()
-            aliases.forEach { alias ->
-                if (keyStore.containsAlias(alias)) keyStore.deleteEntry(alias)
+            keyStore?.let { store ->
+                aliases.forEach { alias ->
+                    if (store.containsAlias(alias)) store.deleteEntry(alias)
+                }
             }
         } catch (e: GeneralSecurityException) {
-            // 密钥本就不可用时，密文已清除即可
         }
     }
 
@@ -178,7 +205,8 @@ class CredentialStore(context: Context) : CredentialSource {
             val iv = payload.copyOfRange(0, GCM_IV_BYTES)
             val ciphertext = payload.copyOfRange(GCM_IV_BYTES, payload.size)
             val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.DECRYPT_MODE, obtainKey(alias), GCMParameterSpec(GCM_TAG_BITS, iv))
+            val key = existingKey(alias) ?: return null
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
             String(cipher.doFinal(ciphertext), Charsets.UTF_8)
         } catch (e: GeneralSecurityException) {
             null // 密文损坏/密钥失效 → 视为未登录，不抛出
@@ -200,12 +228,16 @@ class CredentialStore(context: Context) : CredentialSource {
 
     private fun writeIndex(accounts: List<StoredAccount>) {
         prefs.edit()
-            .putString(
-                KEY_INDEX,
-                INDEX_JSON.encodeToString(ListSerializer(StoredAccount.serializer()), accounts),
-            )
+            .putString(KEY_INDEX, encodeAccountIndex(accounts))
             .apply()
     }
+
+    private fun existingKey(alias: String): SecretKey? =
+        try {
+            (keyStore().getEntry(alias, null) as? KeyStore.SecretKeyEntry)?.secretKey
+        } catch (e: GeneralSecurityException) {
+            null
+        }
 
     private fun obtainKey(alias: String): SecretKey {
         val keyStore = keyStore()
@@ -255,6 +287,9 @@ class CredentialStore(context: Context) : CredentialSource {
         /** ⑨ 槽位 Keystore 别名（per-account 密钥，退出=删该别名） */
         fun keyAlias(uid: String): String = "gigi_credentials_key_$uid"
 
+        fun encodeAccountIndex(accounts: List<StoredAccount>): String =
+            INDEX_JSON.encodeToString(ListSerializer(StoredAccount.serializer()), accounts)
+
         /**
          * uid 白名单：仅字母/数字/下划线/连字符。Keystore 别名与 prefs 键均含 uid，
          * 不校验会把非法字符（空格、控制符、'../' 等）注入存储键。
@@ -266,7 +301,9 @@ class CredentialStore(context: Context) : CredentialSource {
         fun parseAccountIndex(raw: String?): List<StoredAccount> {
             if (raw.isNullOrBlank()) return emptyList()
             return try {
+                val seen = HashSet<String>()
                 INDEX_JSON.decodeFromString<List<StoredAccount>>(raw)
+                    .filter { isSafeUid(it.uid) && seen.add(it.uid) }
             } catch (e: SerializationException) {
                 emptyList()
             } catch (e: IllegalArgumentException) {

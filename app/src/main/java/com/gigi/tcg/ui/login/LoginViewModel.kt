@@ -18,6 +18,7 @@ import com.gigi.tcg.data.auth.AuthManager
 import com.gigi.tcg.data.auth.QrSession
 import com.gigi.tcg.di.AppContainer
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -55,7 +56,10 @@ sealed interface LoginUiState {
     }
 }
 
-class LoginViewModel(app: Application) : AndroidViewModel(app) {
+class LoginViewModel(
+    app: Application,
+    private val addAccount: Boolean = false,
+) : AndroidViewModel(app) {
 
     private val container: AppContainer = (app as GigiApp).container
     private val authManager: AuthManager = container.authManager
@@ -63,17 +67,18 @@ class LoginViewModel(app: Application) : AndroidViewModel(app) {
     private val _uiState = MutableStateFlow<LoginUiState>(LoginUiState.Checking())
     val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
 
-    /** 当前服务器（容器内存态，供 segmented 按钮高亮） */
-    val serverFlow: StateFlow<ServerId> = container.currentServer
+    private val _server = MutableStateFlow(container.currentServer.value)
+    val serverFlow: StateFlow<ServerId> = _server.asStateFlow()
 
     private var qrJob: Job? = null
+    private var finalizeJob: Job? = null
 
     /** LoginPage.tsx runSeqRef 语义：旧流程的迟到回调用 generation 判弃 */
     private var generation = 0
 
     init {
         // 登录成功切主界面后 NavHost 可能销毁重建本 VM：凭据已在且已 LoggedIn 时不再发起新流程
-        if (container.sessionUid.value == null) {
+        if (addAccount || container.sessionUid.value == null) {
             startQr()
         } else {
             _uiState.value = LoginUiState.LoggedIn(container.sessionUid.value.orEmpty())
@@ -82,8 +87,8 @@ class LoginViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 服务器二选一：换服即重启 QR 流程并清除换服提示（finalize/轮询均绑定当前服务器） */
     fun selectServer(server: ServerId) {
-        if (container.currentServer.value == server) return
-        container.selectServer(server)
+        if (_server.value == server) return
+        _server.value = server
         clearNotice()
         startQr()
     }
@@ -91,9 +96,33 @@ class LoginViewModel(app: Application) : AndroidViewModel(app) {
     /** Failed 态"重新生成二维码"按钮（对齐 LoginPage 的 error 分支） */
     fun retry() = startQr()
 
+    fun start() = begin()
+
+    fun begin() {
+        if (qrJob?.isActive == true || finalizeJob?.isActive == true) return
+        generation++
+        qrJob?.cancel()
+        finalizeJob?.cancel()
+        qrJob = null
+        finalizeJob = null
+        _server.value = container.currentServer.value
+        _uiState.value = LoginUiState.Checking()
+        startQr()
+    }
+
+    fun cancel() {
+        generation++
+        qrJob?.cancel()
+        finalizeJob?.cancel()
+        qrJob = null
+        finalizeJob = null
+        _uiState.value = LoginUiState.Checking()
+    }
+
     private fun startQr() {
         val gen = ++generation
         qrJob?.cancel()
+        finalizeJob?.cancel()
         qrJob = viewModelScope.launch {
             _uiState.value = LoginUiState.Checking(notice = _uiState.value.notice)
             try {
@@ -107,11 +136,13 @@ class LoginViewModel(app: Application) : AndroidViewModel(app) {
                 _uiState.value = LoginUiState.Qr(
                     payload = bitmap,
                     phase = QrPhase.Waiting,
-                    server = container.currentServer.value,
+                    server = _server.value,
                     notice = _uiState.value.notice,
                 )
                 poll(gen, created, System.currentTimeMillis() + QR_LIFETIME_MS)
-            } catch (e: IOException) {
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (e: Exception) {
                 if (gen == generation) {
                     _uiState.value = LoginUiState.Failed(e.message ?: "二维码生成失败")
                 }
@@ -129,8 +160,14 @@ class LoginViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 QrSession.Scanned -> setPhase(QrPhase.Scanned)
                 is QrSession.Confirmed -> {
-                    generation++ // 作废本流程后续的轮询/换码
-                    viewModelScope.launch { finalize(session.cookieFragments) }
+                    generation++
+                    finalizeJob = viewModelScope.launch {
+                        try {
+                            finalize(session.cookieFragments)
+                        } finally {
+                            finalizeJob = null
+                        }
+                    }
                 }
                 QrSession.Expired, QrSession.Cancelled -> restart(gen)
             }
@@ -144,11 +181,13 @@ class LoginViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun finalize(cookies: List<String>) {
-        val server = container.currentServer.value
+        val server = _server.value
         _uiState.value = LoginUiState.Finalizing(server)
         try {
             when (val result = authManager.finalize(cookies, server)) {
                 is AuthFinalizeResult.Success -> {
+                    container.selectServer(server)
+                    container.refreshAccounts()
                     container.updateSession(result.gameUid)
                     _uiState.value = LoginUiState.LoggedIn(result.gameUid)
                 }
@@ -161,7 +200,9 @@ class LoginViewModel(app: Application) : AndroidViewModel(app) {
                     startQr()
                 }
             }
-        } catch (e: IOException) {
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (e: Exception) {
             _uiState.value = LoginUiState.Failed(e.message ?: "登录失败，请重试")
         }
     }
@@ -186,11 +227,11 @@ class LoginViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     companion object {
-        fun factory(app: Application): ViewModelProvider.Factory =
+        fun factory(app: Application, addAccount: Boolean = false): ViewModelProvider.Factory =
             object : ViewModelProvider.AndroidViewModelFactory(app) {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    LoginViewModel(app) as T
+                    LoginViewModel(app, addAccount) as T
             }
     }
 }

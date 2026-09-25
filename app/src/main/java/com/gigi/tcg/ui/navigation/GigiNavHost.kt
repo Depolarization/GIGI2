@@ -13,14 +13,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PersonSearch
 import androidx.compose.material.icons.outlined.Style
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +33,7 @@ import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -53,7 +55,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.gigi.tcg.GigiApp
-import com.gigi.tcg.data.ServerId
 import com.gigi.tcg.ui.components.LocalToast
 import com.gigi.tcg.ui.components.ToastController
 import com.gigi.tcg.ui.components.ToastHost
@@ -61,7 +62,7 @@ import com.gigi.tcg.ui.dialogs.about.AboutDialog
 import com.gigi.tcg.ui.dialogs.cardcover.CardCoverSheet
 import com.gigi.tcg.ui.dialogs.playerdetail.PlayerDetailDialog
 import com.gigi.tcg.ui.dialogs.playerdetail.PlayerQueryDialog
-import com.gigi.tcg.ui.login.LocalLogout
+import com.gigi.tcg.ui.login.LocalAccountActions
 import com.gigi.tcg.ui.screens.cardstats.CardStatsRoute
 import com.gigi.tcg.ui.screens.cardwiki.CardWikiRoute
 import com.gigi.tcg.ui.screens.home.HomeRoute
@@ -92,19 +93,31 @@ private val RAIL_BREAKPOINT = 840.dp
 fun GigiNavHost() {
     val container = (LocalContext.current.applicationContext as GigiApp).container
     val server by container.currentServer.collectAsStateWithLifecycle()
-    val logout = LocalLogout.current
+    val sessionUid by container.sessionUid.collectAsStateWithLifecycle()
+    val accounts by container.accounts.collectAsStateWithLifecycle()
+    val activeUid by container.activeAccountUid.collectAsStateWithLifecycle()
+    val actions = LocalAccountActions.current
+    val activeAccount = accounts.firstOrNull { it.uid == activeUid }
 
-    // ===== 全局弹窗/提示状态（web state/ui.tsx 的骨架层等价物），置于 key(server) 之外跨重建存活 =====
     var queryOpen by remember { mutableStateOf(false) }
     var detailUid by remember { mutableStateOf<String?>(null) }
     var coverId by remember { mutableStateOf<Long?>(null) }
     var aboutOpen by remember { mutableStateOf(false) }
+    var accountMenuOpen by remember { mutableStateOf(false) }
+    var logoutConfirmOpen by remember { mutableStateOf(false) }
     val toastController = remember { ToastController() }
-    // 服务器切换后重挂载的起始路由 = 切换前所在 tab
     var startRoute by remember { mutableStateOf(ROUTE_HOME) }
     var announcedServer by remember { mutableStateOf(server) }
 
-    // 切换提示放在重建后的帧发出：旧 ToastHost 已退场，消息由新宿主消费，不会丢
+    LaunchedEffect(sessionUid) {
+        queryOpen = false
+        detailUid = null
+        coverId = null
+        aboutOpen = false
+        accountMenuOpen = false
+        logoutConfirmOpen = false
+    }
+
     LaunchedEffect(server) {
         if (server != announcedServer) {
             announcedServer = server
@@ -113,11 +126,10 @@ fun GigiNavHost() {
     }
 
     CompositionLocalProvider(LocalToast provides { toastController.show(it) }) {
-        key(server) {
+        key(server to sessionUid) {
             val navController = rememberNavController()
             val backStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = backStackEntry?.destination?.route
-            var serverMenuOpen by remember { mutableStateOf(false) }
 
             BoxWithConstraints {
                 val useRail = maxWidth >= RAIL_BREAKPOINT
@@ -133,40 +145,56 @@ fun GigiNavHost() {
                                     Icon(Icons.Outlined.PersonSearch, contentDescription = "玩家查询")
                                 }
                                 Box {
-                                    IconButton(onClick = { serverMenuOpen = true }) {
-                                        Icon(
-                                            Icons.Outlined.Cloud,
-                                            contentDescription = "服务器：${server.shortName}，点击切换",
-                                        )
+                                    TextButton(onClick = { accountMenuOpen = true }) {
+                                        Text(activeAccount?.displayName() ?: "账户")
                                     }
                                     DropdownMenu(
-                                        expanded = serverMenuOpen,
-                                        onDismissRequest = { serverMenuOpen = false },
+                                        expanded = accountMenuOpen,
+                                        onDismissRequest = { accountMenuOpen = false },
                                     ) {
-                                        ServerId.ALL.forEach { option ->
+                                        accounts.forEach { account ->
                                             DropdownMenuItem(
-                                                text = { Text(option.name) },
+                                                text = {
+                                                    Text(
+                                                        "${account.displayName()}（${account.server().shortName}）",
+                                                    )
+                                                },
                                                 leadingIcon = {
-                                                    if (option == server) {
+                                                    if (account.uid == activeUid) {
                                                         Icon(Icons.Outlined.Check, contentDescription = null)
                                                     }
                                                 },
                                                 onClick = {
-                                                    serverMenuOpen = false
-                                                    if (option != server) {
+                                                    accountMenuOpen = false
+                                                    if (account.uid != activeUid) {
                                                         startRoute = currentRoute ?: ROUTE_HOME
-                                                        container.selectServer(option)
+                                                        actions.switchAccount(account.uid)
                                                     }
                                                 },
                                             )
                                         }
+                                        DropdownMenuItem(
+                                            text = { Text("添加账户") },
+                                            leadingIcon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                                            onClick = {
+                                                accountMenuOpen = false
+                                                actions.addAccount()
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("退出当前账户") },
+                                            leadingIcon = {
+                                                Icon(Icons.AutoMirrored.Outlined.Logout, contentDescription = null)
+                                            },
+                                            onClick = {
+                                                accountMenuOpen = false
+                                                logoutConfirmOpen = true
+                                            },
+                                        )
                                     }
                                 }
                                 IconButton(onClick = { aboutOpen = true }) {
                                     Icon(Icons.Outlined.Info, contentDescription = "关于")
-                                }
-                                IconButton(onClick = logout) {
-                                    Icon(Icons.AutoMirrored.Outlined.Logout, contentDescription = "退出登录")
                                 }
                             },
                         )
@@ -236,7 +264,6 @@ fun GigiNavHost() {
             }
         }
 
-        // ===== 全局弹窗挂载（§4.5：Detail/About 用 Dialog，CardCover 用 ModalBottomSheet）=====
         if (queryOpen) {
             PlayerQueryDialog(
                 onSubmit = { uid ->
@@ -250,6 +277,24 @@ fun GigiNavHost() {
         CardCoverSheet(contentId = coverId?.toInt(), onDismiss = { coverId = null })
         if (aboutOpen) {
             AboutDialog(onClose = { aboutOpen = false })
+        }
+        if (logoutConfirmOpen) {
+            AlertDialog(
+                onDismissRequest = { logoutConfirmOpen = false },
+                title = { Text("退出当前账户？") },
+                text = { Text("退出后将删除本机保存的当前账户凭据，其他账户不受影响。") },
+                dismissButton = {
+                    TextButton(onClick = { logoutConfirmOpen = false }) { Text("取消") }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            logoutConfirmOpen = false
+                            actions.logout()
+                        },
+                    ) { Text("退出") }
+                },
+            )
         }
     }
 }
