@@ -1,7 +1,7 @@
-status: doing
-owner: P4-ACCOUNT
-files: []
-evidence: []
+status: done
+owner: P4-RESUME
+files: [data/auth/AuthManager.kt, data/auth/CredentialStore.kt, di/AppContainer.kt, ui/login/AppGate.kt, ui/login/LoginScreen.kt, ui/login/LoginViewModel.kt, ui/navigation/GigiNavHost.kt, test/data/auth/CredentialStoreTest.kt]
+evidence: [":app:assembleDebug => 0", ":app:testDebugUnitTest => 0", ":app:lintDebug => 0"]
 blockers: []
 summary: >-
   设计（⑧⑨⑩）：CredentialStore 多槽——Keystore 别名 gigi_credentials_key_<uid>（isSafeUid 白名单防注入），
@@ -14,4 +14,12 @@ summary: >-
   e_hk4e_token）→ 合并落盘续命留主界面；失败踢登录页。如实注明：能静默续的是 e_hk4e 会话，cookie_token_v2 有期
   （数天~数周），彻底过期仍需重扫。纯函数（索引序列化/键派生）配 JVM 单测。
   注：app/src/test/java/com/gigi/tcg/ui/ 为他代理未跟踪文件（StatsFormatTest），本棒不触碰、不 add。
-updated: 2026-09-25 11:18
+updated: 2026-09-25 12:15
+
+## RESUME
+- 接续修复 CredentialStore 列表序列化，并完成多账户存储/切换/添加/退出确认接线。
+- AuthManager 保存正式账户索引；Gate 对 -100/-101 仅用当前账户重新交换新 e_hk4e_token，失败回登录。
+- JVM 覆盖 uid 白名单、键派生、索引编码/解析及新 token 判定。
+- 验证：assembleDebug=0；lintDebug=0；全量 testDebugUnitTest=0（含 P4 CredentialStoreTest）。
+- 提交：14812c2、62b2c7c、5ceef61、2f68134。
+
