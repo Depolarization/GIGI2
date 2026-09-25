@@ -15,6 +15,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -93,15 +94,21 @@ fun CardStatsRoute(
     val viewModel: CardStatsViewModel = viewModel(key = "cardStats", factory = CardStatsViewModel.factory(app))
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
+    // 三态与其余三页统一：共享组件内部 fillMaxWidth 会覆盖外部 align，
+    // 统一用 Box 居中承载，避免 LoadingView 被拉成整屏高
     when {
-        state.loading -> LoadingView(modifier = modifier.fillMaxSize(), label = "卡牌统计加载中")
+        state.loading -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            LoadingView(label = "卡牌统计加载中")
+        }
 
-        state.error != null -> Column(modifier.fillMaxSize()) {
+        state.error != null -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             val retry: (() -> Unit)? = if (state.errorCanRetry) viewModel::retry else null
             ErrorState(message = state.error ?: "", onRetry = retry)
         }
 
-        state.isEmpty -> EmptyState(modifier = modifier.fillMaxSize(), title = "返回数据为空")
+        state.isEmpty -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            EmptyState(title = "返回数据为空")
+        }
 
         else -> CardStatsContent(state, viewModel, modifier)
     }
