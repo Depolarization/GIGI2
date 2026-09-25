@@ -45,7 +45,7 @@ LoginScreen：`BackHandler(enabled = addAccount) { onCancelAddAccount?.invoke() 
 - C ✅ LoginScreen：`BackHandler(enabled = addAccount && onCancelAddAccount != null)`，
   首登页不接管。AppContainer.kt 未改（根因在 Gate 侧修即可，容器保持单写者语义）。
 
-status: 构建/测试运行中
+status: done — BUILD SUCCESSFUL 150/0，三次提交 b13335a / 2d1d634 / efe6e68
 
 ## 测试
 - 新建 app/src/test/java/com/gigi/tcg/ui/login/GateVerifyRetryTest.kt：
