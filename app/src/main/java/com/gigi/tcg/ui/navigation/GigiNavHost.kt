@@ -141,9 +141,6 @@ fun GigiNavHost() {
                                 Text(destinations.firstOrNull { it.route == currentRoute }?.label ?: "GIGI")
                             },
                             actions = {
-                                IconButton(onClick = { queryOpen = true }) {
-                                    Icon(Icons.Outlined.PersonSearch, contentDescription = "玩家查询")
-                                }
                                 Box {
                                     TextButton(onClick = { accountMenuOpen = true }) {
                                         Text(activeAccount?.displayName() ?: "账户")
@@ -192,6 +189,9 @@ fun GigiNavHost() {
                                             },
                                         )
                                     }
+                                }
+                                IconButton(onClick = { queryOpen = true }) {
+                                    Icon(Icons.Outlined.PersonSearch, contentDescription = "玩家查询")
                                 }
                                 IconButton(onClick = { aboutOpen = true }) {
                                     Icon(Icons.Outlined.Info, contentDescription = "关于")
