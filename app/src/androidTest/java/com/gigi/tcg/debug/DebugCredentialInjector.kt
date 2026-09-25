@@ -1,12 +1,14 @@
 package com.gigi.tcg.debug
 
 import android.app.Activity
-import android.app.Instrumentation
 import android.content.Context
 import android.os.Bundle
+import android.os.Handler
+import android.os.HandlerThread
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import androidx.test.runner.AndroidJUnitRunner
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -23,18 +25,43 @@ import javax.crypto.KeyGenerator
  * 本注入器不修改业务代码，改为在取证侧按同一磁盘格式
  * （gigi_credentials/ciphertext = Base64(IV+密文)、别名 gigi_credentials_key）
  * 用 Keystore 自生成 IV 的正确流程写入，供 App 正常解密读取。
+ *
+ * 双路径：继承 AndroidJUnitRunner，使 connectedDebugAndroidTest 可直接跑 JUnit 测试；
+ * args 携带 cookie_b64 / clear=1 时走取证注入路径，不进 JUnit。
+ * 注入必须在非主线程 finish()（MonitoringInstrumentation 强制校验主线程）。
  */
-class DebugCredentialInjector : Instrumentation() {
+class DebugCredentialInjector : AndroidJUnitRunner() {
+
+    private var injectMode = false
 
     override fun onCreate(args: Bundle?) {
         super.onCreate(args)
+        val clear = args?.getString(EXTRA_CLEAR)
+        val encoded = args?.getString(EXTRA_COOKIE_B64)
+        if (clear == null && encoded == null) {
+            return
+        }
+        injectMode = true
         val appContext = targetContext!!.applicationContext
-        if (args?.getString(EXTRA_CLEAR) == "1") {
+        val thread = HandlerThread("debug-credential-injector").apply { start() }
+        val done = java.util.concurrent.CountDownLatch(1)
+        Handler(thread.looper).post {
+            try {
+                inject(appContext, clear, encoded)
+            } finally {
+                done.countDown()
+                thread.quitSafely()
+            }
+        }
+        done.await()
+    }
+
+    private fun inject(appContext: Context, clear: String?, encoded: String?) {
+        if (clear == "1") {
             com.gigi.tcg.data.auth.CredentialStore(appContext).clear()
             finish(Activity.RESULT_OK, Bundle().apply { putString(RESULT_STATUS, "cleared") })
             return
         }
-        val encoded = args?.getString(EXTRA_COOKIE_B64)
         if (encoded.isNullOrEmpty()) {
             finish(
                 Activity.RESULT_OK,
@@ -51,6 +78,14 @@ class DebugCredentialInjector : Instrumentation() {
                 putInt(RESULT_LENGTH, cookie.length)
             },
         )
+    }
+
+    override fun onStart() {
+        if (injectMode) {
+            // 注入路径已在工作线程 finish()，不启动 JUnit
+            return
+        }
+        super.onStart()
     }
 
     private fun saveInKeystoreFormat(appContext: Context, cookie: String) {
