@@ -9,8 +9,11 @@ package com.gigi.tcg.ui.navigation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Add
@@ -25,8 +28,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
@@ -43,10 +48,18 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -142,8 +155,15 @@ fun GigiNavHost() {
                             },
                             actions = {
                                 Box {
-                                    TextButton(onClick = { accountMenuOpen = true }) {
-                                        Text(activeAccount?.displayName() ?: "账户")
+                                    TextButton(
+                                        onClick = { accountMenuOpen = true },
+                                        modifier = Modifier.widthIn(max = 144.dp),
+                                    ) {
+                                        Text(
+                                            activeAccount?.displayName() ?: "账户",
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
                                     }
                                     DropdownMenu(
                                         expanded = accountMenuOpen,
@@ -154,12 +174,18 @@ fun GigiNavHost() {
                                                 text = {
                                                     Text(
                                                         "${account.displayName()}（${account.server().shortName}）",
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
                                                     )
                                                 },
                                                 leadingIcon = {
                                                     if (account.uid == activeUid) {
                                                         Icon(Icons.Outlined.Check, contentDescription = null)
                                                     }
+                                                },
+                                                modifier = Modifier.semantics {
+                                                    role = Role.DropdownList
+                                                    selected = account.uid == activeUid
                                                 },
                                                 onClick = {
                                                     accountMenuOpen = false
@@ -207,26 +233,63 @@ fun GigiNavHost() {
                                         selected = currentRoute == dest.route,
                                         onClick = { navController.navigateToTab(dest.route) },
                                         icon = { Icon(dest.icon, contentDescription = dest.label) },
-                                        label = { Text(dest.label) },
+                                        label = {
+                                            Text(
+                                                dest.label,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        },
+                                        alwaysShowLabel = true,
+                                        modifier = Modifier.semantics {
+                                            role = Role.Tab
+                                            this.selected = currentRoute == dest.route
+                                        },
                                     )
                                 }
                             }
                         }
                     },
-                    snackbarHost = { ToastHost(toastController) },
+                    snackbarHost = { },
                 ) { innerPadding ->
                     Row(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
                         if (useRail) {
                             NavigationRail {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 12.dp, bottom = 12.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Style,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
                                 destinations.forEach { dest ->
                                     NavigationRailItem(
                                         selected = currentRoute == dest.route,
                                         onClick = { navController.navigateToTab(dest.route) },
                                         icon = { Icon(dest.icon, contentDescription = dest.label) },
-                                        label = { Text(dest.label) },
+                                        label = {
+                                            Text(
+                                                dest.label,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        },
+                                        modifier = Modifier.semantics {
+                                            role = Role.Tab
+                                            this.selected = currentRoute == dest.route
+                                        },
                                     )
                                 }
                             }
+                            HorizontalDivider(
+                                modifier = Modifier.fillMaxHeight(),
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                            )
                         }
                         NavHost(
                             navController = navController,
@@ -262,6 +325,17 @@ fun GigiNavHost() {
                     }
                 }
             }
+        }
+
+        // Toast 用 Popup 独立窗口渲染，避免被 Scaffold 内的 ModalBottomSheet / Dialog 遮挡。
+        Popup(
+            alignment = Alignment.BottomCenter,
+            properties = PopupProperties(focusable = false, dismissOnClickOutside = false),
+        ) {
+            ToastHost(
+                controller = toastController,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp),
+            )
         }
 
         if (queryOpen) {
