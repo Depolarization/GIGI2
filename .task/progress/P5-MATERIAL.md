@@ -57,3 +57,10 @@ updated: 2026-09-25 12:22:23 +08:00
 - [ ] 四页、登录页、三弹窗的 8dp 间距与标题栏
 - [ ] StateViews 加载 / 空态 / 错误态收口
 - [ ] 三语义固定色、数据流与 retcode 语义未变
+
+## CLOSE（P5R-CLOSE 代理，2026-09-25 12:47 +08:00）
+
+- assembleDebug / testDebugUnitTest / lintDebug 合并执行：退出码 0（BUILD SUCCESSFUL）；lint 0 errors, 15 warnings。
+- 提交状态：3 文件已由并行 P5R 代理先落库——40828d4（cardstats 三态居中）、0dc901f（cardwiki 48dp/8dp）、8d40c1e（rank 8dp）；与已验证工作区 diff 完全一致，app/ 现干净。CLOSE 自有 commit 未触发（"no changes added"，退出码 1，属预期竞态非缺陷）。
+- 未改任何代码。
+- 结论：done。
