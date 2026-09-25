@@ -75,11 +75,25 @@ cd D:/AndroidStudioProjects/GIGI
 OpenRouter 无官方 CLI，用 **opencode** 作 harness（原生支持 OpenRouter provider）。本机已配置并端到端验证。
 
 ```bash
-export OPENROUTER_API_KEY="sk-or-v1-…"          # 已在环境里配置好
+# key 已持久化在 Windows【用户级环境变量】，新进程自动继承，无需 export。
+# ⚠️ 但写入之后才启动的进程才有，已在跑的 shell / 调度器读不到，须重启。
 "C:/Users/oscur/.workbuddy-ai/binaries/node/workspace/node_modules/.bin/opencode" \
   run -m openrouter/stealth/space-bunny-alpha "$(cat .task/dispatch/<ID>.txt)" \
   > .agent_work/<ID>-or.log 2>&1                 # 同样必须后台派发
 ```
+
+**🔴 API key 存放位置（2026-09-25 事故后确认）**：Windows 用户级环境变量
+（`HKCU\Environment` → `OPENROUTER_API_KEY`），**持久化**的。
+❌ 不要写进工程文件 / `opencode.jsonc` / 派单 txt / git。
+⚠️ **生效范围**：写入之后才启动的进程。已在跑的调度器、已开的 shell **读不到**，要重启。
+（事故：曾误记"已配置"，实际只在临时 shell 设过 ⇒ 别的 agent 调用报
+`OpenRouter API key is missing`。**"跑通过一次" ≠ "已持久化"**。）
+
+**🔴 `small_model` 必须一起锁**（2026-09-25 实测）：
+`~/.config/opencode/opencode.jsonc` 里 `"model"` 和 `"small_model"` **都要**写成
+`openrouter/stealth/space-bunny-alpha`。不设 small_model 的话，opencode 生成会话标题时
+会自作主张用 `google/gemini-3.8-flash`，既违反"只用一个模型"又持续报 `stream error`。
+验证：`opencode debug config` 应能看到两项都被解析。
 
 - 🔴 **模型名必须写成三段式 `openrouter/<vendor>/<model>`**；本机只允许用 `openrouter/stealth/space-bunny-alpha`。
 - 新模型必须先注册进 `~/.config/opencode/opencode.jsonc` 的 `provider.openrouter.models`，否则报
