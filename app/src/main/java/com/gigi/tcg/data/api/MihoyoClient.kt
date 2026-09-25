@@ -52,8 +52,9 @@ class MihoyoClient(
 
     /**
      * GET 米哈游接口并返回解析后的 data。
-     * retcode == 0 且 data != null → data；限流/繁忙码等待 700ms 自动重试一次（仅一次）；
-     * 其余（含 data 缺失）→ 抛 [ApiError]；网络/解析失败 → kind=network。
+     * retcode == 0 且 data != null → data；限流/繁忙码等待 700ms + 0-300ms 随机抖动
+     * 后自动重试一次（仍仅一次，抖动避免多请求同刻重发再次互撞）；其余（含 data 缺失）
+     * → 抛 [ApiError]；网络/解析失败 → kind=network。
      */
     suspend inline fun <reified T> get(
         url: String,
@@ -67,7 +68,7 @@ class MihoyoClient(
         val first = requestEnvelope(url, serializer)
         val effective =
             if (RETRYABLE_RETCODES.contains(first.first)) {
-                delay(RETRY_DELAY_MS)
+                delay(RETRY_DELAY_MS + (0..RETRY_JITTER_SPAN_MS).random())
                 requestEnvelope(url, serializer)
             } else {
                 first
@@ -160,6 +161,9 @@ class MihoyoClient(
 
         /** 限流/繁忙码的自动重试间隔：米游社保真限流窗口很短，等待后重发即可成功 */
         const val RETRY_DELAY_MS: Long = 700L
+
+        /** 重试间隔之上的随机抖动上界（0..300ms）：避免多个并发请求同刻重发再次互撞 */
+        const val RETRY_JITTER_SPAN_MS: Long = 300L
 
         const val THROTTLE_DELAY_MS: Long = 1000L
     }

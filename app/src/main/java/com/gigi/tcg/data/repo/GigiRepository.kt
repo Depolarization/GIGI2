@@ -34,6 +34,7 @@ import com.gigi.tcg.data.model.OtherHomePageData
 import com.gigi.tcg.data.model.RankData
 import com.gigi.tcg.data.model.WikiChannelNode
 import com.gigi.tcg.domain.TtlCache
+import kotlin.random.Random
 import kotlinx.coroutines.delay
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
@@ -103,6 +104,7 @@ class GigiRepository(
     private val json: Json,
     private val memoryCache: TtlCache = TtlCache(),
     private val retryDelayMs: Long = MihoyoClient.RETRY_DELAY_MS,
+    private val retryJitterMs: Long = MihoyoClient.RETRY_JITTER_SPAN_MS,
     private val now: () -> Long = { System.currentTimeMillis() },
     private val detailCache: DetailCacheStore = LruDetailCache(DETAIL_CACHE_MAX),
 ) {
@@ -218,11 +220,12 @@ class GigiRepository(
     private suspend fun fetchCardWikiList(): WikiListData =
         get(CARD_INFO_URL, WikiListData.serializer(), "")
 
-    /** 对齐 mihoyo.ts unwrap：retcode 判定 + RETRYABLE 700ms 自动重试一次 + data 解码 */
+    /** 对齐 mihoyo.ts unwrap：retcode 判定 + RETRYABLE 等待 700ms + 0-300ms 随机抖动
+     *  自动重试一次（抖动避免并发请求同刻重发再次互撞）+ data 解码 */
     private suspend fun <T> get(url: String, serializer: KSerializer<T>, tag: String): T {
         var envelope = transport.fetchEnvelope(url, tag)
         if (RETRYABLE_RETCODES.contains(envelope.retcode)) {
-            delay(retryDelayMs)
+            delay(retryDelayMs + if (retryJitterMs > 0) Random.nextLong(0L, retryJitterMs + 1) else 0L)
             envelope = transport.fetchEnvelope(url, tag)
         }
         val (retcode, message, raw) = envelope
