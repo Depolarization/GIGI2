@@ -58,8 +58,6 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -250,7 +248,7 @@ fun GigiNavHost() {
                             }
                         }
                     },
-                    snackbarHost = { },
+                    snackbarHost = { ToastHost(toastController) },
                 ) { innerPadding ->
                     Row(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
                         if (useRail) {
@@ -325,17 +323,6 @@ fun GigiNavHost() {
                     }
                 }
             }
-        }
-
-        // Toast 用 Popup 独立窗口渲染，避免被 Scaffold 内的 ModalBottomSheet / Dialog 遮挡。
-        Popup(
-            alignment = Alignment.BottomCenter,
-            properties = PopupProperties(focusable = false, dismissOnClickOutside = false),
-        ) {
-            ToastHost(
-                controller = toastController,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp),
-            )
         }
 
         if (queryOpen) {
