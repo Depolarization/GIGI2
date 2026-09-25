@@ -8,3 +8,7 @@ val LoseColor = Color(0xFFC25656)
 val GoldColor = Color(0xFFD4A643)
 // 亮色档深金：亮底 surface 上 WCAG AA（对白底对比度约 5.1:1），仅供语义色按主题取用
 val GoldColorLight = Color(0xFF8A6A16)
+// 亮色档深绿：亮底 surface 上 WCAG AA（对白底对比度约 5.0:1），仅供语义色按主题取用
+val WinColorLight = Color(0xFF2E7D4F)
+// 亮色档深红：亮底 surface 上 WCAG AA（对白底对比度约 5.1:1），仅供语义色按主题取用
+val LoseColorLight = Color(0xFFB84A4A)

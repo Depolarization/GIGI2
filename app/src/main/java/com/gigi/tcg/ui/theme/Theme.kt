@@ -43,9 +43,14 @@ fun GigiTheme(
         else -> LightColors
     }
 
-    // gold 随主题取色：亮色下 GoldColor 对比度不足（对白底约 2.3:1），换用深金档；
+    // win/lose/gold 随主题取色：亮色下暗色档对比度不足（win 约 3.96:1、lose 约 4.41:1、
+    // gold 约 2.3:1，均低于 WCAG AA 4.5:1），换用深色调档；
     // 判据与本函数 colorScheme 的 darkTheme 分支一致，不另引 isSystemInDarkTheme()。
-    val semanticColors = SemanticColors(gold = if (darkTheme) GoldColor else GoldColorLight)
+    val semanticColors = SemanticColors(
+        win = if (darkTheme) WinColor else WinColorLight,
+        lose = if (darkTheme) LoseColor else LoseColorLight,
+        gold = if (darkTheme) GoldColor else GoldColorLight,
+    )
 
     CompositionLocalProvider(LocalSemanticColors provides semanticColors) {
         MaterialTheme(
