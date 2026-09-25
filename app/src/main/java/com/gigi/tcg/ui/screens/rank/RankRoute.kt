@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
@@ -31,7 +32,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -43,7 +43,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -103,23 +102,30 @@ fun RankRoute(
         TabRow(
             selectedTabIndex = pagerState.currentPage.coerceIn(0, rankTabs.lastIndex),
             indicator = { tabPositions ->
-                val page = pagerState.currentPage.coerceIn(0, rankTabs.lastIndex)
-                val current = tabPositions[page]
-                val next = tabPositions.getOrNull(page + 1)
-                val fraction = pagerState.currentPageOffsetFraction.coerceIn(0f, 1f)
-                if (next != null && fraction > 0f) {
-                    // 手指滑动中：在相邻两个 TabPosition（left/right 为 Dp）间线性插值，indicator 实时跟随
-                    val leftDp: Dp = current.left + (next.left - current.left) * fraction
-                    val rightDp: Dp = current.right + (next.right - current.right) * fraction
-                    val indicatorModifier = with(LocalDensity.current) {
-                        Modifier
-                            .offset { IntOffset(leftDp.roundToPx(), 0) }
-                            .width(rightDp - leftDp)
-                    }
-                    TabRowDefaults.SecondaryIndicator(indicatorModifier)
-                } else {
-                    TabRowDefaults.SecondaryIndicator(Modifier.tabIndicatorOffset(current))
-                }
+                val lastIndex = rankTabs.lastIndex
+                // 连续页码 = 最近页 + 相对偏移（currentPageOffsetFraction ∈ [-0.5, 0.5]），
+                // 用连续量插值 ⇒ 正向/反向滑动都跟手（V7G 修反向跳变：旧代码把负 fraction
+                // coerceIn(0f, 1f) 夹成 0，反向拖动时 indicator 停在原 tab 直到翻页才跳）。
+                val continuous = (pagerState.currentPage + pagerState.currentPageOffsetFraction)
+                    .coerceIn(0f, lastIndex.toFloat())
+                val lo = continuous.toInt().coerceIn(0, lastIndex) // 非负 ⇒ toInt() 即 floor
+                val hi = (lo + 1).coerceAtMost(lastIndex)
+                val t = (continuous - lo).coerceIn(0f, 1f)
+                val from = tabPositions[lo]
+                val to = tabPositions[hi]
+                val leftDp: Dp = from.left + (to.left - from.left) * t
+                val rightDp: Dp = from.right + (to.right - from.right) * t
+                // 必须与官方 tabIndicatorOffset 同构：先 fillMaxWidth + wrapContentSize(BottomStart)
+                // 解开 TabRow 传给 indicator 的固定宽度约束（整行宽），否则显式宽度修饰符
+                // 默认 enforceIncoming=true，被 constrainWidth 夹到整行宽
+                // ⇒ indicator 横贯整个 TabRow（V7G 修的正是 V7A 的这个回归）。
+                TabRowDefaults.SecondaryIndicator(
+                    Modifier
+                        .fillMaxWidth()
+                        .wrapContentSize(Alignment.BottomStart)
+                        .offset { IntOffset(leftDp.roundToPx(), 0) }
+                        .width(rightDp - leftDp),
+                )
             },
         ) {
             rankTabs.forEachIndexed { index, tab ->
