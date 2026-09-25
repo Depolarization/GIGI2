@@ -51,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier as ComposeModifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -397,11 +398,21 @@ private fun Metric(label: String, value: String) {
 
 @Composable
 private fun DetailGroup(title: String, rows: List<Triple<String, String, String?>>) {
-    Column(ComposeModifier.fillMaxWidth().padding(top = 8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall)
+    Column(ComposeModifier.fillMaxWidth().padding(top = 12.dp)) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
         rows.forEach { (label, value, hint) ->
             Row(ComposeModifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                Text(label, style = MaterialTheme.typography.bodyMedium, modifier = ComposeModifier.weight(1f))
+                Text(
+                    label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = ComposeModifier.weight(1f),
+                )
                 Text(
                     if (hint != null) "$value（$hint）" else value,
                     style = MaterialTheme.typography.bodyMedium,
