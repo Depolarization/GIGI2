@@ -42,6 +42,9 @@ class PlayerDetailViewModel(app: Application) : AndroidViewModel(app) {
     private val _uiState = MutableStateFlow<DetailUiState>(DetailUiState.Loading)
     val uiState: StateFlow<DetailUiState> = _uiState.asStateFlow()
 
+    /** 弹窗靠它判定"是否本人"：查询码只在本人详情里展示 */
+    val sessionUid: StateFlow<String?> = container.sessionUid
+
     private var lastUid: String? = null
 
     init {

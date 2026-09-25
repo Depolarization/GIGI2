@@ -1,6 +1,6 @@
 // 玩家信息弹窗：移植 web/src/components/PlayerDetailDialog.tsx 的内容与布局，适配 M3 居中 Dialog。
 // 四入口共用，参数 (uid, onClose)；弹窗开关由调用页持有，本组件不持全局 controller。
-// 版式：头部（头像/昵称/UID/查询码/段位）+ 天梯/巅峰积分 + 展示角色 + 参赛经历；
+// 版式：头部（头像/昵称+段位/UID）+ 查询码（仅本人）+ 天梯/巅峰积分 + 展示角色 + 参赛经历；
 // is_shield / 无 pageInfo 走独立分支；胜负语义色来自 LocalSemanticColors。
 
 package com.gigi.tcg.ui.dialogs.playerdetail
@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -56,6 +57,7 @@ fun PlayerDetailDialog(uid: String?, onClose: () -> Unit) {
     val app = LocalContext.current.applicationContext as Application
     val viewModel: PlayerDetailViewModel = viewModel(factory = PlayerDetailViewModel.factory(app))
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val sessionUid by viewModel.sessionUid.collectAsStateWithLifecycle()
     val toast = LocalToast.current
     @Suppress("DEPRECATION") val clipboard = LocalClipboardManager.current
     val semantic = LocalSemanticColors.current
@@ -63,6 +65,7 @@ fun PlayerDetailDialog(uid: String?, onClose: () -> Unit) {
     LaunchedEffect(uid) { viewModel.openPlayerDetail(uid) }
 
     val content = (state as? DetailUiState.Content)?.takeIf { it.uid == uid }
+    val isSelf = sessionUid != null && sessionUid == uid
 
     AlertDialog(
         onDismissRequest = onClose,
@@ -70,7 +73,7 @@ fun PlayerDetailDialog(uid: String?, onClose: () -> Unit) {
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 when {
-                    content != null -> PlayerDetailBody(content, semantic)
+                    content != null -> PlayerDetailBody(content, semantic, isSelf)
                     state is DetailUiState.Error -> {
                         val e = state as DetailUiState.Error
                         ErrorState(message = e.message, onRetry = if (e.canRetry) viewModel::retry else null)
@@ -83,7 +86,7 @@ fun PlayerDetailDialog(uid: String?, onClose: () -> Unit) {
             if (content != null) {
                 TextButton(onClick = {
                     @Suppress("DEPRECATION") clipboard.setText(AnnotatedString(content.uid))
-                    toast("已复制对手UID:${content.uid}")
+                    toast(if (isSelf) "已复制UID:${content.uid}" else "已复制对手UID:${content.uid}")
                 }) { Text("复制UID") }
             }
         },
@@ -94,7 +97,7 @@ fun PlayerDetailDialog(uid: String?, onClose: () -> Unit) {
 }
 
 @Composable
-private fun PlayerDetailBody(content: DetailUiState.Content, semantic: SemanticColors) {
+private fun PlayerDetailBody(content: DetailUiState.Content, semantic: SemanticColors, isSelf: Boolean) {
     val pageInfo = content.data.pageInfo
     when {
         // T10：接口无该玩家数据 → 说明式版式（区别于加载失败）
@@ -115,14 +118,18 @@ private fun PlayerDetailBody(content: DetailUiState.Content, semantic: SemanticC
             )
         }
         else -> Column {
-            HeaderRow(uid = content.uid, nickname = pageInfo.nickname, avatarUrl = pageInfo.avatarUrl)
-            val tier = formatTier(getTierStars(pageInfo.ladderScore ?: 0))
-            if (tier.isNotEmpty()) {
-                Text(text = tier, style = MaterialTheme.typography.titleSmall, color = semantic.gold)
-            }
+            HeaderRow(
+                uid = content.uid,
+                nickname = pageInfo.nickname,
+                avatarUrl = pageInfo.avatarUrl,
+                tier = formatTier(getTierStars(pageInfo.ladderScore ?: 0)),
+            )
             Spacer(Modifier.height(8.dp))
-            CodeCard(code = content.code)
-            Spacer(Modifier.height(12.dp))
+            if (isSelf) {
+                // 查询码由 UID 本地推算，是取该玩家资料的凭据式参数：只在本人详情里露出
+                CodeCard(code = content.code)
+                Spacer(Modifier.height(12.dp))
+            }
             ScoresRow(
                 ladder = pageInfo.ladderScore ?: 0,
                 peak = pageInfo.peakScore ?: 0,
@@ -135,16 +142,32 @@ private fun PlayerDetailBody(content: DetailUiState.Content, semantic: SemanticC
 }
 
 @Composable
-private fun HeaderRow(uid: String, nickname: String?, avatarUrl: String?) {
+private fun HeaderRow(uid: String, nickname: String?, avatarUrl: String?, tier: String = "") {
+    val gold = LocalSemanticColors.current.gold
     Row(verticalAlignment = Alignment.CenterVertically) {
         Avatar(url = avatarUrl, size = 64.dp, contentDescription = nickname)
         Spacer(Modifier.width(16.dp))
         Column {
-            Text(
-                text = nickname ?: "未知",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = nickname ?: "未知",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (tier.isNotEmpty()) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = tier,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Medium,
+                        color = gold,
+                        maxLines = 1,
+                    )
+                }
+            }
             Text(
                 text = "UID $uid",
                 style = MaterialTheme.typography.bodyMedium,
