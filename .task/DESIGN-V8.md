@@ -5,6 +5,44 @@
 
 ---
 
+## 实施状态（2026-09-26 更新）
+
+**用户决策**：**功能 1（统计总览页）暂不做**；本轮只做功能 2（长图导出）+ 深色对比度修复。
+
+| 范围 | 状态 | commit |
+| --- | --- | --- |
+| 功能 2 渲染器 `ui/export/TableImageRenderer.kt` | ✅ 已完成（V8B） | `72402c0` |
+| 功能 2 接线 `CardStatsExport.kt` + `CardImageSaver.saveBitmap` + `CardStatsRoute` 导出按钮 | ✅ 已完成（V8E） | `e6ad702` / `f283211` |
+| 深色档 win/lose 对比度修到 WCAG AA | ✅ 已完成（V8F） | `e7993bd` |
+| **功能 1（§2 全节：总览卡 + 区块 A/B/C/D）** | ⏸️ **暂缓，未实施** | — |
+| §4.1 `domain/StatsAggregate.kt`（V8A） | ⏸️ 暂缓（属功能 1） | — |
+| §4.2 `domain/RecentForm.kt`（V8C） | ⏸️ 暂缓（属功能 1） | — |
+| §4.3 `ui/export/TableImageRenderer.kt`（V8B） | ✅ 已实施 | `72402c0` |
+| §4.4 `CardImageSaver.saveBitmap`（V8E） | ✅ 已实施 | `e6ad702` |
+
+**实施期相对本设计的偏差（以后者为准）**：
+1. **§4.3 签名不变**，但新增了 `internal fun chooseBitmapConfig(widthPx, heightPx): Bitmap.Config`
+   与 `internal fun ellipsize(text, maxWidthPx, measure): String`（两者都是纯函数，已纳入 JVM 单测）。
+   双栏契约明确为：`columnX`/`columnWidth` **只描述第一栏**，第二栏偏移由绘制端加 `widthPx / 2`。
+2. **新增 §4.5 `ui/screens/cardstats/CardStatsExport.kt`**（本设计原未列出，实施时补的）：
+   `buildCharTableSpec(summary, uid, cards)` / `buildActionTableSpec(...)` —— 组装 `TableSpec` 的纯函数。
+   把「内容组装」与「渲染」分开，前者可 JVM 单测。另有常量
+   `EXPORT_IMAGE_WIDTH_PX = 1080` / `EXPORT_TWO_COLUMN_THRESHOLD = 60`。
+3. **§3.2 的 uid 来源**：`GcgSummary` 已含 `nickname`/`level`/`avatarCardNum`/`actionCardNum`，
+   但**不含 uid** ⇒ uid 由 `CardStatsExport` 的函数参数传入（调用方取 `container.sessionUid.value`）。
+   ⇒ **`CardStatsViewModel.kt` 无需改动**（原先以为要改，实为误判）。
+4. **§3.4 权限**：`saveBitmap` 不做权限申请流程，缺权限时透出 `IOException.message` 到 toast；
+   统一抽 helper 留待后续棒。
+5. **导出数据范围（产品决策）**：取 `state.charList` / `state.actionList`（**全量、已按 useCount 降序**），
+   **不跟随页面上的排序按钮/类型筛选** —— 长图是分享制品，口径必须稳定可复现。
+6. **`onShowToast`** 已接入导出成功/失败反馈（该参数原先一直未被使用）。
+
+**新增测试**：`TableLayoutTest`（16）、`SemanticContrastTest`（8）、`CardStatsExportTest`（11）。
+基线 184 → **219 用例 / 33 类**，全绿。
+
+---
+
+
 ## 0. 已确认决策（用户原话确认，不得擅自变更）
 
 | # | 决策点 | 结论 |

@@ -1,5 +1,5 @@
 ---
-status: doing
+status: done
 task: V8E-EXPORT-WIRE
 files:
   - app/src/main/java/com/gigi/tcg/ui/dialogs/cardcover/CardImageSaver.kt (加 saveBitmap)
