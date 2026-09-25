@@ -197,7 +197,7 @@ private fun KeywordField(keyword: String, onKeywordChange: (String) -> Unit) {
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(horizontal = 12.dp),
         singleLine = true,
-        textStyle = MaterialTheme.typography.bodyMedium.copy(
+        textStyle = MaterialTheme.typography.bodyLarge.copy(
             color = MaterialTheme.colorScheme.onSurface,
         ),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
@@ -211,15 +211,15 @@ private fun KeywordField(keyword: String, onKeywordChange: (String) -> Unit) {
                 Icon(
                     imageVector = Icons.Outlined.Search,
                     contentDescription = null,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(10.dp))
                 Box(modifier = Modifier.weight(1f)) {
                     if (keyword.isEmpty()) {
                         Text(
                             text = SEARCH_PLACEHOLDER,
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -228,11 +228,11 @@ private fun KeywordField(keyword: String, onKeywordChange: (String) -> Unit) {
                     innerTextField()
                 }
                 if (keyword.isNotEmpty()) {
-                    IconButton(onClick = { onKeywordChange("") }, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = { onKeywordChange("") }, modifier = Modifier.size(36.dp)) {
                         Icon(
                             imageVector = Icons.Outlined.Close,
                             contentDescription = CLEAR_KEYWORD,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(20.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
