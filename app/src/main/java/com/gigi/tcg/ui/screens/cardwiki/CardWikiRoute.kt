@@ -72,7 +72,7 @@ private const val CARD_ASPECT_RATIO: Float = 7f / 12f
 
 /** 一屏可见卡牌数对齐 Web 版 `minmax(150px, 1fr)`；宽屏自动多列 */
 private val GRID_CARD_MIN_WIDTH = 156.dp
-private val GRID_SPACING = 10.dp
+private val GRID_SPACING = 8.dp
 private val GRID_CONTENT_PADDING = 12.dp
 
 /** M3 文本框默认 56dp，图鉴要留出网格高度：48dp 仍满足最小触控目标 */
@@ -170,8 +170,8 @@ private fun FilterBar(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         KeywordField(keyword = keyword, onKeywordChange = onKeywordChange)
         if (category.filterDefs.isNotEmpty()) {
@@ -214,7 +214,7 @@ private fun KeywordField(keyword: String, onKeywordChange: (String) -> Unit) {
                     modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(8.dp))
                 Box(modifier = Modifier.weight(1f)) {
                     if (keyword.isEmpty()) {
                         Text(
@@ -228,7 +228,8 @@ private fun KeywordField(keyword: String, onKeywordChange: (String) -> Unit) {
                     innerTextField()
                 }
                 if (keyword.isNotEmpty()) {
-                    IconButton(onClick = { onKeywordChange("") }, modifier = Modifier.size(36.dp)) {
+                    // M3 IconButton 自带 minimumInteractiveComponentSize：不锁 36dp，触摸目标保 ≥48dp
+                    IconButton(onClick = { onKeywordChange("") }) {
                         Icon(
                             imageVector = Icons.Outlined.Close,
                             contentDescription = CLEAR_KEYWORD,
