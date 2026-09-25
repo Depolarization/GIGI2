@@ -1,6 +1,7 @@
 // 首页路由：移植 web/src/pages/HomePage.tsx（ProfileCard + RecordItem + 双块三态渲染）。
 // 展示逻辑一律走 domain 纯函数（tier/opponent/format），UI 层不重算；
-// 胜负语义色取 LocalSemanticColors（红线 8 固定色，不参与动态取色）。
+// 胜负语义色取 LocalSemanticColors（红线 8 固定色，不参与动态取色）；
+// 整页 PullToRefreshBox 下拉触发 refresh()，首屏两块同在加载时只渲染一个 LoadingView。
 
 package com.gigi.tcg.ui.screens.home
 
@@ -20,10 +21,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,9 +36,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -56,6 +61,7 @@ import com.gigi.tcg.ui.components.LoadingView
 import com.gigi.tcg.ui.theme.LocalSemanticColors
 import com.gigi.tcg.ui.theme.SemanticColors
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeRoute(
     container: AppContainer,
@@ -77,65 +83,80 @@ fun HomeRoute(
         if (uid != null) lastUid = uid
     }
 
-    Column(
-        modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+    // 下拉刷新指示器：任一块在途即转圈，两块都落定后自动收回
+    val isRefreshing = state.profile is Async.Loading || state.records is Async.Loading
+
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = viewModel::refresh,
+        modifier = modifier.fillMaxSize(),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "对局主页",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = viewModel::refresh) {
-                Icon(Icons.Outlined.Refresh, contentDescription = "刷新")
-            }
-        }
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+        ) {
+            if (state.profile is Async.Loading && state.records is Async.Loading) {
+                // 首屏两块同在加载：只亮一个圈（原双 LoadingView 同转）
+                LoadingView()
+            } else {
+                when (val profile = state.profile) {
+                    is Async.Loading -> LoadingView()
+                    is Async.Content -> ProfileCard(
+                        profile = profile.value,
+                        uid = sessionUid.orEmpty(),
+                        onClick = { onOpenPlayerDetail(sessionUid.orEmpty()) },
+                    )
+                    is Async.Error -> ErrorState(
+                        message = profile.message ?: "资料卡数据为空",
+                        onRetry = viewModel::retryProfile,
+                    )
+                }
 
-        when (val profile = state.profile) {
-            is Async.Loading -> LoadingView()
-            is Async.Content -> ProfileCard(
-                profile = profile.value,
-                uid = sessionUid.orEmpty(),
-                onClick = { onOpenPlayerDetail(sessionUid.orEmpty()) },
-            )
-            is Async.Error -> ErrorState(
-                message = profile.message ?: "资料卡数据为空",
-                onRetry = viewModel::retryProfile,
-            )
-        }
+                // IconButton 触摸目标高 48dp，行内文字上下自带约 12dp 视觉空白，
+                // 故上留 8dp（≈原 16dp 观感）、下留 4dp（标题贴列表不悬空）
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "最近对局",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = viewModel::refresh) {
+                        Icon(Icons.Outlined.Refresh, contentDescription = "刷新")
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
 
-        Spacer(Modifier.height(16.dp))
-        Text("最近对局", style = MaterialTheme.typography.titleMedium)
-
-        when (val records = state.records) {
-            is Async.Loading -> LoadingView()
-            is Async.Error -> ErrorState(
-                message = records.message ?: "对局数据为空",
-                onRetry = viewModel::retryRecords,
-            )
-            is Async.Content -> {
-                if (records.value.isEmpty()) {
-                    EmptyState(title = "暂无对局记录，打一场七圣召唤再来查看吧")
-                } else {
-                    // 服务端最多返回 10 条：外层整页已可滚，直接顺序渲染。
-                    // 不再嵌套 LazyColumn——原"视口高 − 列表顶部偏移"方案把两个
-                    // onSizeChanged 挂在同一个 Box 上，测的都是 Box 自身，
-                    // 差值恒为 0，列表被裁成 0 高不可见（取证报告 偏离-1 根因）
-                    Column(
-                        Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        records.value.forEachIndexed { index, record ->
-                            key("${record.transNo ?: "na"}-$index") {
-                                RecordItem(
-                                    record = record,
-                                    uid = sessionUid.orEmpty(),
-                                    semantic = semantic,
-                                    onOpenOpponent = onOpenPlayerDetail,
-                                )
+                when (val records = state.records) {
+                    is Async.Loading -> LoadingView()
+                    is Async.Error -> ErrorState(
+                        message = records.message ?: "对局数据为空",
+                        onRetry = viewModel::retryRecords,
+                    )
+                    is Async.Content -> {
+                        if (records.value.isEmpty()) {
+                            EmptyState(title = "暂无对局记录，打一场七圣召唤再来查看吧")
+                        } else {
+                            // 服务端最多返回 10 条：外层整页已可滚，直接顺序渲染。
+                            // 不再嵌套 LazyColumn——原"视口高 − 列表顶部偏移"方案把两个
+                            // onSizeChanged 挂在同一个 Box 上，测的都是 Box 自身，
+                            // 差值恒为 0，列表被裁成 0 高不可见（取证报告 偏离-1 根因）
+                            Column(
+                                Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                records.value.forEachIndexed { index, record ->
+                                    key("${record.transNo ?: "na"}-$index") {
+                                        RecordItem(
+                                            record = record,
+                                            uid = sessionUid.orEmpty(),
+                                            semantic = semantic,
+                                            onOpenOpponent = onOpenPlayerDetail,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -153,35 +174,72 @@ private fun ProfileCard(
     modifier: Modifier = Modifier,
 ) {
     val tier = formatTier(getTierStars(profile.ladderScore ?: 0))
+    val semantic = LocalSemanticColors.current
     Card(
         modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(),
     ) {
-        Row(
+        Column(
             Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Avatar(url = profile.avatarUrl, size = 64.dp, contentDescription = profile.nickname)
-            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(
-                    text = profile.nickname ?: "未知",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    text = "UID:$uid　段位:${tier.ifEmpty { "无段位" }}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Avatar(url = profile.avatarUrl, size = 64.dp, contentDescription = profile.nickname)
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(
+                        text = profile.nickname ?: "未知",
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "UID:$uid",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = "段位:${tier.ifEmpty { "无段位" }}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            Column(horizontalAlignment = Alignment.End) {
-                Text("天梯积分:${profile.ladderScore ?: 0}", style = MaterialTheme.typography.bodyMedium)
-                Text("巅峰积分:${profile.peakScore ?: 0}", style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(12.dp))
+            // 积分区垂直置于个人信息下方，布局对齐 PlayerDetailDialog.ScoresRow
+            Row(Modifier.fillMaxWidth()) {
+                ScoreItem(
+                    label = "天梯积分",
+                    value = profile.ladderScore ?: 0,
+                    color = semantic.win,
+                    modifier = Modifier.weight(1f),
+                )
+                ScoreItem(
+                    label = "巅峰积分",
+                    value = profile.peakScore ?: 0,
+                    color = semantic.gold,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun ScoreItem(label: String, value: Int, color: Color, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = value.toString(),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = color,
+        )
     }
 }
 
