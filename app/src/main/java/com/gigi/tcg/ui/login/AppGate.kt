@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -327,6 +328,11 @@ fun AppGate(viewModel: GateViewModel) {
                         )
                         val loginState by loginViewModel.uiState.collectAsStateWithLifecycle()
                         LaunchedEffect(loginViewModel) { loginViewModel.begin() }
+                        // 🔴 VM 挂在 Activity 级 ViewModelStore、跨组合进出持久；不重置会让"第二次添加账号"
+                        // 读到残留的 LoggedIn，被 LaunchedEffect(loginState) 立即消费 ⇒ 叠加层闪退（V7E）。
+                        DisposableEffect(loginViewModel) {
+                            onDispose { loginViewModel.cancel() }
+                        }
                         // 不透明全屏覆盖：盖住顶栏与底部导航，阻断穿透点击
                         Box(
                             modifier = Modifier
@@ -357,6 +363,11 @@ fun AppGate(viewModel: GateViewModel) {
                 )
                 val loginState by loginViewModel.uiState.collectAsStateWithLifecycle()
                 LaunchedEffect(loginViewModel) { loginViewModel.begin() }
+                // 防御性对称（V7E）：当前状态机已产不出 Login(addAccount=true)，但 key="login"/
+                // "login-add-account" 的 VM 同样跨组合持久，退出本分支时必须重置残留终态。
+                DisposableEffect(loginViewModel) {
+                    onDispose { loginViewModel.cancel() }
+                }
                 LoginScreen(
                     viewModel = loginViewModel,
                     expiredNotice = current.expiredNotice,
