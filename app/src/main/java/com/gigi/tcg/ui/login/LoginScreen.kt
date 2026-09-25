@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -35,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gigi.tcg.data.ServerId
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
     viewModel: LoginViewModel,
@@ -45,7 +48,20 @@ fun LoginScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val server by viewModel.serverFlow.collectAsStateWithLifecycle()
 
-    Scaffold { innerPadding ->
+    Scaffold(
+        topBar = {
+            if (addAccount) {
+                CenterAlignedTopAppBar(
+                    title = { Text("添加账户") },
+                    navigationIcon = {
+                        TextButton(onClick = { onCancelAddAccount?.invoke() }) {
+                            Text("返回")
+                        }
+                    },
+                )
+            }
+        },
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -54,16 +70,6 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(24.dp))
-            if (addAccount) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    TextButton(onClick = { onCancelAddAccount?.invoke() }) {
-                        Text("返回当前账户")
-                    }
-                }
-            }
             Card(Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(24.dp),
