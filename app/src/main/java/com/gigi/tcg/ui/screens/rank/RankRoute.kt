@@ -177,20 +177,22 @@ private fun RankPageContent(
 }
 
 // 缺陷 B：Loading/Error/Empty 三态原本是不可滚动的 Box，PullToRefreshBox 收不到
-// nestedScroll 事件 → 这些状态下拉无反应。包一层 verticalScroll（外层先 fillMaxSize
-// 拿到有界视口高，内层 heightIn(min=视口高) 保证内容不足一屏时仍然居中、超一屏可滚），
-// 使错误/空/加载态也能下拉刷新；ErrorState 重试按钮的点击不受滚动容器影响。
+// nestedScroll 事件 → 这些状态下拉无反应。包一层 verticalScroll 使其可下拉；
+// 修饰符顺序：BoxWithConstraints 必须在**外层**只挂 fillMaxSize()，这样 maxHeight
+// 拿到的是有界的视口高（verticalScroll 若挂在外层，它会把传给 BoxWithConstraints 的
+// maxHeight 放宽成 Constraints.Infinity，viewportHeight 随之变成 ~Int.MAX_VALUE，
+// 内层 heightIn(min=…) 把盒子撑到屏幕外，三态居中即变成空白）。
+// verticalScroll 放到内层 Box，且必须在 heightIn **之前**：先由 verticalScroll 把
+// 传给 heightIn 的 maxHeight 放宽成无限，heightIn(min=视口高) 才能在内容不足一屏时
+// 撑满视口让 Center 生效、超一屏时随内容增高并可滚动。
 @Composable
 private fun CenteredScrollableBox(content: @Composable BoxScope.() -> Unit) {
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-    ) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val viewportHeight = maxHeight
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .heightIn(min = viewportHeight),
             contentAlignment = Alignment.Center,
             content = content,
