@@ -108,13 +108,47 @@ OpenRouter 无官方 CLI，用 **opencode** 作 harness（原生支持 OpenRoute
 - 其余规则与 `$CLI` 完全一致（后台派发、单文件粒度、派单落盘、探针、文件独占、闸门、≤200 字报告）。
 - OpenRouter 按量计费，与 Qoder **额度池独立**；派发前确认余额。
 
+### 2.2 通道 ③：百炼（`bl`）—— 模型池与**额度耗尽接力**
+
+**百炼是第三条额度池**（与 Qoder Credits、OpenRouter **互相独立**）。
+模型池由 `C:/Users/oscur/.workbuddy-ai/tools/sync_bailian_models.py` 从百炼官方目录同步
+（口径 = 2026 年上架 + 工具调用 + 推理 + 文本/多模态 + 排除老/小型号）。
+
+**可当主 agent 的精选 17 个**（已写入 WorkBuddy `~/.workbuddy-ai/models.json`）：
+
+| 家族 | 模型 |
+| :-- | :-- |
+| DeepSeek | `deepseek-v4.1-flash`（越级智能）· `deepseek-v4-pro-0813` · `deepseek-v4-pro` · `deepseek-v4-flash-0731` · `deepseek-v4-flash` |
+| GLM | `glm-5.3-prime` · `glm-5.3` · `glm-5.2` |
+| Kimi | `kimi-k3` · `kimi/kimi-k2.8-preview` · `kimi-k2.7-code` · `kimi-k2.6` |
+| Qwen | `qwen3.8-max-0902` · `qwen3.8-max` · `qwen3.8-flash` |
+| 其它 | `MiniMax/MiniMax-M3` · `stepfun/step-5-preview` |
+
+完整候选池（52 个）随时可重新生成：
+```bash
+"$PY" C:/Users/oscur/.workbuddy-ai/tools/sync_bailian_models.py --emit-skill <输出.md>
+```
+
+**🔴🔴 额度耗尽接力（用户 2026-09-25 指定，最高优先级）**
+
+这批模型**全部开了「免费额度用完即停」**（本月抵扣额度已用尽）⇒ **任何一次调用都可能突然失败**。
+
+1. **判据**：报错含 `quota` / `Arrearage` / `free tier` / `exceeded` / `429`
+   ⇒ 这是**额度耗尽**，**不是任务本身有问题**，不要去改任务设计。
+2. **动作**：换 `-m <同档或更强的模型>`，**用同一份派单文件**重新派发；
+   探针追加一行 `[接力] <时间> <旧模型> → <新模型>（额度耗尽）`。
+3. **不丢进度**：派单在 `.task/dispatch/`、进度在 `.task/progress/`、产物在磁盘
+   ⇒ 新模型起来**先读探针**即可接续（见 §6 强制增量落盘）。
+4. ⚠️ **不要拿 `bl usage freetier` 当查询命令**（不带 `--on/--off` 时默认批量开启，会改状态）。
+
 ## 3. 报错与回退链（严格按序，不跳步）
 
 1. **换 `-m`**（只改模型名，任务设计不动）；
 2. **等 2–5 分钟**重试（禁止密集重试）；
 3. **转 opencode / OpenRouter**（§2.1，实现类任务也能接）；
-4. 仍不行 → 转纯文本 API 做**分析类**兜底（它没有工具执行循环，不能动手）；
-5. 仍不行 → 探针写 `blocked` + 原因并上报，**不要空转**。
+4. 仍不行 → 转**百炼池**（§2.2，换 `-m` 到池里同档模型；额度耗尽的处理见该节）；
+5. 仍不行 → 转纯文本 API 做**分析类**兜底（它没有工具执行循环，不能动手）；
+6. 仍不行 → 探针写 `blocked` + 原因并上报，**不要空转**。
 
 - `429 / quota / usage exceeds frequency limit`：宿主内置 subagent 与 CLI 额度**相互独立** ⇒ 内置 429 时**立刻切 CLI**，提示的重置时刻不必等。
 - `Sorry, something went wrong`：模型侧瞬时错误 ⇒ 换 `-m`，**同时把任务拆小**（与体量叠加才是主因）。
