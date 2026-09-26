@@ -86,6 +86,9 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // V10-D: 卡面图鉴的卡面资源含 GIF（官方卡面动图），coil-compose 不含 GIF 解码器，
+    // 缺失时 AppImage 的 AsyncImagePainter 走 State.Error，卡面显示为加载失败占位图。
+    implementation("io.coil-kt:coil-gif:2.7.0")
     implementation("com.google.zxing:core:3.5.3")
     // V9-A: Theme.Material3.* 主题 parent 由 Material Components 库提供
     implementation("com.google.android.material:material:1.12.0")
