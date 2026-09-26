@@ -30,19 +30,25 @@ import com.gigi.tcg.R
 import com.gigi.tcg.domain.TierStars
 
 /**
- * 段位三语通道：把 domain 的中文段位名（TierTest 锁定、保持不动）映射到当前语言资源，
+ * 段位中文名 → 当前语言资源。接口若随 lang 返回英文段位名（"Brass" 等），
+ * 中英两种 key 都要命中，否则英文环境下段位会退化成原始字符串。
+ */
+private val TIER_BY_NAME = mapOf(
+    "黄铜" to R.string.tier_brass, "Brass" to R.string.tier_brass,
+    "星银" to R.string.tier_silver, "Silver" to R.string.tier_silver,
+    "赤金" to R.string.tier_gold, "Gold" to R.string.tier_gold,
+    "影幻" to R.string.tier_phantom, "Phantom" to R.string.tier_phantom,
+)
+
+/**
+ * 段位三语通道：把 domain 的段位名（TierTest 锁定、保持不动）映射到当前语言资源，
  * "★" 星缀语义与 domain formatTier 一致（0 星不显示）。
+ * 查不到映射时回落原始值本身——它仍是有用信息，不能显示成空白。
  */
 @Composable
 fun tierLabel(t: TierStars): String {
-    val name = when (t.tier) {
-        "" -> return stringResource(R.string.home_tier_none)
-        "黄铜" -> stringResource(R.string.tier_brass)
-        "星银" -> stringResource(R.string.tier_silver)
-        "赤金" -> stringResource(R.string.tier_gold)
-        "影幻" -> stringResource(R.string.tier_phantom)
-        else -> t.tier
-    }
+    if (t.tier == "") return stringResource(R.string.home_tier_none)
+    val name = TIER_BY_NAME[t.tier]?.let { stringResource(it) } ?: t.tier
     return if (t.stars > 0) name + "★".repeat(t.stars) else name
 }
 

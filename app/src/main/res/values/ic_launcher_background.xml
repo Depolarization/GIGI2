@@ -1,9 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Launcher icon palette, single source of truth for the vector layers and the PNG export -->
-    <color name="ic_launcher_bg">#FF12352B</color>
-    <color name="ic_launcher_bg_alt">#FF1C4A3A</color>
+    <!--
+      Launcher icon palette, single source of truth for the vector layers and the PNG export
+      (tools/gen_launcher_icon.py 里的 BG_TOP/BG_BOTTOM/STAR/GOLD 与此保持一致)。
+
+      V10-C（用户 2026-09-26）：背景由极深墨绿 #FF12352B 改为明亮绿渐变，色相取自应用内
+      语义色 WinColor(#FF58B07E) —— 呼应应用主题，且解决了旧背景压抑、图标显得笨重的问题。
+      ic_launcher_fg_line / ic_launcher_star 已随「移除卡牌边框」改造不再使用，保留占位以免
+      其它引用（若有）编译失败；确认无引用后可删。
+    -->
+    <color name="ic_launcher_bg">#FF6FC996</color>
+    <color name="ic_launcher_bg_alt">#FF3F9E69</color>
     <color name="ic_launcher_fg_line">#FFFFFFFF</color>
-    <color name="ic_launcher_star">#FF3F8F5F</color>
+    <color name="ic_launcher_star">#FFFFFFFF</color>
+    <color name="ic_launcher_star_edge">#FF1E6B42</color>
     <color name="ic_launcher_gold">#FFD4A643</color>
 </resources>

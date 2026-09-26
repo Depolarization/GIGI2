@@ -2,7 +2,11 @@
 <!--
   Monochrome layer for Android 13+ themed icons. The system reads only the alpha channel and
   repaints it with the theme/wallpaper color, so every fill here must be pure white and the
-  shapes must stay readable as a silhouette: card outline + solid star, no pips or two-tone detail.
+  shapes must stay readable as a silhouette.
+
+  V10-C（用户 2026-09-26）：移除卡牌边框 —— 与 PNG 图标保持一致，只留五角星 + 圆点剪影。
+  几何与 tools/gen_launcher_icon.py 同源（星：CX=50 CY=50 外径24 内径9.8 顶点朝正上；
+  圆点：中心 75,75 半径 6.6）。改形状时两处必须同步，否则 themed icon 与常规图标会不一致。
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -10,11 +14,9 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="3.5"
-        android:fillColor="#00000000"
-        android:pathData="M35,22 h38 a5,5 0 0 1 5,5 v54 a5,5 0 0 1 -5,5 h-38 a5,5 0 0 1 -5,-5 v-54 a5,5 0 0 1 5,-5 z" />
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M50,26 L55.07,41.03 L70.78,43.07 L58.39,55.11 L61.07,71.72 L50,63.77 L38.93,71.72 L41.61,55.11 L29.22,43.07 L44.93,41.03 Z" />
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M54,34 L58.7,43.53 L69.22,45.06 L61.61,52.47 L63.4,62.94 L54,58 L44.6,62.94 L46.39,52.47 L38.78,45.06 L49.3,43.53 Z" />
+        android:pathData="M75,68.4 m-6.6,0 a6.6,6.6 0 1,0 13.2,0 a6.6,6.6 0 1,0 -13.2,0 Z" />
 </vector>
