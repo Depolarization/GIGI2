@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  allowBackup="false" 已关闭云备份/设备迁移，这里再给出显式全排除规则，
+  避免 Android 12+ 对「无规则的 allowBackup=false」报缺省警告。
+-->
+<full-backup-content>
+    <exclude domain="root" />
+    <exclude domain="file" />
+    <exclude domain="database" />
+    <exclude domain="sharedpref" />
+    <exclude domain="external" />
+</full-backup-content>

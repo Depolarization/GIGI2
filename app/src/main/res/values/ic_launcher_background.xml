@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launcher icon palette, single source of truth for the vector layers and the PNG export -->
+    <color name="ic_launcher_bg">#FF12352B</color>
+    <color name="ic_launcher_bg_alt">#FF1C4A3A</color>
+    <color name="ic_launcher_fg_line">#FFFFFFFF</color>
+    <color name="ic_launcher_star">#FF3F8F5F</color>
+    <color name="ic_launcher_gold">#FFD4A643</color>
+</resources>

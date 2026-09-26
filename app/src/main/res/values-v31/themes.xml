@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!--
-      Compose 的 MaterialTheme 接管颜色/字号，这里只负责「窗口级」属性：
-      系统栏透明 + 图标明暗 + （API 31+ 在 values-v31 追加）启动屏。
-      不要在此设 colorPrimary 等，会被 Compose 覆盖，两边不一致反而更糟。
+      API 31+ 原生启动屏（platform 属性，不依赖 androidx.core:core-splashscreen）。
+      限定符目录不跨目录继承：本文件会整体替换 values/themes.xml 的同名 style，
+      所以系统栏那几项必须在这里重写一遍。
     -->
     <style name="Theme.GIGI" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowSplashScreenBackground">@color/ic_launcher_bg</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
