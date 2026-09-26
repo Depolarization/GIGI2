@@ -21,3 +21,7 @@ sealed interface UpdateState {
     /** 两条路径（镜像 + 官方 API）都失败；message 面向排障，可为空 */
     data class Failed(val message: String? = null) : UpdateState
 }
+
+/** 检查已到终态、需要用结果弹窗向用户交代（Idle / Checking 不算） */
+val UpdateState.isCheckFinished: Boolean
+    get() = this is UpdateState.UpToDate || this is UpdateState.Available || this is UpdateState.Failed

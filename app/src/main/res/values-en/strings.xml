@@ -251,29 +251,22 @@
     <string name="about_value_license">Apache License 2.0, fully open source</string>
     <string name="about_bullet_repo">"Source repository: "</string>
     <string name="about_bullet_license">"License: "</string>
+    <string name="about_bullet_license_value">Apache License 2.0</string>
     <string name="about_link_bilibili_home">Bilibili profile</string>
 
     <!-- About page: update check / feedback / announcements -->
-    <string name="about_section_update_feedback">Updates &amp; Feedback</string>
     <string name="about_update_check">Check for updates</string>
     <string name="about_update_checking">Checking…</string>
-    <string name="about_feedback_issue">Report an issue</string>
-    <string name="about_copy_report">Copy diagnostics</string>
-    <string name="about_copied_report">Diagnostics copied</string>
     <string name="about_no_browser">No browser available, link copied instead</string>
     <string name="about_bullet_update_check">Update checks and announcements only read static files from the public repository, via a domestic mirror, and never carry any account credentials.</string>
-    <string name="about_update_status_checking">Checking for updates…</string>
     <string name="about_update_status_up_to_date">Up to date (%1$s)</string>
-    <string name="about_update_status_available">New version %1$s available — tap \"Download\"</string>
     <string name="about_update_status_failed">Check failed, please try again later</string>
     <string name="about_update_dialog_title">New version available</string>
     <string name="about_update_dialog_versions">Current %1$s → Latest %2$s</string>
     <string name="about_update_dialog_source">Source: %1$s</string>
     <string name="about_update_dialog_download">Download</string>
-    <string name="about_update_dialog_later">Later</string>
     <string name="about_announcement_title">Announcement</string>
     <string name="about_announcement_hint">Tap to view details</string>
     <string name="about_announcement_ok">Got it</string>
     <string name="about_announcement_link">Open link</string>
-    <string name="about_issue_summary">Issue report</string>
 </resources>
