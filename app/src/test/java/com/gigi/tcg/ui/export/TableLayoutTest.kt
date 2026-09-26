@@ -98,7 +98,7 @@ class TableLayoutTest {
         assertEquals(1600, layout.columnWidth.sum())
     }
 
-    // 6. heightPx 手算比对（V8H：行高 56→64 后的期望值）
+    // 6. heightPx 手算比对（V8I-B：titleHeightPx 含表头前留白，全部引用常量不写死数字）
     @Test
     fun heightMatchesManualComputation() {
         val layout = computeTableLayout(
@@ -106,11 +106,13 @@ class TableLayoutTest {
             widthPx = EXPORT_IMAGE_WIDTH_PX,
             twoColumnThreshold = 60,
         )
-        val expectedTitle = TITLE_LINE_HEIGHT_PX + SUBTITLE_LINE_HEIGHT_PX + BADGES_LINE_HEIGHT_PX
+        val expectedTitle =
+            TITLE_LINE_HEIGHT_PX + SUBTITLE_LINE_HEIGHT_PX + BADGES_LINE_HEIGHT_PX + HEADER_TOP_GAP_PX
         assertEquals(expectedTitle, layout.titleHeightPx)
-        assertEquals(64, layout.headerHeightPx)
-        assertEquals(64, layout.rowHeightPx)
-        val expectedHeight = expectedTitle + 64 + 5 * 64 + BOTTOM_PADDING_PX
+        assertEquals(HEADER_HEIGHT_PX, layout.headerHeightPx)
+        assertEquals(ROW_HEIGHT_PX, layout.rowHeightPx)
+        val expectedHeight =
+            expectedTitle + HEADER_HEIGHT_PX + 5 * ROW_HEIGHT_PX + BOTTOM_PADDING_PX
         assertEquals(expectedHeight, layout.heightPx)
     }
 
@@ -171,10 +173,10 @@ class TableLayoutTest {
         assertEquals(Bitmap.Config.RGB_565, chooseBitmapConfig(1080, 20_000))
         // 阈值边界内保持 ARGB：1080 x 15000 x 4B ≈ 61MB < 64MB
         assertEquals(Bitmap.Config.ARGB_8888, chooseBitmapConfig(1080, 15_000))
-        // 1600px 真实两表：角色牌 147 行（高 9692）≈ 59MB 保 ARGB；
-        // 行动牌 941 行双栏（高 30428）≈ 186MB → 降级 RGB_565
-        assertEquals(Bitmap.Config.ARGB_8888, chooseBitmapConfig(EXPORT_IMAGE_WIDTH_PX, 9_692))
-        assertEquals(Bitmap.Config.RGB_565, chooseBitmapConfig(EXPORT_IMAGE_WIDTH_PX, 30_428))
+        // 1600px 真实两表：角色牌 147 行（高 9776）≈ 62.6MB 保 ARGB；
+        // 行动牌 941 行双栏（高 30512）≈ 186MB → 降级 RGB_565
+        assertEquals(Bitmap.Config.ARGB_8888, chooseBitmapConfig(EXPORT_IMAGE_WIDTH_PX, 9_776))
+        assertEquals(Bitmap.Config.RGB_565, chooseBitmapConfig(EXPORT_IMAGE_WIDTH_PX, 30_512))
     }
 
     // 10b. 渲染前预算闸：真实最大表放行，更大表拒绝（不等 createBitmap 抛 OOM）
@@ -183,10 +185,14 @@ class TableLayoutTest {
         val actionLayout = computeTableLayout(
             spec(rowCount = 941), widthPx = EXPORT_IMAGE_WIDTH_PX, twoColumnThreshold = EXPORT_TWO_COLUMN_THRESHOLD,
         )
-        assertEquals(30_428, actionLayout.heightPx)
+        assertEquals(30_512, actionLayout.heightPx)
         // 941 行双栏 1600px ≈ 93MB（RGB_565）必须能过闸，否则真实数据导不出去
         checkRenderMemoryBudget(EXPORT_IMAGE_WIDTH_PX, actionLayout.heightPx,
             chooseBitmapConfig(EXPORT_IMAGE_WIDTH_PX, actionLayout.heightPx))
+        assertTrue(
+            bitmapMemoryBytes(EXPORT_IMAGE_WIDTH_PX, actionLayout.heightPx, Bitmap.Config.RGB_565) <
+                100L * 1024 * 1024,
+        )
         assertEquals(Bitmap.Config.RGB_565,
             chooseBitmapConfig(EXPORT_IMAGE_WIDTH_PX, actionLayout.heightPx))
         // 1600 x 40000 x 2B ≈ 122MB > 100MB ⇒ 可读 IOException 而非 OOM
@@ -198,15 +204,19 @@ class TableLayoutTest {
         assertEquals(1600L * 40_000 * 4, bitmapMemoryBytes(1600, 40_000, Bitmap.Config.ARGB_8888))
     }
 
-    // 13. 🔴 尺寸常量回归锁（V8H）：改回旧值会让长图文本重新变挤
+    // 13. 🔴 尺寸常量回归锁（V8H/V8I-B）：改回旧值会让长图文本重新变挤
     @Test
     fun sizeConstantsArePinned() {
         assertEquals(40, MIN_COLUMN_WIDTH_PX)
         assertEquals(20, CELL_PADDING_PX)
         assertEquals(64, ROW_HEIGHT_PX)
-        assertEquals(64, HEADER_HEIGHT_PX)
+        assertEquals(88, HEADER_HEIGHT_PX)
+        assertEquals(88, TITLE_LINE_HEIGHT_PX)
+        assertEquals(28, HEADER_TOP_GAP_PX)
+        assertEquals(64, BOTTOM_PADDING_PX)
         assertEquals(28f, TEXT_SIZE_BODY_PX, 0f)
         assertEquals(26f, TEXT_SIZE_HEADER_PX, 0f)
+        // TEXT_SIZE_TITLE_PX 是 private 锁不到；V8I-B 值为 46f
     }
 
     // 11a. ellipsize：未超长原样返回

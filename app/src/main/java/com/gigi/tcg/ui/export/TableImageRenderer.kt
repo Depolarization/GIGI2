@@ -6,19 +6,22 @@ import android.graphics.Paint
 import java.io.IOException
 import kotlin.math.ceil
 
-// 字号：正文 28px、表头 26px、标题 38px（1600px 定宽图上直接按 px 定，不随密度）。
+// 字号：正文 28px、表头 26px、标题 46px（1600px 定宽图上直接按 px 定，不随密度）。
 // internal 供单测做"表头能否放进列"的字宽断言（V8H：防回归）。
+// 表头字号维持 26f：加到 28f 会让行动牌双栏 800px 下「使用次数」列余量从 +9.6% 跌到 +1.8%，
+// 破掉 V8H 固化的 ≥8% 余量约束；表头清晰度靠加大行高留白达成（V8I-B）。
 internal const val TEXT_SIZE_BODY_PX = 28f
 internal const val TEXT_SIZE_HEADER_PX = 26f
-private const val TEXT_SIZE_TITLE_PX = 38f
+private const val TEXT_SIZE_TITLE_PX = 46f
 
 // 行/头/留白（行高 64px 为跨棒约定）
 internal const val ROW_HEIGHT_PX = 64
-internal const val HEADER_HEIGHT_PX = 64
-internal const val TITLE_LINE_HEIGHT_PX = 72
+internal const val HEADER_HEIGHT_PX = 88
+internal const val TITLE_LINE_HEIGHT_PX = 88
 internal const val SUBTITLE_LINE_HEIGHT_PX = 48
 internal const val BADGES_LINE_HEIGHT_PX = 52
-internal const val BOTTOM_PADDING_PX = 48
+internal const val HEADER_TOP_GAP_PX = 28
+internal const val BOTTOM_PADDING_PX = 64
 
 internal const val MIN_COLUMN_WIDTH_PX = 40
 internal const val CELL_PADDING_PX = 20
@@ -75,6 +78,7 @@ data class TableLayout(
     val columnWidth: List<Int>,
     val headerHeightPx: Int,
     val rowHeightPx: Int,
+    /** 表头起始 y（= 标题区 + 与表头之间的留白） */
     val titleHeightPx: Int,
     val columnsPerBand: Int,
     /** 每栏行数（单栏 = rows.size；双栏 = ceil(rows.size/2)） */
@@ -122,6 +126,7 @@ fun computeTableLayout(
     var titleHeight = TITLE_LINE_HEIGHT_PX
     if (spec.subtitle != null) titleHeight += SUBTITLE_LINE_HEIGHT_PX
     if (spec.badges.isNotEmpty()) titleHeight += BADGES_LINE_HEIGHT_PX
+    titleHeight += HEADER_TOP_GAP_PX   // 标题区与表头之间的留白（表头起点）
 
     val heightPx = titleHeight + HEADER_HEIGHT_PX + rowsPerBand * ROW_HEIGHT_PX + BOTTOM_PADDING_PX
 
