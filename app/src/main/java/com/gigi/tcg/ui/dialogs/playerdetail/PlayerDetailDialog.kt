@@ -2,6 +2,7 @@
 // 四入口共用，参数 (uid, onClose)；弹窗开关由调用页持有，本组件不持全局 controller。
 // 版式：头部（头像/昵称+段位/UID）+ 天梯/巅峰积分 + 展示角色 + 参赛经历；
 // is_shield / 无 pageInfo 走独立分支；胜负语义色来自 LocalSemanticColors。
+// 底部按钮：关闭（dismiss，左）/ 复制UID（confirm，右）；复制写完剪贴板即收起弹窗。
 
 package com.gigi.tcg.ui.dialogs.playerdetail
 
@@ -98,6 +99,10 @@ fun PlayerDetailDialog(uid: String?, onClose: () -> Unit) {
                 TextButton(onClick = {
                     @Suppress("DEPRECATION") clipboard.setText(AnnotatedString(content.uid))
                     toast(if (isSelf) copiedSelfToast else copiedOpponentToast)
+                    // 🔴 复制后必须收起弹窗：此前只写剪贴板不调 onClose，用户点完「复制UID」
+                    // 弹窗仍挡在页面上（真机反馈："点击复制UID后对话框不消失"）。
+                    // toast 由全局 LocalToast 承载，弹窗收起后依旧可见，不影响反馈。
+                    onClose()
                 }) { Text(stringResource(R.string.action_copy_uid)) }
             }
         },
