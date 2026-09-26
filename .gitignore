@@ -29,3 +29,6 @@ skills/
 .task/events/
 .task/**/*.tmp
 .kotlin/
+
+# WorkBuddy 项目记忆/工作日志（AI 协作元数据，不入库）
+.workbuddy/

@@ -1,18 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-      Launcher icon palette, single source of truth for the vector layers and the PNG export
-      (tools/gen_launcher_icon.py 里的 BG_TOP/BG_BOTTOM/STAR/GOLD 与此保持一致)。
-
-      V10-C（用户 2026-09-26）：背景由极深墨绿 #FF12352B 改为明亮绿渐变，色相取自应用内
-      语义色 WinColor(#FF58B07E) —— 呼应应用主题，且解决了旧背景压抑、图标显得笨重的问题。
-      ic_launcher_fg_line / ic_launcher_star 已随「移除卡牌边框」改造不再使用，保留占位以免
-      其它引用（若有）编译失败；确认无引用后可删。
+      启动图标调色板 —— 矢量层与 PNG 导出的唯一色源
+      （由 tools/gen_launcher_icon.py 的 BG_TOP/BG_BOTTOM/GOLD_FLAT/OUTLINE_RGB 生成，
+       请勿手改；改色请改生成器常量后重跑 export）。
+      V22：母题由参考原图提取单片月牙叶后三重对称平均，并拟合为闭合傅里叶曲线
+      ic_launcher_bg 为启动屏 splash 用的平色（渐变不能用于 windowSplashScreenBackground）。
     -->
-    <color name="ic_launcher_bg">#FF6FC996</color>
-    <color name="ic_launcher_bg_alt">#FF3F9E69</color>
-    <color name="ic_launcher_fg_line">#FFFFFFFF</color>
-    <color name="ic_launcher_star">#FFFFFFFF</color>
-    <color name="ic_launcher_star_edge">#FF1E6B42</color>
-    <color name="ic_launcher_gold">#FFD4A643</color>
+    <color name="ic_launcher_bg_top">#FFFDFAF3</color>
+    <color name="ic_launcher_bg_bottom">#FFEFE3CE</color>
+    <color name="ic_launcher_bg">#FFFDFAF3</color>
+    <color name="ic_launcher_gold">#FFEDCC82</color>
+    <color name="ic_launcher_outline">#FF855342</color>
 </resources>

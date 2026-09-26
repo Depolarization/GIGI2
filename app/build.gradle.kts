@@ -44,6 +44,15 @@ android {
     }
 
     buildTypes {
+        debug {
+            // 图标/资源取证用旁路：仅当显式传入 -PgigiIconDev 时，把 debug 包装成
+            // 独立条目（com.gigi.tcg.icondev），以便与设备上已装的 release 包并存，
+            // 不必卸载/清数据。平时构建完全不受影响。
+            if (project.hasProperty("gigiIconDev")) {
+                applicationIdSuffix = ".icondev"
+                versionNameSuffix = "-icondev"
+            }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
