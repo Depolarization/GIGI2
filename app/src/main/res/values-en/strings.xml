@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shared -->
+    <string name="common_unknown">Unknown</string>
+    <string name="common_all">All</string>
+    <string name="player_uid">UID: %1$s</string>
+
+    <!-- Actions -->
+    <string name="action_retry">Retry</string>
+    <string name="action_close">Close</string>
+    <string name="action_back">Back</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_logout">Sign Out</string>
+    <string name="action_copy_uid">Copy UID</string>
+    <string name="action_query">Query</string>
+    <string name="action_download">Download</string>
+    <string name="action_feedback">Feedback</string>
+    <string name="action_regenerate_qr">Regenerate QR Code</string>
+
+    <!-- Navigation &amp; icon descriptions -->
+    <string name="nav_home">Home</string>
+    <string name="nav_rank">Ranking</string>
+    <string name="nav_card_stats">Card Stats</string>
+    <string name="nav_card_wiki">Card Wiki</string>
+    <string name="cd_refresh">Refresh</string>
+    <string name="cd_search">Search</string>
+    <string name="cd_about">About</string>
+
+    <!-- Account menu -->
+    <string name="account_label">Account</string>
+    <string name="account_add">Add Account</string>
+    <string name="account_logout_item">Sign Out Current Account</string>
+    <string name="account_entry">%1$s (%2$s)</string>
+    <string name="account_default_nickname">Player %1$s</string>
+    <string name="account_logout_confirm_title">Sign out of the current account?</string>
+    <string name="account_logout_message">Signing out deletes the credentials of this account stored on this device. Other accounts are unaffected.</string>
+
+    <!-- Servers -->
+    <string name="server_cn_gf01">Official (Sky Island)</string>
+    <string name="server_cn_qd01">Channel (World Tree)</string>
+    <string name="server_cn_gf01_short">Official</string>
+    <string name="server_cn_qd01_short">Channel</string>
+
+    <!-- Loading / empty states -->
+    <string name="state_home_first_loading">Loading personal data</string>
+    <string name="state_home_profile_loading">Loading profile</string>
+    <string name="state_home_records_loading">Loading match history</string>
+    <string name="state_rank_loading">Loading ranking</string>
+    <string name="state_stats_loading">Loading card stats</string>
+    <string name="state_wiki_loading">Loading card wiki</string>
+    <string name="state_detail_loading">Looking up player info</string>
+    <string name="state_cover_loading">Loading card image data</string>
+    <string name="state_empty_response">The response contains no data</string>
+    <string name="state_home_profile_empty">Profile card data is empty</string>
+    <string name="state_home_records_empty">Match data is empty</string>
+
+    <!-- Errors -->
+    <string name="error_check_network">Check your connection and try again</string>
+    <string name="error_throttled">Too many requests, please try again later</string>
+    <string name="error_api_generic">The API returned an error, please try again later</string>
+    <string name="error_api_retcode">API returned retcode=%1$d</string>
+    <string name="error_invalid_json">Response is not valid JSON</string>
+    <string name="error_format">Unexpected response format</string>
+    <string name="error_http_code">Network request failed (HTTP %1$d)</string>
+    <string name="error_network">Network request failed</string>
+    <string name="error_network_unstable">Unstable network, please retry</string>
+    <string name="error_qr_failed">Failed to generate the QR code</string>
+    <string name="error_login_retry">Sign-in failed, please try again</string>
+    <string name="error_credential_expired">Credentials have expired, please scan the QR code again</string>
+    <string name="error_credential_incomplete">Credentials incomplete (missing account_id / cookie_token_v2)</string>
+    <string name="error_role_mismatch">Account role mismatch</string>
+    <string name="error_token_exchange_failed">Credential exchange failed: no e_hk4e_token in the response</string>
+    <string name="error_uid_invalid">UID format is invalid</string>
+    <string name="error_storage_permission">Storage permission is required to save card images</string>
+    <string name="error_album_write_failed">Failed to write to the gallery</string>
+    <string name="error_image_encode">Image encoding failed</string>
+    <string name="error_download_failed_http">Download failed HTTP %1$d</string>
+    <string name="error_download_empty">Download failed: empty response</string>
+    <string name="error_export_memory">Too much content to export (about %1$d MB of memory needed, over the safe limit)</string>
+    <string name="error_export_failed">Export failed</string>
+    <string name="error_card_fetch_failed">Failed to fetch card info: %1$s</string>
+    <string name="error_cover_parse_failed">Failed to load data</string>
+
+    <!-- Toasts -->
+    <string name="toast_saved_to_album">Saved to gallery</string>
+    <string name="toast_saved_to_album_path">Saved to gallery: %1$s</string>
+    <string name="toast_save_failed">Save failed, please retry</string>
+    <string name="toast_copied_uid">UID copied: %1$s</string>
+    <string name="toast_copied_opponent_uid">Opponent UID copied: %1$s</string>
+    <string name="toast_server_switched">Switched to %1$s, refetching data from this server</string>
+
+    <!-- Login -->
+    <string name="login_title">GIGI · Genius Invokation TCG Companion</string>
+    <string name="login_title_add">GIGI · Add Account</string>
+    <string name="login_expired_notice">Session expired, please sign in again with the QR code</string>
+    <string name="login_add_account_hint">The newly scanned account will be added to the local account list; existing accounts will not be lost.</string>
+    <string name="login_qr_hint">The QR code is issued by the HoYoverse Pass. After confirmation, credentials are exchanged automatically for the selected server. Credentials stay encrypted on this device and are never uploaded.</string>
+    <string name="login_no_role_notice">This HoYoLAB account has no Genshin character on %1$s. Switch the server and try again.</string>
+    <string name="login_status_generating">Generating QR code…</string>
+    <string name="login_status_waiting">Scan with HoYoLAB or Cloud·Genshin and confirm sign-in</string>
+    <string name="login_status_scanned">Scanned — confirm sign-in on your phone…</string>
+    <string name="login_status_refreshing">QR code expired, generating a new one…</string>
+    <string name="login_status_finalizing">Confirmed, exchanging credentials…</string>
+    <string name="login_status_failed">Generation failed: %1$s</string>
+    <string name="login_status_success">Signed in</string>
+    <string name="login_qr_image_desc">HoYoLAB QR code for sign-in</string>
+    <string name="login_qr_scanned_badge">Scanned</string>
+    <string name="login_qr_scanned_confirm">Scanned. Confirm on your phone</string>
+
+    <!-- Home -->
+    <string name="home_recent_games">Recent Matches</string>
+    <string name="home_empty_records">No matches yet — play a round of Genius Invokation, then come back</string>
+    <string name="home_tier_label">Rank: %1$s</string>
+    <string name="home_tier_none">Unranked</string>
+    <string name="home_result_win">W</string>
+    <string name="home_result_lose">L</string>
+    <string name="home_result_none">–</string>
+    <string name="home_ladder_prefix">Ladder</string>
+    <string name="home_peak_prefix">Peak</string>
+    <string name="home_peak_placeholder">Peak -</string>
+
+    <!-- Player lookup -->
+    <string name="query_title">Player Lookup</string>
+    <string name="query_uid_hint">Enter player UID</string>
+
+    <!-- Player detail -->
+    <string name="detail_info_title">Player Info</string>
+    <string name="detail_not_found_title">Player Not Found</string>
+    <string name="detail_not_found_message">No Genius Invokation info found for UID %1$s. The player may have never played Genius Invokation matches, hidden the profile in game settings, or has no recent matches to sync.</string>
+    <string name="detail_shielded">No access to other info of this player</string>
+    <string name="detail_roles_section">Featured Characters</string>
+    <string name="detail_roles_empty">No featured characters</string>
+    <string name="detail_proficiency">Mastery %1$d</string>
+    <string name="detail_history_section">Tournament History</string>
+    <string name="detail_history_empty">No tournament history</string>
+    <string name="detail_points">%1$d pts</string>
+
+    <!-- Scores / ranking -->
+    <string name="score_ladder">Ladder Points</string>
+    <string name="score_peak">Peak Points</string>
+    <string name="score_competition">Tournament Points</string>
+    <string name="rank_peak_line">Peak: %1$d</string>
+    <string name="rank_comp_line">Tournament: %1$d</string>
+    <string name="rank_shown_count">Showing %1$d of %2$d players</string>
+    <string name="rank_empty">No ranked players under %1$s</string>
+
+    <!-- Card types -->
+    <string name="card_type_character">Character</string>
+    <string name="card_type_action">Action</string>
+    <string name="card_type_monster">Monster</string>
+    <string name="card_type_modify">Equipment</string>
+    <string name="card_type_assist">Support</string>
+    <string name="card_type_event">Event</string>
+
+    <!-- Tiers -->
+    <string name="tier_brass">Brass</string>
+    <string name="tier_silver">Silver</string>
+    <string name="tier_gold">Gold</string>
+    <string name="tier_phantom">Phantom</string>
+
+    <!-- Card stats screen -->
+    <string name="stat_appear">Appear</string>
+    <string name="stat_appear_rate">Appear Rate</string>
+    <string name="stat_win_rate">Win Rate</string>
+    <string name="stat_wins">Wins</string>
+    <string name="stat_use_count">Appearances</string>
+    <string name="stats_total_games">Total Games</string>
+    <string name="stats_win_games">Games Won</string>
+    <string name="stats_action_played">Action Cards Played</string>
+    <string name="stats_total_win_rate">Win Rate</string>
+    <string name="stats_export_char">Export Characters</string>
+    <string name="stats_export_action">Export Actions</string>
+    <string name="stats_exporting">Exporting…</string>
+    <string name="stats_no_match_char">No matching character cards</string>
+    <string name="stats_no_match_action">No matching action cards</string>
+    <string name="stats_detail_expand">Show Details</string>
+    <string name="stats_detail_collapse">Hide Details</string>
+    <string name="stats_action_detail">Action Card Details</string>
+    <string name="stats_ratio">share %1$s</string>
+    <string name="stats_footprint">Collection</string>
+    <string name="stats_player_level">Player Level</string>
+    <string name="stats_char_collected">Character Cards Collected</string>
+    <string name="stats_action_collected">Action Cards Collected</string>
+
+    <!-- Card wiki screen -->
+    <string name="wiki_empty_filtered">No cards match the current filters</string>
+    <string name="wiki_card_data_error">Card data error</string>
+    <string name="wiki_no_image">No image</string>
+    <string name="wiki_search_placeholder">Search card names</string>
+    <string name="wiki_clear_search">Clear search</string>
+    <string name="wiki_filter_all">Any</string>
+
+    <!-- Card image sheet -->
+    <string name="cover_title_fallback">Card Image</string>
+    <string name="cover_empty_format">No card image available in this format</string>
+    <string name="cover_format_png">Standard (PNG)</string>
+    <string name="cover_format_gif">Animated (GIF)</string>
+    <string name="cover_basic_info">Basic Info</string>
+
+    <!-- Exported long image -->
+    <string name="export_col_name">Name</string>
+    <string name="export_col_type">Type</string>
+    <string name="export_col_appear_count">Appears</string>
+    <string name="export_col_appear_rate">Appear %</string>
+    <string name="export_col_win_rate">Win %</string>
+    <string name="export_col_win_count">Wins</string>
+    <string name="export_col_use_count">Uses</string>
+    <string name="export_col_use_rate">Use %</string>
+    <string name="export_char_title">Character Card Data</string>
+    <string name="export_action_title">Action Card Data</string>
+    <string name="export_badge_char">Characters %1$d</string>
+    <string name="export_badge_action">Actions %1$d</string>
+    <string name="export_badge_total_games">%1$d games played</string>
+    <string name="export_badge_win_rate">Win rate %1$s</string>
+
+    <!-- About dialog -->
+    <string name="about_title">About</string>
+    <string name="about_section_software">About This App</string>
+    <string name="about_fact_project">Project</string>
+    <string name="about_value_project">GIGI (Genshin Impact Genius Invokation TCG Tool)</string>
+    <string name="about_fact_form">Form</string>
+    <string name="about_value_form">Native Android app — install and go; sign in with a QR code via HoYoLAB or Cloud·Genshin</string>
+    <string name="about_section_tips">Usage Tips</string>
+    <string name="about_tip_delay">Like the wish history, new match data arrives with some delay; if the latest record is not there yet, try again shortly.</string>
+    <string name="about_tip_restart">In a hurry to refresh, exit to the main menu (the door screen) and re-enter to speed up data updates.</string>
+    <string name="about_tip_recent">Match lookup on Home shows details for up to the last 10 matches; tap any row to see the opponent.</string>
+    <string name="about_tip_uid_query">The player lookup in the top bar takes a UID and shows the TCG info of that player.</string>
+    <string name="about_tip_sunset">The tournament has shut down, so the tournament section may not stay valid long.</string>
+    <string name="about_section_data">Data Sources &amp; Permissions</string>
+    <string name="about_data_bold_cover">Card image downloads</string>
+    <string name="about_data_mid"> come from public APIs and contain no personal match records; </string>
+    <string name="about_data_bold_detail">card usage details</string>
+    <string name="about_data_end"> require login credentials.</string>
+    <string name="about_data_bullet_source">All info comes from Genius Invokation tournaments and HoYoLAB; card data and images come from the HoYoLAB TCG Wiki.</string>
+    <string name="about_data_bullet_credential">Credentials are stored only in the encrypted keystore on this device and are never uploaded to any server.</string>
+    <string name="about_section_thanks">How It Works &amp; Credits</string>
+    <string name="about_thanks_intro">The original idea of looking up opponents via the official tournament site: </string>
+    <string name="about_thanks_link">Bilibili explainer video</string>
+    <string name="about_thanks_period">.</string>
+    <string name="about_thanks_body">Built on public HoYoLAB APIs and official tournament data. Thanks to every community contributor who shared public data and API research.</string>
+    <string name="about_section_feedback">Feedback</string>
+    <string name="about_feedback_hint">If you run into any errors while using the app, feedback is welcome.</string>
+    <string name="about_section_version">Version</string>
+    <string name="about_version">Version %1$s</string>
+</resources>

@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 通用 -->
+    <string name="common_unknown">未知</string>
+    <string name="common_all">全部</string>
+    <string name="player_uid">UID:%1$s</string>
+
+    <!-- 動作按鈕 -->
+    <string name="action_retry">重試</string>
+    <string name="action_close">關閉</string>
+    <string name="action_back">返回</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_logout">登出</string>
+    <string name="action_copy_uid">複製UID</string>
+    <string name="action_query">查詢</string>
+    <string name="action_download">下載</string>
+    <string name="action_feedback">回饋</string>
+    <string name="action_regenerate_qr">重新產生QR Code</string>
+
+    <!-- 導覽與圖示無障礙描述 -->
+    <string name="nav_home">首頁</string>
+    <string name="nav_rank">排行榜</string>
+    <string name="nav_card_stats">卡牌統計</string>
+    <string name="nav_card_wiki">卡牌圖鑑</string>
+    <string name="cd_refresh">重新整理</string>
+    <string name="cd_search">搜尋</string>
+    <string name="cd_about">關於</string>
+
+    <!-- 帳號選單 -->
+    <string name="account_label">帳號</string>
+    <string name="account_add">新增帳號</string>
+    <string name="account_logout_item">登出目前帳號</string>
+    <string name="account_entry">%1$s（%2$s）</string>
+    <string name="account_default_nickname">玩家%1$s</string>
+    <string name="account_logout_confirm_title">登出目前帳號？</string>
+    <string name="account_logout_message">登出後將刪除本機儲存的目前帳號憑證，其他帳號不受影響。</string>
+
+    <!-- 伺服器 -->
+    <string name="server_cn_gf01">官服（天空島）</string>
+    <string name="server_cn_qd01">渠道服（世界樹）</string>
+    <string name="server_cn_gf01_short">官服</string>
+    <string name="server_cn_qd01_short">渠道服</string>
+
+    <!-- 載入/空態 -->
+    <string name="state_home_first_loading">正在載入個人資料</string>
+    <string name="state_home_profile_loading">正在載入個人檔案</string>
+    <string name="state_home_records_loading">正在載入對局紀錄</string>
+    <string name="state_rank_loading">排行榜載入中</string>
+    <string name="state_stats_loading">卡牌統計載入中</string>
+    <string name="state_wiki_loading">卡牌圖鑑載入中</string>
+    <string name="state_detail_loading">正在查詢玩家資訊</string>
+    <string name="state_cover_loading">正在載入卡面資料</string>
+    <string name="state_empty_response">回傳資料為空</string>
+    <string name="state_home_profile_empty">資訊卡資料為空</string>
+    <string name="state_home_records_empty">對局資料為空</string>
+
+    <!-- 錯誤訊息 -->
+    <string name="error_check_network">請檢查網路後重試</string>
+    <string name="error_throttled">請求過於頻繁，請稍後重試</string>
+    <string name="error_api_generic">介面回傳異常，請稍後重試</string>
+    <string name="error_api_retcode">介面回傳 retcode=%1$d</string>
+    <string name="error_invalid_json">回傳不是有效的 JSON</string>
+    <string name="error_format">回傳資料格式異常</string>
+    <string name="error_http_code">網路請求失敗（HTTP %1$d）</string>
+    <string name="error_network">網路請求失敗</string>
+    <string name="error_network_unstable">網路不穩，請重試</string>
+    <string name="error_qr_failed">QR Code 產生失敗</string>
+    <string name="error_login_retry">登入失敗，請重試</string>
+    <string name="error_credential_expired">登入憑證已失效，請重新掃碼</string>
+    <string name="error_credential_incomplete">登入憑證不完整（缺少 account_id / cookie_token_v2）</string>
+    <string name="error_role_mismatch">帳號與角色不符</string>
+    <string name="error_token_exchange_failed">憑證交換失敗：回傳未攜帶 e_hk4e_token</string>
+    <string name="error_uid_invalid">UID 不符合格式</string>
+    <string name="error_storage_permission">需要儲存權限才能儲存卡面</string>
+    <string name="error_album_write_failed">相簿寫入失敗</string>
+    <string name="error_image_encode">圖片編碼失敗</string>
+    <string name="error_download_failed_http">下載失敗 HTTP %1$d</string>
+    <string name="error_download_empty">下載失敗：回傳為空</string>
+    <string name="error_export_memory">內容過多，無法匯出（約需 %1$dMB 記憶體，超出安全上限）</string>
+    <string name="error_export_failed">匯出失敗</string>
+    <string name="error_card_fetch_failed">卡牌資訊取得失敗: %1$s</string>
+    <string name="error_cover_parse_failed">取得資料失敗</string>
+
+    <!-- Toast -->
+    <string name="toast_saved_to_album">已儲存至相簿</string>
+    <string name="toast_saved_to_album_path">已儲存至相簿：%1$s</string>
+    <string name="toast_save_failed">儲存失敗，請重試</string>
+    <string name="toast_copied_uid">已複製UID:%1$s</string>
+    <string name="toast_copied_opponent_uid">已複製對手UID:%1$s</string>
+    <string name="toast_server_switched">已切換至%1$s，正依該伺服器重新擷取資料</string>
+
+    <!-- 登入頁 -->
+    <string name="login_title">GIGI · 七聖召喚賽事工具</string>
+    <string name="login_title_add">GIGI · 新增帳號</string>
+    <string name="login_expired_notice">登入已失效，請重新掃碼登入</string>
+    <string name="login_add_account_hint">新掃碼帳號將加入本機帳號清單，其他帳號不會遺失。</string>
+    <string name="login_qr_hint">QR Code 由米哈游通行證簽發，確認後將依目前選擇的伺服器自動完成憑證交換。憑證僅儲存在本機加密區，不會上傳至任何伺服器。</string>
+    <string name="login_no_role_notice">該米遊社帳號未綁定%1$s的原神角色，請切換伺服器後重試</string>
+    <string name="login_status_generating">正在產生QR Code…</string>
+    <string name="login_status_waiting">請用米遊社或雲·原神掃碼並確認登入</string>
+    <string name="login_status_scanned">已掃碼，請在手機上確認登入…</string>
+    <string name="login_status_refreshing">QR Code 已失效，正在換新碼…</string>
+    <string name="login_status_finalizing">登入已確認，正在完成憑證交換…</string>
+    <string name="login_status_failed">產生失敗：%1$s</string>
+    <string name="login_status_success">登入成功</string>
+    <string name="login_qr_image_desc">米遊社掃碼登入QR Code</string>
+    <string name="login_qr_scanned_badge">已掃碼</string>
+    <string name="login_qr_scanned_confirm">已掃碼，請在手機確認</string>
+
+    <!-- 首頁 -->
+    <string name="home_recent_games">最近對局</string>
+    <string name="home_empty_records">暫無對局紀錄，打一局七聖召喚再來查看吧</string>
+    <string name="home_tier_label">段位:%1$s</string>
+    <string name="home_tier_none">無段位</string>
+    <string name="home_result_win">勝</string>
+    <string name="home_result_lose">負</string>
+    <string name="home_result_none">空</string>
+    <string name="home_ladder_prefix">巔梯</string>
+    <string name="home_peak_prefix">巔峰</string>
+    <string name="home_peak_placeholder">巔峰 -</string>
+
+    <!-- 玩家查詢 -->
+    <string name="query_title">玩家查詢</string>
+    <string name="query_uid_hint">輸入玩家UID</string>
+
+    <!-- 玩家詳情 -->
+    <string name="detail_info_title">玩家資訊</string>
+    <string name="detail_not_found_title">查無玩家資訊</string>
+    <string name="detail_not_found_message">未查詢到 UID %1$s 的七聖召喚資訊。該玩家可能從未進行過七聖對局、在遊戲中關閉了資料公開，或近期無對局資料尚未同步。</string>
+    <string name="detail_shielded">無權讀取該玩家其他資訊</string>
+    <string name="detail_roles_section">展示角色</string>
+    <string name="detail_roles_empty">無展示角色</string>
+    <string name="detail_proficiency">熟練度 %1$d</string>
+    <string name="detail_history_section">參賽經歷</string>
+    <string name="detail_history_empty">無參賽經歷</string>
+    <string name="detail_points">%1$d 積分</string>
+
+    <!-- 積分/排行榜 -->
+    <string name="score_ladder">巔梯積分</string>
+    <string name="score_peak">巔峰積分</string>
+    <string name="score_competition">賽事積分</string>
+    <string name="rank_peak_line">巔峰積分:%1$d</string>
+    <string name="rank_comp_line">賽事積分:%1$d</string>
+    <string name="rank_shown_count">已顯示 %1$d / %2$d 名</string>
+    <string name="rank_empty">%1$s暫無上榜玩家</string>
+
+    <!-- 卡牌類別 -->
+    <string name="card_type_character">角色牌</string>
+    <string name="card_type_action">行動牌</string>
+    <string name="card_type_monster">魔物牌</string>
+    <string name="card_type_modify">裝備牌</string>
+    <string name="card_type_assist">支援牌</string>
+    <string name="card_type_event">事件牌</string>
+
+    <!-- 段位 -->
+    <string name="tier_brass">黃銅</string>
+    <string name="tier_silver">星銀</string>
+    <string name="tier_gold">赤金</string>
+    <string name="tier_phantom">影幻</string>
+
+    <!-- 卡牌統計頁 -->
+    <string name="stat_appear">出場</string>
+    <string name="stat_appear_rate">出場率</string>
+    <string name="stat_win_rate">勝率</string>
+    <string name="stat_wins">勝場</string>
+    <string name="stat_use_count">出場次數</string>
+    <string name="stats_total_games">總對局</string>
+    <string name="stats_win_games">獲勝對局</string>
+    <string name="stats_action_played">打出行動牌</string>
+    <string name="stats_total_win_rate">總勝率</string>
+    <string name="stats_export_char">匯出角色牌</string>
+    <string name="stats_export_action">匯出行動牌</string>
+    <string name="stats_exporting">匯出中…</string>
+    <string name="stats_no_match_char">沒有符合的角色牌</string>
+    <string name="stats_no_match_action">沒有符合的行動牌</string>
+    <string name="stats_detail_expand">展開詳情</string>
+    <string name="stats_detail_collapse">收合詳情</string>
+    <string name="stats_action_detail">行動牌詳情</string>
+    <string name="stats_ratio">佔比 %1$s</string>
+    <string name="stats_footprint">足跡</string>
+    <string name="stats_player_level">牌手等級</string>
+    <string name="stats_char_collected">角色牌收集</string>
+    <string name="stats_action_collected">行動牌收集</string>
+
+    <!-- 卡牌圖鑑頁 -->
+    <string name="wiki_empty_filtered">暫無符合條件的卡牌</string>
+    <string name="wiki_card_data_error">卡牌資料異常</string>
+    <string name="wiki_no_image">無圖</string>
+    <string name="wiki_search_placeholder">搜尋卡牌名稱</string>
+    <string name="wiki_clear_search">清空搜尋</string>
+    <string name="wiki_filter_all">不限</string>
+
+    <!-- 卡面下載 -->
+    <string name="cover_title_fallback">卡面</string>
+    <string name="cover_empty_format">該格式暫無卡面圖片</string>
+    <string name="cover_format_png">普通卡面(PNG)</string>
+    <string name="cover_format_gif">動態卡面(GIF)</string>
+    <string name="cover_basic_info">基礎資訊</string>
+
+    <!-- 匯出長圖 -->
+    <string name="export_col_name">名稱</string>
+    <string name="export_col_type">類別</string>
+    <string name="export_col_appear_count">出場數</string>
+    <string name="export_col_appear_rate">出場率%</string>
+    <string name="export_col_win_rate">勝率%</string>
+    <string name="export_col_win_count">勝局數</string>
+    <string name="export_col_use_count">使用次數</string>
+    <string name="export_col_use_rate">使用率%</string>
+    <string name="export_char_title">角色牌資料</string>
+    <string name="export_action_title">行動牌資料</string>
+    <string name="export_badge_char">角色牌 %1$d</string>
+    <string name="export_badge_action">行動牌 %1$d</string>
+    <string name="export_badge_total_games">共進行 %1$d 場遊戲</string>
+    <string name="export_badge_win_rate">勝率 %1$s</string>
+
+    <!-- 關於頁 -->
+    <string name="about_title">說明</string>
+    <string name="about_section_software">關於本軟體</string>
+    <string name="about_fact_project">專案名稱</string>
+    <string name="about_value_project">GIGI（Genshin Impact Genius Invokation TCG Tool）</string>
+    <string name="about_fact_form">形態</string>
+    <string name="about_value_form">Android 原生應用 —— 安裝即用，米遊社或雲·原神掃碼登入</string>
+    <string name="about_section_tips">使用要點</string>
+    <string name="about_tip_delay">與抽卡紀錄類似，新對局資料的取得存在一定延遲；若未即時取得最新紀錄，請稍後重試。</string>
+    <string name="about_tip_restart">急著更新資料時，請小退原神（返回開門介面）後再次進入，可加快資料更新速度。</string>
+    <string name="about_tip_recent">首頁的對局查詢最多可查看最近十局的對局詳情，點擊清單任一項即可查看對手資訊。</string>
+    <string name="about_tip_uid_query">頂欄的玩家查詢功能支援手動輸入 UID，查詢該玩家的七聖相關資訊。</string>
+    <string name="about_tip_sunset">鑑於賽事已經停辦，無法確保賽事資訊部分長期有效。</string>
+    <string name="about_section_data">資料來源與權限</string>
+    <string name="about_data_bold_cover">卡面下載</string>
+    <string name="about_data_mid">來自公開介面、不含個人戰績資料；</string>
+    <string name="about_data_bold_detail">卡牌使用詳情</string>
+    <string name="about_data_end">需要登入憑證支援。</string>
+    <string name="about_data_bullet_source">所有資訊均來自七聖賽事與米遊社，卡牌資料及卡面圖片來自米遊社七聖 Wiki。</string>
+    <string name="about_data_bullet_credential">登入憑證僅儲存在本機加密儲存區（Keystore 加密），不會上傳至任何伺服器。</string>
+    <string name="about_section_thanks">原理與致謝</string>
+    <string name="about_thanks_intro">最早借助七聖賽事官網查詢對手資訊的原理見</string>
+    <string name="about_thanks_link">B 站原理講解影片</string>
+    <string name="about_thanks_period">。</string>
+    <string name="about_thanks_body">專案基於米遊社公開介面與官方賽事資料建構。感謝所有提供公開資料與介面研究資料的社群貢獻者。</string>
+    <string name="about_section_feedback">回饋</string>
+    <string name="about_feedback_hint">若在使用中遇到任何異常錯誤，歡迎回饋。</string>
+    <string name="about_section_version">版本</string>
+    <string name="about_version">版本 %1$s</string>
+</resources>
