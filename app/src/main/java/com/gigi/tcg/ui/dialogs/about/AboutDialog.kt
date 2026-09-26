@@ -26,16 +26,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gigi.tcg.BuildConfig
 import com.gigi.tcg.R
 import com.gigi.tcg.data.github.GITHUB_RELEASES_URL
-import com.gigi.tcg.ui.about.BILIBILI_FEEDBACK_URL
 import com.gigi.tcg.ui.about.AboutScreen
 import com.gigi.tcg.ui.about.UpdateState
 import com.gigi.tcg.ui.about.isCheckFinished
 import com.gigi.tcg.ui.about.rememberAboutViewModel
 import com.gigi.tcg.ui.about.rememberLinkOpener
 
-// 关于对话框外壳（V10-B）：正文交给 AboutScreen，按钮语义收拢到本对话框底部一行——
-// [反馈]（跳 B 站，无浏览器时兜底复制链接）[检查更新]（Checking 期禁用防重复触发）[关闭]。
-// Material3 AlertDialog 只有 confirm/dismiss 两个槽位，为保「同一行、顺序固定」把三枚
+// 关于对话框外壳（V10-B / V10-E）：正文交给 AboutScreen，按钮语义收拢到本对话框底部一行。
+// V10-E：三枚按钮在窄屏下互相挤压（用户真机反馈），移除「反馈」只保留
+// [检查更新]（Checking 期禁用防重复触发）[关闭]。反馈入口不丢 —— AboutScreen 正文里
+// 已有 B 站主页链接（appendLink(BILIBILI_FEEDBACK_URL)），点正文即可跳转。
+// Material3 AlertDialog 只有 confirm/dismiss 两个槽位，为保「同一行、顺序固定」把两枚
 // TextButton 一起放进 confirmButton 的 Row 里。
 //
 // 检查结果不叠在「关于」之上：AboutDialog 整体换成结果弹窗，二者互斥。宿主 GigiNavHost
@@ -75,9 +76,6 @@ fun AboutDialog(onClose: () -> Unit) {
         text = { AboutScreen(viewModel = viewModel) },
         confirmButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { openUrl(BILIBILI_FEEDBACK_URL) }) {
-                    Text(stringResource(R.string.action_feedback))
-                }
                 TextButton(
                     onClick = viewModel::checkUpdate,
                     enabled = !checking,

@@ -14,7 +14,6 @@
     <string name="action_copy_uid">複製UID</string>
     <string name="action_query">查詢</string>
     <string name="action_download">下載</string>
-    <string name="action_feedback">回饋</string>
     <string name="action_regenerate_qr">重新產生QR Code</string>
 
     <!-- 導覽與圖示無障礙描述 -->
@@ -227,10 +226,7 @@
     <string name="about_tip_uid_query">頂欄的玩家查詢功能支援手動輸入 UID，查詢該玩家的七聖相關資訊。</string>
     <string name="about_tip_sunset">鑑於賽事已經停辦，無法確保賽事資訊部分長期有效。</string>
     <string name="about_section_data">資料來源與權限</string>
-    <string name="about_data_bold_cover">卡面下載</string>
-    <string name="about_data_mid">來自公開介面、不含個人戰績資料；</string>
-    <string name="about_data_bold_detail">卡牌使用詳情</string>
-    <string name="about_data_end">需要登入憑證支援。</string>
+    <string name="about_data_statement">卡面下載來自公開介面、不含個人戰績資料；卡牌使用詳情需要登入憑證支援。</string>
     <string name="about_data_bullet_source">所有資訊均來自七聖賽事與米遊社，卡牌資料及卡面圖片來自米遊社七聖 Wiki。</string>
     <string name="about_data_bullet_credential">登入憑證僅儲存在本機加密儲存區（Keystore 加密），不會上傳至任何伺服器。</string>
     <string name="about_section_thanks">原理與致謝</string>

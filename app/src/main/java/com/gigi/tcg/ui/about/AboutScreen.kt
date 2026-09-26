@@ -155,17 +155,11 @@ fun AboutScreen(
         }
 
         SectionTitle(stringResource(R.string.about_section_data))
-        val dataCover = stringResource(R.string.about_data_bold_cover)
-        val dataMid = stringResource(R.string.about_data_mid)
-        val dataDetail = stringResource(R.string.about_data_bold_detail)
-        val dataEnd = stringResource(R.string.about_data_end)
-        AboutParagraph {
-            append(bullet)
-            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(dataCover) }
-            append(dataMid)
-            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(dataDetail) }
-            append(dataEnd)
-        }
+        // V10-E：原写法把一句话拆成 4 段用 FontWeight.Bold 拼，bold 片段在中文（无空格）
+        // 下被当成一个不可断行单元，与前后文黏连、换行错乱。改成单一自然句，去掉 bold，
+        // 让系统正常按词/字断行。
+        val dataStatement = stringResource(R.string.about_data_statement)
+        AboutParagraph { append("$bullet$dataStatement") }
         DATA_SOURCE_BULLET_IDS.forEach { bulletId ->
             val text = stringResource(bulletId)
             AboutParagraph { append("$bullet$text") }

@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-生成 GIGI 启动图标（V10-C）。
+生成 GIGI 启动图标（V10-C / V10-E）。
 
-设计要求（用户 2026-09-26）：
-1. 移除白色卡牌边框 —— 只保留五角星 + 黄色圆点；
-2. 背景色更明亮，参考应用内默认主题色。
+设计要求（用户 2026-09-26 两轮反馈）：
+1. 移除白色卡牌边框 —— 只保留五角星 + 金色圆点；
+2. 背景色更明亮，参考应用内默认主题色；
+3. 主体（星 + 点）缩小 —— 上一轮放到外径 24 后真机观感过大。
 
 实现要点：
 - 4x 超采样 + LANCZOS 缩放，边缘无锯齿；
 - 前景整体落在 adaptive icon 的 72x72 安全区内（108 viewport 居中）；
 - 星与点的几何参数集中在此，改这里即可调形，不用碰 XML；
-- 同一份几何同步产出 drawable/ic_launcher_foreground.xml 与 monochrome.xml，
-  避免矢量层与位图层形状漂移。
+- 同一份几何同步产出 drawable/ic_launcher_foreground.xml 与 monochrome.xml。
+
+🔴 教训（V10-E）：本脚本最初「只产 PNG」，矢量层是手写的，结果 V10-C 改形状时
+漏改了 ic_launcher_foreground.xml —— 而 Android 8+ 的 adaptive icon 实际用的正是它
+（mipmap-anydpi-v26 优先于 mipmap-* PNG），真机上依旧是旧的带白框图案。
+⇒ 矢量层必须由本脚本生成，禁止手改，否则必然再次漂移。
 """
 
 from __future__ import annotations
@@ -49,14 +54,16 @@ GOLD = (0xFF, 0xD4, 0xA6, 0x43)  # 主题金 GoldColor #FFD4A643
 # 坐标全部以 108x108 viewport 表达，落在中心 72x72 安全区内。
 # 去掉卡牌边框后，五角星成为唯一主体，尺寸相应放大以填满安全区。
 
+# V10-E：上一轮外径 24 真机观感过大，缩到 20（直径 40 ≈ viewport 的 37%，
+# 四周留白明显）。圆点同比例收缩并往回收，避免整体重心偏右下。
 CX = 50.0
 CY = 50.0
-STAR_OUTER = 24.0
-STAR_INNER = 9.8
+STAR_OUTER = 20.0
+STAR_INNER = 8.2
 STAR_ROT = -90.0  # 顶点朝正上方
 
-DOT_R = 6.6
-DOT_POS = (75.0, 75.0)  # 右下金色圆点，明显大于星的内角半径，避免被星压住
+DOT_R = 5.4
+DOT_POS = (72.0, 72.0)  # 右下金色圆点，明显大于星的内角半径，避免被星压住
 
 
 def star_points(cx: float, cy: float, outer: float, inner: float, rot: float):
@@ -91,13 +98,7 @@ def draw_foreground(size: int) -> Image.Image:
     k = size / 108.0  # viewport -> 像素
 
     pts = [(x * k, y * k) for x, y in star_points(CX, CY, STAR_OUTER, STAR_INNER, STAR_ROT)]
-    # 描边比填充大 1.6 viewport 单位，视觉上给星一圈同色系深绿边
-    stroke_pts = [
-        (CX + (x - CX) * 1.0, CY + (y - CY) * 1.0) for x, y in
-        star_points(CX, CY, STAR_OUTER + 1.7, STAR_INNER + 1.4, STAR_ROT)
-    ]
-    d.polygon([(x * k, y * k) for x, y in stroke_pts], fill=STAR_EDGE + (255,))
-    d.polygon(pts, fill=STAR + (255,))
+    d.polygon(pts, fill=STAR + (255,))  # 无描边，纯白星
 
     # 金色圆点：右下，位于安全区内
     dx, dy = DOT_POS[0] * k, DOT_POS[1] * k
@@ -122,10 +123,93 @@ def export_legacy(density: str, px: int) -> None:
         print(f"  {path}  ({px}x{px})")
 
 
+def _fmt(v: float) -> str:
+    return f"{v:.2f}".rstrip("0").rstrip(".")
+
+
+def _star_pathdata() -> str:
+    pts = star_points(CX, CY, STAR_OUTER, STAR_INNER, STAR_ROT)
+    parts = ["M" + _fmt(pts[0][0]) + "," + _fmt(pts[0][1])]
+    for x, y in pts[1:]:
+        parts.append("L" + _fmt(x) + "," + _fmt(y))
+    parts.append("Z")
+    return " ".join(parts)
+
+
+def _dot_pathdata() -> str:
+    """圆点用两段圆弧表达（矢量图标准写法，等价于整圆）。"""
+    cx, cy = DOT_POS
+    r = DOT_R
+    return (
+        f"M{_fmt(cx)},{_fmt(cy - r)} "
+        f"m-{_fmt(r)},0 a{_fmt(r)},{_fmt(r)} 0 1,0 {_fmt(2 * r)},0 "
+        f"a{_fmt(r)},{_fmt(r)} 0 1,0 -{_fmt(2 * r)},0 Z"
+    )
+
+
+HEADER = """<?xml version="1.0" encoding="utf-8"?>
+<!-- 由 tools/gen_launcher_icon.py 自动生成，请勿手改 —— 改形状请改脚本后重跑。
+     Android 8+ 的 adaptive icon 走的就是本文件（mipmap-anydpi-v26 优先于 mipmap-* PNG）。
+     几何同源参数：星 CX={cx} CY={cy} 外径 {outer} 内径 {inner}；
+     圆点中心 {dx},{dy} 半径 {dr}。-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+"""
+
+FOOTER = "</vector>\n"
+
+
+def write_foreground_xml() -> str:
+    """彩色前景层：五角星（白 + 深绿描边）+ 金色圆点，无卡牌边框。"""
+    body = (
+        "    <path\n"
+        f'        android:fillColor="@color/ic_launcher_star"\n'
+        f'        android:pathData="{_star_pathdata()}" />\n'
+        "    <path\n"
+        f'        android:fillColor="@color/ic_launcher_gold"\n'
+        f'        android:pathData="{_dot_pathdata()}" />\n'
+    )
+    content = HEADER.format(
+        cx=_fmt(CX), cy=_fmt(CY), outer=_fmt(STAR_OUTER), inner=_fmt(STAR_INNER),
+        dx=_fmt(DOT_POS[0]), dy=_fmt(DOT_POS[1]), dr=_fmt(DOT_R),
+    ) + body + FOOTER
+    path = os.path.join(RES, "drawable", "ic_launcher_foreground.xml")
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(content)
+    print(f"  {path}  (矢量前景层，脚本生成)")
+    return path
+
+
+def write_monochrome_xml() -> str:
+    """Themed icon（Android 13+）：系统只读 alpha，填充必须纯白、无描边。"""
+    body = (
+        "    <path\n"
+        '        android:fillColor="#FFFFFFFF"\n'
+        f'        android:pathData="{_star_pathdata()}" />\n'
+        "    <path\n"
+        '        android:fillColor="#FFFFFFFF"\n'
+        f'        android:pathData="{_dot_pathdata()}" />\n'
+    )
+    content = HEADER.format(
+        cx=_fmt(CX), cy=_fmt(CY), outer=_fmt(STAR_OUTER), inner=_fmt(STAR_INNER),
+        dx=_fmt(DOT_POS[0]), dy=_fmt(DOT_POS[1]), dr=_fmt(DOT_R),
+    ) + body + FOOTER
+    path = os.path.join(RES, "drawable", "ic_launcher_monochrome.xml")
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(content)
+    print(f"  {path}  (monochrome 层，脚本生成)")
+    return path
+
+
 def main() -> None:
     for density, px in DENSITIES.items():
         export_legacy(density, px)
-    print("完成：传统 mipmap PNG 已按 5 档密度导出（无卡牌边框，五角星 + 金色圆点）")
+    write_foreground_xml()
+    write_monochrome_xml()
+    print("完成：5 档密度 PNG + 矢量前景层/monochrome 已按同一份几何导出（无卡牌边框）")
 
 
 if __name__ == "__main__":

@@ -14,7 +14,6 @@
     <string name="action_copy_uid">复制UID</string>
     <string name="action_query">查询</string>
     <string name="action_download">下载</string>
-    <string name="action_feedback">反馈</string>
     <string name="action_regenerate_qr">重新生成二维码</string>
 
     <!-- 导航与图标无障碍描述 -->
@@ -227,10 +226,7 @@
     <string name="about_tip_uid_query">顶栏的玩家查询功能支持手动输入 UID，查询该玩家的七圣相关信息。</string>
     <string name="about_tip_sunset">鉴于赛事已经关停，无法确保赛事信息部分长期有效。</string>
     <string name="about_section_data">数据来源与权限</string>
-    <string name="about_data_bold_cover">卡面下载</string>
-    <string name="about_data_mid">来自公开接口、不含个人战绩数据；</string>
-    <string name="about_data_bold_detail">卡牌使用详情</string>
-    <string name="about_data_end">需要登录凭据支持。</string>
+    <string name="about_data_statement">卡面下载来自公开接口、不含个人战绩数据；卡牌使用详情需要登录凭据支持。</string>
     <string name="about_data_bullet_source">所有信息均来自七圣赛事与米游社，卡牌数据及卡面图片来自米游社七圣 Wiki。</string>
     <string name="about_data_bullet_credential">登录凭据仅保存在本机加密存储区（Keystore 加密），不会上传至任何服务器。</string>
     <string name="about_section_thanks">原理与致谢</string>

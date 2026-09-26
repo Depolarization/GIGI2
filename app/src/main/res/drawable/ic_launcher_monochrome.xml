@@ -1,13 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  Monochrome layer for Android 13+ themed icons. The system reads only the alpha channel and
-  repaints it with the theme/wallpaper color, so every fill here must be pure white and the
-  shapes must stay readable as a silhouette.
-
-  V10-C（用户 2026-09-26）：移除卡牌边框 —— 与 PNG 图标保持一致，只留五角星 + 圆点剪影。
-  几何与 tools/gen_launcher_icon.py 同源（星：CX=50 CY=50 外径24 内径9.8 顶点朝正上；
-  圆点：中心 75,75 半径 6.6）。改形状时两处必须同步，否则 themed icon 与常规图标会不一致。
--->
+<!-- 由 tools/gen_launcher_icon.py 自动生成，请勿手改 —— 改形状请改脚本后重跑。
+     Android 8+ 的 adaptive icon 走的就是本文件（mipmap-anydpi-v26 优先于 mipmap-* PNG）。
+     几何同源参数：星 CX=50 CY=50 外径 20 内径 8.2；
+     圆点中心 72,72 半径 5.4。-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -15,8 +10,8 @@
     android:viewportHeight="108">
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M50,26 L55.07,41.03 L70.78,43.07 L58.39,55.11 L61.07,71.72 L50,63.77 L38.93,71.72 L41.61,55.11 L29.22,43.07 L44.93,41.03 Z" />
+        android:pathData="M50,30 L54.82,43.37 L69.02,43.82 L57.8,52.53 L61.76,66.18 L50,58.2 L38.24,66.18 L42.2,52.53 L30.98,43.82 L45.18,43.37 Z" />
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M75,68.4 m-6.6,0 a6.6,6.6 0 1,0 13.2,0 a6.6,6.6 0 1,0 -13.2,0 Z" />
+        android:pathData="M72,66.6 m-5.4,0 a5.4,5.4 0 1,0 10.8,0 a5.4,5.4 0 1,0 -10.8,0 Z" />
 </vector>

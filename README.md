@@ -1,143 +1,129 @@
+<div align="center">
+
+<img src="docs/img/icon-preview.png" width="240" alt="GIGI 图标" />
+
 # GIGI
 
-原神「七圣召唤」（Genius Invokation TCG）的 Android 原生战绩与卡牌数据工具 —— 扫码登录即用，
-战绩、排行榜、卡牌使用统计、卡面图鉴一屏看全。
+**七圣召唤赛事助手 · Android**
 
-> ⚠️ 本项目**仅供学习交流**，不用于任何商业用途，**不上架任何应用商店**，分发包仅限个人与社区自取。
+玩家战绩查询 · 卡面图鉴 · 多语言 · 自动更新
 
-- 开源协议：[Apache License 2.0](LICENSE)（第三方声明见 [NOTICE](NOTICE)）
-- 仓库：<https://github.com/Depolarization/GIGI2>
-- 反馈：[提交 Issue](https://github.com/Depolarization/GIGI2/issues)
+</div>
 
-## 功能特性
+---
 
-以下为当前代码已实现的功能。
+## 这是什么
 
-| 模块 | 说明 |
-| :-- | :-- |
-| 扫码登录 | 米游社 / 云·原神二维码登录，二维码带「已扫描」蒙层与失效重试 |
-| 多账户 | 本机保存多个账户，顶栏一键切换；退出仅删除当前账户凭据 |
-| 凭据安全 | 登录凭据仅存本机（Keystore 加密），不上传任何服务器 |
-| 首页战绩 | 分段/战绩概览 + 最近十局对局列表，单击任一项查看对手详情 |
-| 积分排行榜 | 巅峰 / 赛事双 Tab（可左右滑动）、首屏 60 条自动续拉、下拉刷新、前三名金银铜语义色 |
-| 卡牌使用统计 | 角色牌 / 行动牌双 Tab、角色牌三键排序、行动牌类型筛选、玩家信息卡可展开 |
-| 战绩长图导出 | 统计页一键渲染长图并保存到相册（`Pictures/GIGI`），自动过滤零使用卡牌 |
-| 卡牌图鉴 | 三分类 + 搜索 + 四维筛选 + 竖版三列网格，卡面可下载到相册 |
-| 玩家查询 | 顶栏输入任意 UID，查询该玩家的七圣召唤信息 |
-| 服务器切换 | 官服（天空岛）/ 渠道服（世界树），切服后导航图整体重建，不带入旧服数据 |
-| 界面适配 | Material3 主题、深浅色、宽屏（≥840dp）自动切换为 NavigationRail 侧栏 |
+GIGI 是一款为《原神》「七圣召唤」（Genius Invokation TCG）赛事玩家做的 Android 工具：
 
-**说明**：赛事相关数据依赖米哈游侧接口，官方赛事入口调整后该部分有效性不保证。
-更新检查 / 公告 / Bug 上报的数据层（`data/github/`）已就绪，界面入口在后续版本接入。
+- **战绩查询**：输入玩家 UID，查看公开赛事战绩与段位。
+- **卡面图鉴**：浏览全部角色牌、行动牌、装备牌、事件牌、支援牌、魔物牌；**包含 GIF 动图卡面**。
+- **多语言**：简中 / 繁中 / 英文三语随系统切换。
+- **自动更新**：内置 GitHub Releases 更新检查。
 
-## 构建
+> ⚠️ 本应用**不抓取个人账号凭据**。卡面/战绩数据来自七圣赛事站与米游社公开接口；登录凭据仅保存在本机 Keystore 加密区。
 
-### 环境
+## 截图
 
-| 项目 | 版本 |
-| :-- | :-- |
-| Android Studio | Ladybug（2024.2）及以上 |
-| Gradle | 8.14.5（wrapper 自带，下载地址已换阿里云镜像） |
-| Kotlin | 2.1.20（Compose 编译器由 Kotlin 插件提供） |
-| Android Gradle Plugin | 8.9.1 |
-| JDK | 21（命令行构建请显式指定 `JAVA_HOME`） |
-| compileSdk / targetSdk | 36 |
-| minSdk | 24（Android 7.0） |
+> 桌面图标、卡面图鉴、关于对话框三处实机截图位如下，由真机补图后替换。
 
-依赖仓库默认指向 `maven.aliyun.com`，国内网络可直接同步，无需代理。
+| 桌面图标 | 主页 / 卡面图鉴 | 关于对话框 |
+| :---: | :---: | :---: |
+| （占位） | （占位） | （占位） |
+| 新图标：亮绿渐变背景 + 五角星 + 金色圆点 | 卡面 GIF 动图正常播放 | 「检查更新」「关闭」两按钮，无挤压 |
 
-### 命令行
+## 技术栈
+
+| 项 | 选型 |
+| --- | --- |
+| 语言 | Kotlin |
+| UI | Jetpack Compose · Material 3 |
+| 图片 | Coil 2.7（含 `coil-gif` 解码器） |
+| 异步 | Kotlin Coroutines · Flow · StateFlow |
+| 网络 | OkHttp · kotlinx.serialization |
+| 签名 | 本地 keystore（gradle 环境变量注入） |
+| 最低 Android | API 24 (Android 7.0) |
+| 目标 Android | API 36 (Android 16) |
+
+## 主要功能
+
+### 🎴 卡面图鉴（含 GIF）
+全部卡面由 Coil 统一加载；GIF 动图通过 `GigiApp : ImageLoaderFactory`
+注册 `GifDecoder.Factory()` 实现（coil 2.x 不走 ServiceLoader，必须显式接线）。
+
+### 🏅 段位识别
+原实现是硬编码中文 `when` 分支，接口随语言返回英文段位名时会全部落空。
+现改为中英双语查表（黄铜/Brass、星银/Silver、赤金/Gold、影幻/Phantom），
+查不到时回落原始值而非空白。
+
+### 🌍 三语
+- `values/strings.xml`（简体中文）
+- `values-zh-rTW/strings.xml`（繁体中文）
+- `values-en/strings.xml`（English）
+
+### 🔄 自动更新
+关于对话框 → 「检查更新」→ 结果以独立弹窗呈现（含新版本号 / release notes / 下载按钮）；
+检查期间按钮禁用，避免重复触发。
+
+### 🎨 图标几何单一来源
+所有图标几何（星外径/内径、圆点位置、背景渐变）由 `tools/gen_launcher_icon.py`
+统一维护；同一份几何同步产出：
+- `mipmap-*/ic_launcher{,_round}.png`（5 档密度）
+- `drawable/ic_launcher_foreground.xml`（adaptive icon 前景层，Android 8+ 实际使用）
+- `drawable/ic_launcher_monochrome.xml`（Android 13+ themed icon）
+
+> ⚠️ 改形状务必改脚本后重跑，**禁止手改矢量层**——
+> 否则必然与位图层漂移（V10-E 已踩过：旧 `ic_launcher_foreground.xml`
+> 仍带白框，导致用户真机看到的图标形状与 PNG 不一致）。
+
+## 安装
+
+从 [Releases](../../releases) 页下载 `app-release.apk`，安装到 Android 7.0+ 设备。
+
+> 启用「未知来源安装」即可。首次打开若提示更新权限，请允许。
+
+## 构建（开发者）
 
 ```bash
-# 调试包
-JAVA_HOME="<你的 JDK 21 路径>" ./gradlew :app:assembleDebug
-# 产物：app/build/outputs/apk/debug/app-debug.apk
+# Debug
+./gradlew assembleDebug
 
-# 单元测试（纯逻辑层，JVM 上跑，不需要设备）
-JAVA_HOME="<你的 JDK 21 路径>" ./gradlew :app:testDebugUnitTest
+# Release（需要签名环境变量，参见 app/build.gradle.kts）
+export GIGI_STORE_PASSWORD=...
+export GIGI_KEY_ALIAS=...
+export GIGI_KEY_PASSWORD=...
+./gradlew assembleRelease
 
-# 发布包（未配置签名环境变量时产出未签名 APK）
-JAVA_HOME="<你的 JDK 21 路径>" ./gradlew :app:assembleRelease
+# 单元测试
+./gradlew testDebugUnitTest
+
+# 重新生成图标（改 tools/gen_launcher_icon.py 后）
+python tools/gen_launcher_icon.py
 ```
 
-Windows 下把 `./gradlew` 换成 `gradlew.bat`。用 Android Studio 打开工程根目录，
-直接 Run 'app' 也可以。
-
-### 签名
-
-release 签名凭据**全部走环境变量**，仓库不入库任何密钥（`gigi_release.keystore` 已在 `.gitignore`）：
-
-| 环境变量 | 含义 |
-| :-- | :-- |
-| `GIGI_STORE_PASSWORD` | keystore 密码；为空时 release 不挂签名 |
-| `GIGI_KEY_ALIAS` | 密钥别名，默认 `gigi_key` |
-| `GIGI_KEY_PASSWORD` | 密钥密码 |
-
-自行签发 keystore 后设置上述变量重新构建即自动签名：
-
-```bash
-keytool -genkeypair -keystore gigi_release.keystore -alias gigi_key \
-  -keyalg RSA -keysize 2048 -validity 10000
-```
-
-release 构建开启 R8 混淆与资源收缩，keep 规则见 `app/proguard-rules.pro`。
-
-## 仓库内维护文件
-
-以下两个文件放在 `main` 分支根目录，由维护者手工编辑，App 经国内可达的 CDN 镜像读取
-（`raw.githubusercontent.com` 国内直连超时，客户端会沿 `jsDelivr → gh-proxy → ghfast.top → ghproxy.net`
-依次回退）：
-
-**`update.json`** —— 版本信息：
-
-```json
-{
-  "versionName": "1.1.0",
-  "versionCode": 2,
-  "body": "更新说明，支持 Markdown 原文",
-  "downloadUrl": "https://github.com/Depolarization/GIGI2/releases/download/v1.1.0/app-release.apk",
-  "publishedAt": "2026-10-01"
-}
-```
-
-**`announcement.json`** —— 公告，顶层可为数组或 `{"announcements": [...]}`：
-
-```json
-[
-  {
-    "id": "2026-10-api-change",
-    "title": "接口变更提醒",
-    "body": "旧版本将无法拉取战绩，请升级。",
-    "url": "https://github.com/Depolarization/GIGI2/releases",
-    "minVersion": "1.0.0",
-    "maxVersion": "1.0.9"
-  }
-]
-```
-
-`minVersion` / `maxVersion` 用于按版本区间投放；同一 `id` 只提示一次（已读记录由客户端保存）。
-Release 数据走 `api.github.com`（国内实测可直连），无需镜像文件。
-
-## 工程结构
+## 目录结构（核心）
 
 ```
 app/src/main/java/com/gigi/tcg/
-├── data/       接口传输、凭据存储、缓存、GitHub 基础设施（更新/公告/反馈）
-├── di/         手写依赖容器 AppContainer（不使用 Hilt/Dagger）
-├── domain/     纯逻辑：分段、胜率、对局格式、节流、Wiki 解析（全部可 JVM 单测）
-└── ui/         Jetpack Compose 界面：登录、四个页面、弹窗、长图渲染、主题
-app/src/test/   纯逻辑与渲染布局单测
+├── GigiApp.kt                  # Application；ImageLoaderFactory 在此注册 GIF 解码
+├── MainActivity.kt
+├── ui/
+│   ├── about/                  # 关于页 + UpdateState（查询终态判定）
+│   └── dialogs/about/          # AboutDialog（V10-B 互斥结果弹窗）
+├── data/                       # 数据层
+├── di/                         # AppContainer
+└── i18n/                       # LocaleStrings
+
+tools/gen_launcher_icon.py      # 图标几何单一来源（4x 超采样 + 矢量 XML）
+app/src/main/res/values{,-en,-zh-rTW}/strings.xml
 ```
 
-界面文案当前为硬编码中文，未接 i18n。
+## 致谢
 
-## 免责声明
+- 卡牌数据与卡面图片来自米游社七圣 Wiki；
+- 战绩接口基于七圣赛事站公开数据；
+- 段位 / 卡牌类型术语按业界通用译名（非官方）。
 
-- 本项目是**非官方**的社区学习项目，与 **米哈游（miHoYo）/ HoYoverse 及其关联公司无任何关系**。
-  「原神」「七圣召唤」「米游社」及相关美术、品牌资源的著作权归米哈游所有。
-- 全部数据均来自米哈游对外公开的接口与本人生成战绩的登录凭据，本项目**不存储、不再分发**原始数据资源，
-  不做任何数据聚合或上传服务器；登录凭据仅保存在本机加密存储区。
-- 卡面图片与卡牌数据来自米游社七圣 Wiki 公开接口，仅用于个人查看与本机保存。
-- 依据 Apache License 2.0，本软件按「现状」提供，**不含任何明示或暗示的保证**，
-  作者对使用本软件造成的任何损害不承担责任。使用即代表你自行承担相关风险。
-- 若权利人认为本项目存在不妥，请通过 [Issue](https://github.com/Depolarization/GIGI2/issues) 联系，将及时处理。
+## 许可
+
+MIT（仓库内 `LICENSE`）。

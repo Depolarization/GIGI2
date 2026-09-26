@@ -14,7 +14,6 @@
     <string name="action_copy_uid">Copy UID</string>
     <string name="action_query">Query</string>
     <string name="action_download">Download</string>
-    <string name="action_feedback">Feedback</string>
     <string name="action_regenerate_qr">Regenerate QR Code</string>
 
     <!-- Navigation &amp; icon descriptions -->
@@ -227,10 +226,7 @@
     <string name="about_tip_uid_query">The player lookup in the top bar takes a UID and shows the TCG info of that player.</string>
     <string name="about_tip_sunset">The tournament has shut down, so the tournament section may not stay valid long.</string>
     <string name="about_section_data">Data Sources &amp; Permissions</string>
-    <string name="about_data_bold_cover">Card image downloads</string>
-    <string name="about_data_mid"> come from public APIs and contain no personal match records; </string>
-    <string name="about_data_bold_detail">card usage details</string>
-    <string name="about_data_end"> require login credentials.</string>
+    <string name="about_data_statement">Card image downloads come from public APIs and contain no personal match records; card usage details require login credentials.</string>
     <string name="about_data_bullet_source">All info comes from Genius Invokation tournaments and HoYoLAB; card data and images come from the HoYoLAB TCG Wiki.</string>
     <string name="about_data_bullet_credential">Credentials are stored only in the encrypted keystore on this device and are never uploaded to any server.</string>
     <string name="about_section_thanks">How It Works &amp; Credits</string>

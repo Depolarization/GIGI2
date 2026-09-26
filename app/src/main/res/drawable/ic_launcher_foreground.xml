@@ -1,30 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 由 tools/gen_launcher_icon.py 自动生成，请勿手改 —— 改形状请改脚本后重跑。
+     Android 8+ 的 adaptive icon 走的就是本文件（mipmap-anydpi-v26 优先于 mipmap-* PNG）。
+     几何同源参数：星 CX=50 CY=50 外径 20 内径 8.2；
+     圆点中心 72,72 半径 5.4。-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!--
-      All artwork stays inside the 72x72 adaptive-icon safe zone (x,y in [18,90]).
-      Card outer bounds incl. stroke: x 28.5..79.5, y 20.5..87.5.
-    -->
-    <path
-        android:strokeColor="@color/ic_launcher_fg_line"
-        android:strokeWidth="3"
-        android:fillColor="#00000000"
-        android:pathData="M35,22 h38 a5,5 0 0 1 5,5 v54 a5,5 0 0 1 -5,5 h-38 a5,5 0 0 1 -5,-5 v-54 a5,5 0 0 1 5,-5 z" />
-    <!-- Five-pointed star: center (54,50), outer R=16, inner r=8 -->
     <path
         android:fillColor="@color/ic_launcher_star"
-        android:strokeColor="@color/ic_launcher_fg_line"
-        android:strokeWidth="1.5"
-        android:pathData="M54,34 L58.7,43.53 L69.22,45.06 L61.61,52.47 L63.4,62.94 L54,58 L44.6,62.94 L46.39,52.47 L38.78,45.06 L49.3,43.53 Z" />
+        android:pathData="M50,30 L54.82,43.37 L69.02,43.82 L57.8,52.53 L61.76,66.18 L50,58.2 L38.24,66.18 L42.2,52.53 L30.98,43.82 L45.18,43.37 Z" />
     <path
         android:fillColor="@color/ic_launcher_gold"
-        android:fillAlpha="0.22"
-        android:pathData="M54,34 L58.7,43.53 L69.22,45.06 L61.61,52.47 L63.4,62.94 L54,58 L44.6,62.94 L46.39,52.47 L38.78,45.06 L49.3,43.53 Z" />
-    <!-- Gold pip at card base -->
-    <path
-        android:fillColor="@color/ic_launcher_gold"
-        android:pathData="M54,73 m-3.5,0 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0" />
+        android:pathData="M72,66.6 m-5.4,0 a5.4,5.4 0 1,0 10.8,0 a5.4,5.4 0 1,0 -10.8,0 Z" />
 </vector>
