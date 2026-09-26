@@ -118,6 +118,14 @@ OpenRouter 无官方 CLI，用 **opencode** 作 harness（原生支持 OpenRoute
 重新生成：`"$PY" C:/Users/oscur/.workbuddy-ai/tools/sync_bailian_models.py --emit-skill <输出.md>`
 （该命令默认已排除已入 `models.json` 的模型，见 `--exclude-in-models-json`）。
 
+**🔴 能力纠正（2026-09-25 用户纠正，勿写错）**：**百炼平台的模型【可以调用工具】** ——
+`bl text chat --tool <schema>` 实测返回 `finish_reason:tool_calls` + 结构化 `tool_calls` 数组；
+`bl model list --feature function-calling` 有 **46 个模型系列**。
+限制只在 **`bl text chat` 这条命令没有工具执行循环**（拿到 `tool_calls` 后不会自己执行），
+**不是模型不支持工具调用** ⇒ ① 一次性可答的分析/审阅/提取类任务直接派；② 要「动手」的实现类任务
+**接 harness 后照样能执行工具**（`bl config agent --agent <claude-code|codex|opencode|…>`；官方列表里**没有 qoder**）。
+⚠️ **禁止**写「百炼只能做文本分析 / 百炼不能调用工具」——这是错的。
+
 | 收录 | 发布时间 | 模型 | 供应商 | 上下文 | 视觉 | 说明 |
 | :--: | :-- | :-- | :-- | --: | :--: | :-- |
 |  | 2026-07-21 | `qwen3.7-flash-2026-07-15` | aliyun-bailian | 1000000 | 是 | Qwen3.7原生视觉语言系列Flash模型，相较3.6-Flash全面提升多模态理解与Agent执行能力。重点强化… |
@@ -223,7 +231,7 @@ OpenRouter 无官方 CLI，用 **opencode** 作 harness（原生支持 OpenRoute
 2. **等 2–5 分钟**重试（禁止密集重试）；
 3. **转 opencode / OpenRouter**（§2.1，实现类任务也能接）；
 4. 仍不行 → 转**百炼池**（§2.2，换 `-m` 到池里同档模型；额度耗尽的处理见该节）；
-5. 仍不行 → 转纯文本 API 做**分析类**兜底（它没有工具执行循环，不能动手）；
+5. 仍不行 → 转百炼 API 做分析类兜底（限制只是 `bl text chat` **无工具执行循环**；**动手类任务请先接 harness**：`bl config agent --agent <claude-code|codex|opencode|…>`）；
 6. 仍不行 → 探针写 `blocked` + 原因并上报，**不要空转**。
 
 - `429 / quota / usage exceeds frequency limit`：宿主内置 subagent 与 CLI 额度**相互独立** ⇒ 内置 429 时**立刻切 CLI**，提示的重置时刻不必等。
