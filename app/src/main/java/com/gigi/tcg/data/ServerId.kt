@@ -8,13 +8,13 @@ package com.gigi.tcg.data
  * （那里做 id→资源映射）；[name]/[shortName] 为简中兜底字面量，仅供数据层/日志。
  */
 sealed class ServerId(val id: String, val name: String, val shortName: String) {
-    /** 官服（天空岛）cn_gf01 */
+    /** 天空岛 cn_gf01 */
     data object Official :
-        ServerId("cn_gf01", "官服（天空岛）", "官服")
+        ServerId("cn_gf01", "天空岛", "官服")
 
-    /** 渠道服（世界树）cn_qd01 */
+    /** 世界树 cn_qd01 */
     data object Channel :
-        ServerId("cn_qd01", "渠道服（世界树）", "渠道服")
+        ServerId("cn_qd01", "世界树", "渠道服")
 
     /** 非 Compose 上下文（数据层/日志）的显示名：恒简中，UI 请走 i18n.displayName() */
     fun nameOrDefault(): String = name

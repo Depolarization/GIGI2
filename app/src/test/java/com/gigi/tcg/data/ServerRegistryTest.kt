@@ -14,28 +14,28 @@ import org.junit.Test
 class ServerRegistryTest {
 
     @Test
-    fun `只包含官服与渠道服两个服务器，标识符唯一、名称正确`() {
+    fun `只包含天空岛与世界树两个服务器，标识符唯一、名称正确`() {
         assertEquals(
             listOf(ServerId.Official, ServerId.Channel),
             ServerId.ALL,
         )
         assertEquals(
             listOf(
-                Triple("cn_gf01", "官服（天空岛）", "官服"),
-                Triple("cn_qd01", "渠道服（世界树）", "渠道服"),
+                Triple("cn_gf01", "天空岛", "官服"),
+                Triple("cn_qd01", "世界树", "渠道服"),
             ),
             ServerId.ALL.map { Triple(it.id, it.name, it.shortName) },
         )
-        assertEquals("官服（天空岛）", ServerId.from("cn_gf01")?.name)
+        assertEquals("天空岛", ServerId.from("cn_gf01")?.name)
         assertEquals("官服", ServerId.from("cn_gf01")?.shortName)
-        assertEquals("渠道服（世界树）", ServerId.from("cn_qd01")?.name)
+        assertEquals("世界树", ServerId.from("cn_qd01")?.name)
         assertEquals("渠道服", ServerId.from("cn_qd01")?.shortName)
     }
 
     @Test
     fun `默认项明确且存在于注册表中`() {
         assertEquals("cn_gf01", ServerId.DEFAULT.id)
-        assertEquals("官服（天空岛）", ServerId.from(ServerId.DEFAULT.id)?.name)
+        assertEquals("天空岛", ServerId.from(ServerId.DEFAULT.id)?.name)
     }
 
     @Test

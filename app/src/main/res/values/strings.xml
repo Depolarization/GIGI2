@@ -35,8 +35,8 @@
     <string name="account_logout_message">退出后将删除本机保存的当前账户凭据，其他账户不受影响。</string>
 
     <!-- 服务器 -->
-    <string name="server_cn_gf01">官服（天空岛）</string>
-    <string name="server_cn_qd01">渠道服（世界树）</string>
+    <string name="server_cn_gf01">天空岛</string>
+    <string name="server_cn_qd01">世界树</string>
     <string name="server_cn_gf01_short">官服</string>
     <string name="server_cn_qd01_short">渠道服</string>
 
@@ -138,8 +138,6 @@
     <string name="score_ladder">天梯积分</string>
     <string name="score_peak">巅峰积分</string>
     <string name="score_competition">赛事积分</string>
-    <string name="rank_peak_line">巅峰积分:%1$d</string>
-    <string name="rank_comp_line">赛事积分:%1$d</string>
     <string name="rank_shown_count">已显示 %1$d / %2$d 名</string>
     <string name="rank_empty">%1$s暂无上榜玩家</string>
 
@@ -211,6 +209,15 @@
     <string name="export_badge_action">行动牌 %1$d</string>
     <string name="export_badge_total_games">共进行 %1$d 场游戏</string>
     <string name="export_badge_win_rate">胜率 %1$s</string>
+    <!-- 最近对局导出（首页） -->
+    <string name="home_export_records">导出最近对局</string>
+    <string name="export_records_title">最近对局</string>
+    <string name="export_col_opponent">对手</string>
+    <string name="export_col_uid">UID</string>
+    <string name="export_col_time">时间</string>
+    <string name="export_col_ladder">天梯</string>
+    <string name="export_col_peak">巅峰</string>
+    <string name="export_col_result">胜负</string>
 
     <!-- 关于页 -->
     <string name="about_title">说明</string>

@@ -35,8 +35,8 @@
     <string name="account_logout_message">Signing out deletes the credentials of this account stored on this device. Other accounts are unaffected.</string>
 
     <!-- Servers -->
-    <string name="server_cn_gf01">Official (Sky Island)</string>
-    <string name="server_cn_qd01">Channel (World Tree)</string>
+    <string name="server_cn_gf01">Sky Island</string>
+    <string name="server_cn_qd01">World Tree</string>
     <string name="server_cn_gf01_short">Official</string>
     <string name="server_cn_qd01_short">Channel</string>
 
@@ -138,8 +138,6 @@
     <string name="score_ladder">Ladder Points</string>
     <string name="score_peak">Peak Points</string>
     <string name="score_competition">Tournament Points</string>
-    <string name="rank_peak_line">Peak: %1$d</string>
-    <string name="rank_comp_line">Tournament: %1$d</string>
     <string name="rank_shown_count">Showing %1$d of %2$d players</string>
     <string name="rank_empty">No ranked players under %1$s</string>
 
@@ -211,6 +209,15 @@
     <string name="export_badge_action">Actions %1$d</string>
     <string name="export_badge_total_games">%1$d games played</string>
     <string name="export_badge_win_rate">Win rate %1$s</string>
+    <!-- Recent matches export (home) -->
+    <string name="home_export_records">Export Recent Matches</string>
+    <string name="export_records_title">Recent Matches</string>
+    <string name="export_col_opponent">Opponent</string>
+    <string name="export_col_uid">UID</string>
+    <string name="export_col_time">Time</string>
+    <string name="export_col_ladder">Ladder</string>
+    <string name="export_col_peak">Peak</string>
+    <string name="export_col_result">Result</string>
 
     <!-- About dialog -->
     <string name="about_title">About</string>
