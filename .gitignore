@@ -10,6 +10,10 @@ captures/
 *.apk
 *.aab
 
+# 签名密钥与本机配置，绝不入库
+gigi_release.keystore
+local.properties
+
 # 子代理协作运行时数据（勿提交）
 tools/.agent_monitor/
 .agent_work/
