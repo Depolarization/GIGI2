@@ -42,16 +42,16 @@
 
 居中
 ----
-三向旋转对称的图形，**面积质心必然落在几何中心，但外接矩形的中心一定不重合** ——
-这是 3 重对称的固有结论。参考原图同样如此。本脚本用 `CENTER` 选择对齐基准：
-    "bbox" | "centroid" | "mid"（当前默认，前两者折中）
+三向旋转对称的图形，**面积质心与外接矩形中心不可能重合** —— 这是 3 重对称的固有结论。
+但二者只能择一对齐，本脚本用 `CENTER` 选择基准：`"bbox" | "centroid" | "mid"`。
+**当前默认 `centroid`**（面积质心 = 视觉重量中心），残偏见该常量上方的实测表。
 
 用法
 ----
   python tools/gen_launcher_icon.py --preview   # 出预览图到 docs/img（默认）
   python tools/gen_launcher_icon.py --export    # 写入 app/src/main/res
   python tools/gen_launcher_icon.py --all
-  python tools/gen_launcher_icon.py --center mid
+  python tools/gen_launcher_icon.py --center bbox   # 临时换基准看效果
 """
 from __future__ import annotations
 
@@ -159,11 +159,17 @@ def _u_index(theta_deg):
 
 # ------------------------------------------------------------------ 居中基准
 # 三叶母题是「上宽下尖」的倒三角（逐行宽度 y=48→114px、y=96→81px、y=144→25px），
-# 几何外接矩形的中心与视觉重心并不重合：
-#   · 按 bbox 对齐 ⇒ 面积质心落在中心线上方约 4.3dp，用户真机实测「主体偏上、没居中」；
-#   · 按面积质心对齐会让图案整体坐低（早期版本的判断）；
-#   · 故改取二者折中 "mid"（用户 2026-09-26 真机实测拍板）。
-CENTER = "mid"                      # "bbox" | "centroid" | "mid"
+# 几何外接矩形的中心与视觉重心并不重合，三种基准的实测残偏（本脚本自检输出）：
+#   · bbox     ⇒ 外接矩形残偏 0.00dp，面积质心偏上 4.30dp  ← 用户真机反馈「主体偏上」
+#   · mid      ⇒ 两者各 2.26dp（折中，V24A）
+#   · centroid ⇒ 面积质心残偏 0.00dp，外接矩形残偏 4.72dp
+#
+# V25（用户 2026-09-27 要求「残偏归零」）：改用 **centroid**。
+# 依据：人眼判断「居中」看的是**视觉重量分布**，而面积质心正是该分布的物理量；
+# bbox 基准之所以被判偏上，正是因为质心被顶到了中心线以上 4.30dp。
+# 质心归零后，外接矩形中心必然落在其下方（4.72dp）——这是 3 重对称图形的固有结论，
+# 两者无法同时为零，只能择一。
+CENTER = "centroid"                 # "bbox" | "centroid" | "mid"
 
 # ------------------------------------------------------------------ 配色
 BG_TOP = (0xFD, 0xFA, 0xF3)
