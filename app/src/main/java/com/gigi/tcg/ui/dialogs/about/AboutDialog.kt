@@ -1,139 +1,23 @@
 package com.gigi.tcg.ui.dialogs.about
 
-import android.content.Intent
-import android.net.Uri
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.LinkAnnotation
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.dp
+import com.gigi.tcg.ui.about.AboutScreen
+import com.gigi.tcg.ui.about.rememberAboutViewModel
 
-// 说明/关于：移植 Web 版 AboutDialog.tsx 的分区结构与文案骨架，适配 M3 Dialog。
-// 形态/凭据两条口径已按 Android 原生改写，回抄 Web 版即回归 bug。
-
-private const val FEEDBACK_URL = "https://space.bilibili.com/560719483"
-
-private data class Fact(val label: String, val value: String)
-
-private val PROJECT_FACTS = listOf(
-    Fact("项目名", "GIGI（Genshin Impact Genius Invokation TCG Tool）"),
-    Fact("形态", "Android 原生应用 —— 安装即用，米游社或云·原神扫码登录"),
-)
-
-private val USAGE_TIPS = listOf(
-    "与抽卡记录类似，新对局数据的获取存在一定延迟；若未即时获取到最新记录，请稍后重试。",
-    "急着更新数据时，请小退原神（返回开门界面）后再次进门，可加快数据更新速度。",
-    "首页的对局查询最多可查看最近十局的对局详情，单击列表任一项即可查看对手信息。",
-    "顶栏的玩家查询功能支持手动输入 UID，查询该玩家的七圣相关信息。",
-    "鉴于赛事已经关停，无法确保赛事信息部分长期有效。",
-)
-
-private val DATA_SOURCE_TIPS: List<AnnotatedString.Builder.() -> Unit> = listOf(
-    {
-        append("• ")
-        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("卡面下载") }
-        append("来自公开接口、不含个人战绩数据；")
-        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("卡牌使用详情") }
-        append("需要登录凭据支持。")
-    },
-    { append("• 所有信息均来自七圣赛事与米游社，卡牌数据及卡面图片来自米游社七圣 Wiki。") },
-    { append("• 登录凭据仅保存在本机加密存储区（Keystore 加密），不会上传至任何服务器。") },
-)
+// 说明/关于：弹窗外壳保留（GigiNavHost 以 aboutOpen 直接调本函数，换壳等于改导航），
+// 正文与 V9-G 的更新检查/公告/Bug 上报接线一并搬到 ui/about/AboutScreen.kt。
+// 原「反馈」按钮指向 B 站主页，该入口仍在正文「反馈」小节，功能未丢。
 
 @Composable
 fun AboutDialog(onClose: () -> Unit) {
-    val context = LocalContext.current
+    val viewModel = rememberAboutViewModel()
     AlertDialog(
         onDismissRequest = onClose,
         title = { Text("说明") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                SectionTitle("关于本软件")
-                PROJECT_FACTS.forEach { fact ->
-                    AboutParagraph {
-                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(fact.label) }
-                        append("：${fact.value}")
-                    }
-                }
-
-                SectionTitle("使用要点")
-                USAGE_TIPS.forEach { tip ->
-                    AboutParagraph { append("• $tip") }
-                }
-
-                SectionTitle("数据来源与权限")
-                DATA_SOURCE_TIPS.forEach { build ->
-                    AboutParagraph(build = build)
-                }
-
-                SectionTitle("原理与致谢")
-                AboutParagraph {
-                    append("最早借助七圣赛事官网查询对手信息的原理见")
-                    appendLink("B 站原理讲解视频", "https://www.bilibili.com/video/BV1boF5z6E9G")
-                    append("。")
-                }
-                AboutParagraph {
-                    append("项目基于米游社公开接口与官方赛事数据构建。感谢所有提供公开数据与接口研究资料的社区贡献者。")
-                }
-
-                SectionTitle("反馈")
-                AboutParagraph { append("若在使用中遇到任何异常错误，欢迎反馈。") }
-
-                SectionTitle("版本")
-                AboutParagraph { append("版本 1.0.0") }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    // 设备无浏览器等无 VIEW 处理器时静默忽略，避免 ActivityNotFoundException 崩溃
-                    runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(FEEDBACK_URL)))
-                    }
-                },
-            ) { Text("反馈") }
-        },
-        dismissButton = {
-            TextButton(onClick = onClose) { Text("关闭") }
-        },
+        text = { AboutScreen(viewModel = viewModel) },
+        confirmButton = { TextButton(onClick = onClose) { Text("关闭") } },
     )
-}
-
-@Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
-    )
-}
-
-@Composable
-private fun AboutParagraph(build: AnnotatedString.Builder.() -> Unit) {
-    Text(
-        text = buildAnnotatedString(build),
-        style = MaterialTheme.typography.bodyMedium,
-        modifier = Modifier.padding(vertical = 4.dp),
-    )
-}
-
-private fun AnnotatedString.Builder.appendLink(text: String, url: String) {
-    pushLink(LinkAnnotation.Url(url = url))
-    withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) { append(text) }
-    pop()
 }
