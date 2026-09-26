@@ -114,25 +114,29 @@ class CardStatsExportTest {
         val empty = buildCharTableSpec(summary(), "u", emptyList())
         assertEquals(0, empty.rows.size)
 
-        val zeroUseCards = listOf(char(0, 0), GcgCard(name = "null卡", cardType = "CardTypeCharacter"))
-        val rows = buildCharTableSpec(summary(), "u", zeroUseCards).rows
-        rows.forEach { row ->
-            assertEquals("0.000", row[3])
-            assertEquals("0.000", row[4])
-        }
-        val flat = rows.joinToString("|")
-        assertFalse(flat.contains("NaN"))
-        assertFalse(flat.contains("Infinity"))
-        assertFalse(flat.contains("-0.000"))
-
-        // 行动牌分母 = summary.actionTotalUse，为 0 时同样退化
+        // 角色牌分母 = ΣuseCount，而 0 次卡已被过滤 ⇒ 「分母为 0 且仍有行」在角色牌表里不可能出现；
+        // 改用分母为 0 而分子非 0 的行动牌（useCount=3 / actionTotalUse=0）真正断言字符串内容，
+        // 避免 rows 为空导致 forEach 空转（永远通过、失去意义）。
         val actionRows = buildActionTableSpec(
             summary(actionTotalUse = 0),
             "u",
-            listOf(GcgCard(name = "a", cardType = CARD_TYPE_EVENT, useCount = null)),
+            listOf(GcgCard(name = "a", cardType = CARD_TYPE_EVENT, useCount = 3)),
         ).rows
+        assertEquals(1, actionRows.size)
         assertEquals("0.000", actionRows[0][4])
-        assertEquals("0", actionRows[0][3])
+        assertEquals("3", actionRows[0][3])
+        val flat = actionRows.joinToString("|")
+        assertFalse(flat.contains("NaN"))
+        assertFalse(flat.contains("Infinity"))
+        assertFalse(flat.contains("-0.000"))
+    }
+
+    @Test
+    fun `使用次数为0或null的卡不进表`() {
+        val rows = buildCharTableSpec(summary(), "u", listOf(char(0, 0), char(null, null), char(5, 1))).rows
+        assertEquals(1, rows.size)
+        assertEquals("1", rows[0][0])
+        assertEquals("行秋", rows[0][1])
     }
 
     @Test
@@ -151,12 +155,44 @@ class CardStatsExportTest {
 
     @Test
     fun `可空字段按0处理不崩`() {
-        val row = buildCharTableSpec(summary(), "u", listOf(GcgCard(name = null, cardType = "CardTypeCharacter"))).rows[0]
+        // useCount 给非 0 值，否则这张卡会被过滤掉、rows[0] 直接越界
+        val row = buildCharTableSpec(
+            summary(), "u",
+            listOf(GcgCard(name = null, cardType = "CardTypeCharacter", useCount = 1)),
+        ).rows[0]
         assertEquals("未知", row[1])
-        assertEquals("0", row[2])
-        assertEquals("0", row[5])
-        assertEquals("0.000", row[3])
-        assertEquals("0.000", row[4])
+        assertEquals("1", row[2])
+        assertEquals("0", row[5]) // proficiency 为 null ⇒ ?: 0
+        assertEquals("100.000", row[3]) // 出场率分母 = ΣuseCount = 1
+        assertEquals("0.000", row[4]) // 胜率 = 0 / 1
+    }
+
+    @Test
+    fun `徽章行不含数据来源渠道`() {
+        val badges = buildCharTableSpec(summary(), "u", emptyList()).badges
+        assertEquals(4, badges.size)
+        assertTrue(badges.none { it.contains("GIGI", ignoreCase = true) })
+    }
+
+    @Test
+    fun `过滤后行数与序号连续`() {
+        // 角色牌：0 次、null 次（哪怕 proficiency 非 0）、以及 0/0 的卡都不进表，剩下的重新编号
+        val charCards = listOf(char(0, 7), char(null, 9), char(4, 2), char(0, 0), char(6, 3))
+        val charRows = buildCharTableSpec(summary(), "u", charCards).rows
+        assertEquals(2, charRows.size)
+        assertEquals(listOf("1", "2"), charRows.map { it[0] })
+        assertEquals(listOf("4", "6"), charRows.map { it[2] })
+
+        val actionCards = listOf(
+            GcgCard(name = "零次", cardType = CARD_TYPE_EVENT, useCount = 0),
+            GcgCard(name = "null次", cardType = CARD_TYPE_MODIFY, useCount = null, proficiency = 3),
+            GcgCard(name = "用过", cardType = CARD_TYPE_ASSIST, useCount = 2),
+        )
+        val actionRows = buildActionTableSpec(summary(actionTotalUse = 10), "u", actionCards).rows
+        assertEquals(1, actionRows.size)
+        assertEquals("1", actionRows[0][0])
+        assertEquals("用过", actionRows[0][2])
+        assertEquals("20.000", actionRows[0][4]) // 分母仍是 summary.actionTotalUse = 10
     }
 
     @Test

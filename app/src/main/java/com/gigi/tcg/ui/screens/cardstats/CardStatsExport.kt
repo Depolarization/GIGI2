@@ -36,6 +36,9 @@ internal fun buildCharTableSpec(summary: GcgSummary, uid: String, cards: List<Gc
     // 出场率分母 = Σ角色牌 useCount（与 StatsUiState.charTotalUse / Summary.charTotalUse 同口径，
     // 而非"游玩场次数"——说明文案与原版代码的差异照原版保留）
     val totalUse = cards.sumOf { it.useCount ?: 0 }
+    // 使用次数为 0（含 null）的牌不进表（用户要求减少绘制压力）；被滤掉的牌对 totalUse 贡献为 0，
+    // 分母口径不受影响。序号按过滤后的下标重新连续，排序沿用服务端返回顺序。
+    val visible = cards.filter { (it.useCount ?: 0) > 0 }
     val columns = listOf(
         TableColumn("#", 1.0f, alignEnd = false),
         TableColumn("名称", 5.0f, alignEnd = false),
@@ -44,7 +47,7 @@ internal fun buildCharTableSpec(summary: GcgSummary, uid: String, cards: List<Gc
         TableColumn("胜率%", 1.6f, alignEnd = true),
         TableColumn("胜局数", 1.3f, alignEnd = true),
     )
-    val rows = cards.mapIndexed { index, card ->
+    val rows = visible.mapIndexed { index, card ->
         val useCount = card.useCount ?: 0
         val wins = card.proficiency ?: 0
         listOf(
@@ -66,7 +69,7 @@ internal fun buildCharTableSpec(summary: GcgSummary, uid: String, cards: List<Gc
 }
 
 internal fun buildActionTableSpec(summary: GcgSummary, uid: String, cards: List<GcgCard>): TableSpec {
-    // 使用率分母 = GcgSummary.actionTotalUse（= Σ行动牌 use_count）
+    // 使用率分母 = GcgSummary.actionTotalUse（= Σ行动牌 use_count），与下面的过滤无关，不随行数变化
     val totalUse = summary.actionTotalUse
     // 权重按 .task/tmp/verify_v8h.py 的列宽约束验算（表头 8% 余量、名称 ≥8 中文字、
     // 「装备牌」3 字、"100.000" 7 字符），派单初值 1.0/1.6/3.9/1.9/1.8 会让
@@ -78,7 +81,10 @@ internal fun buildActionTableSpec(summary: GcgSummary, uid: String, cards: List<
         TableColumn("使用次数", 1.9f, alignEnd = true),
         TableColumn("使用率%", 1.9f, alignEnd = true),
     )
-    val rows = cards.mapIndexed { index, card ->
+    // 使用次数为 0（含 null）的牌不进表（用户要求减少绘制压力）；序号按过滤后的下标重新连续，
+    // 排序沿用服务端返回顺序。
+    val visible = cards.filter { (it.useCount ?: 0) > 0 }
+    val rows = visible.mapIndexed { index, card ->
         val useCount = card.useCount ?: 0
         listOf(
             (index + 1).toString(),
@@ -119,5 +125,4 @@ private fun buildBadges(summary: GcgSummary): List<String> = listOf(
     "行动牌 ${summary.actionCardNum}",
     "共进行 ${summary.totalGames} 场游戏",
     "胜率 ${summary.winRate}",
-    "数据来源：GIGI",
 )
