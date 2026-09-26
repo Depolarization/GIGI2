@@ -7,7 +7,7 @@
 
 package com.gigi.tcg.ui.screens.rank
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,7 +37,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +60,7 @@ import com.gigi.tcg.ui.components.CenteredScrollableContainer
 import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
+import com.gigi.tcg.ui.components.LocalToast
 import com.gigi.tcg.ui.theme.GoldColor
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.contentOrNull
@@ -240,10 +243,20 @@ private fun RankRow(
     val uid = uidOf(info)
     val scoreColor = MaterialTheme.colorScheme.onSurface
     val uidColor = MaterialTheme.colorScheme.onSurfaceVariant
+    // V25：长按行直接复制该玩家 UID（与首页列表的长按语义一致）。
+    val showToast = LocalToast.current
+    @Suppress("DEPRECATION") val clipboard = LocalClipboardManager.current
+    val copiedToast = stringResource(R.string.toast_copied_uid, uid)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = {
+                    @Suppress("DEPRECATION") clipboard.setText(AnnotatedString(uid))
+                    showToast(copiedToast)
+                },
+            )
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

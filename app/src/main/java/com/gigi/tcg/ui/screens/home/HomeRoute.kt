@@ -8,6 +8,7 @@ package com.gigi.tcg.ui.screens.home
 import android.app.Application
 import android.graphics.Bitmap
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -40,8 +41,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -344,6 +347,10 @@ private fun RecordItem(
     val unknown = opponentUid == UNKNOWN_OPPONENT_UID
     val isWin = record.result == "Win"
     val isLose = record.result == "Lose"
+    // V25：长按条目直接复制对手 UID（原先只能点进详情弹窗再复制，两步）。
+    val showToast = LocalToast.current
+    @Suppress("DEPRECATION") val clipboard = LocalClipboardManager.current
+    val copiedToast = stringResource(R.string.toast_copied_opponent_uid, opponentUid)
 
     val ladderScore = record.ladderScore?.score ?: 0
     val ladderChange = record.ladderScore?.scoreChange ?: 0
@@ -357,7 +364,14 @@ private fun RecordItem(
     Card(
         modifier
             .fillMaxWidth()
-            .clickable(enabled = !unknown) { onOpenOpponent(opponentUid) },
+            .combinedClickable(
+                enabled = !unknown,
+                onClick = { onOpenOpponent(opponentUid) },
+                onLongClick = {
+                    @Suppress("DEPRECATION") clipboard.setText(AnnotatedString(opponentUid))
+                    showToast(copiedToast)
+                },
+            ),
     ) {
         Row(
             Modifier

@@ -256,35 +256,47 @@ private fun EntriesSection(entries: List<com.gigi.tcg.data.model.EntryExperience
         Text(stringResource(R.string.detail_history_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
     }
+    // V25（用户 2026-09-27 反馈）：原先三列挤一行，名称列只够四五个字，maxLines=1
+    // 一省略就被砍到「只剩五六个字」，而赛事名普遍十几二十个字符。
+    // 现拆成两行：名称独占整行宽度（可折到 3 行），结果与积分退居次行，
+    // 名称终于能读全，同时主次信息层次更清楚。
     entries.forEachIndexed { index, entry ->
-        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "${index + 1}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.width(20.dp),
-            )
-            Text(
-                text = entry.competitionName ?: stringResource(R.string.common_unknown),
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = entry.competitionResult ?: stringResource(R.string.common_unknown),
-                style = MaterialTheme.typography.labelLarge,
-                color = resultColor(entry.competitionResult, semantic),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = stringResource(R.string.detail_points, entry.score ?: 0),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Text(
+                    text = "${index + 1}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // 小字号顶对齐会比 bodyMedium 显得偏高，补 2dp 让首行视觉基线大致齐平
+                    modifier = Modifier.width(20.dp).padding(top = 2.dp),
+                )
+                Text(
+                    text = entry.competitionName ?: stringResource(R.string.common_unknown),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(
+                modifier = Modifier.padding(start = 20.dp, top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = entry.competitionResult ?: stringResource(R.string.common_unknown),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = resultColor(entry.competitionResult, semantic),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.detail_points, entry.score ?: 0),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }
