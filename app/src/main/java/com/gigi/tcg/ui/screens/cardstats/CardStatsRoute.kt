@@ -5,6 +5,7 @@
 package com.gigi.tcg.ui.screens.cardstats
 
 import android.app.Application
+import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -178,7 +179,14 @@ private fun CardStatsContent(
                             )
                             val bitmap = renderTableBitmap(spec, layout)
                             try {
-                                CardImageSaver(appContext).saveBitmap(bitmap, spec.title)
+                                // quality 72 是 V9-C 实测选档：1600x30524 的行动牌长图 q72 ≈ 7.9MB
+                                //（真实卡名更短 ⇒ 接近用户样例 6MB），q65 只省 0.7MB 却开始糊 26px 中文笔画
+                                CardImageSaver(appContext).saveBitmap(
+                                    bitmap,
+                                    spec.title,
+                                    format = Bitmap.CompressFormat.JPEG,
+                                    quality = 72,
+                                )
                             } finally {
                                 // 回收放 finally：saveBitmap 抛异常也不能漏大图（长图可达数百 KB×行数像素）
                                 bitmap.recycle()

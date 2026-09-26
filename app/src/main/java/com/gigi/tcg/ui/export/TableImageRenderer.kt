@@ -6,21 +6,30 @@ import android.graphics.Paint
 import java.io.IOException
 import kotlin.math.ceil
 
-// 字号：正文 28px、表头 26px、标题 46px（1600px 定宽图上直接按 px 定，不随密度）。
+// 字号：正文 26px、表头 26px、标题 48px（1600px 定宽图上直接按 px 定，不随密度）。
 // internal 供单测做"表头能否放进列"的字宽断言（V8H：防回归）。
 // 表头字号维持 26f：加到 28f 会让行动牌双栏 800px 下「使用次数」列余量从 +9.6% 跌到 +1.8%，
 // 破掉 V8H 固化的 ≥8% 余量约束；表头清晰度靠加大行高留白达成（V8I-B）。
-internal const val TEXT_SIZE_BODY_PX = 28f
+// 正文 28f → 26f（V9-C）：双栏名称列 avail 只有 228px（slack = 800-40*5 = 600，不是 720），
+// 28f 时每行 7 字、两行 14 字 < 15 字仍在两行内放不下；26f 每行 8 字、两行 16 字才满足
+// "行动牌名 ≤15 字不省略"，且 26*1.18*2 = 61.4px 仍装得进 64px 行高。
+internal const val TEXT_SIZE_BODY_PX = 26f
 internal const val TEXT_SIZE_HEADER_PX = 26f
-private const val TEXT_SIZE_TITLE_PX = 46f
+private const val TEXT_SIZE_TITLE_PX = 48f
+
+// 数据单元格换行：名称列两行优先，超两行才省略（V9-C）。行高占用 = 字号 × 该系数 × 行数。
+internal const val MAX_CELL_LINES = 2
+private const val CELL_LINE_HEIGHT_FACTOR = 1.18f
 
 // 行/头/留白（行高 64px 为跨棒约定）
+// V9-C 表头留白重排：标题区与表头行拉开（28→40），表头行本身收到 84 并把文字下压对齐数据行，
+// 副标题行 48→52 让它与徽章行不贴在一起。
 internal const val ROW_HEIGHT_PX = 64
-internal const val HEADER_HEIGHT_PX = 88
+internal const val HEADER_HEIGHT_PX = 84
 internal const val TITLE_LINE_HEIGHT_PX = 88
-internal const val SUBTITLE_LINE_HEIGHT_PX = 48
+internal const val SUBTITLE_LINE_HEIGHT_PX = 52
 internal const val BADGES_LINE_HEIGHT_PX = 52
-internal const val HEADER_TOP_GAP_PX = 28
+internal const val HEADER_TOP_GAP_PX = 40
 internal const val BOTTOM_PADDING_PX = 64
 
 internal const val MIN_COLUMN_WIDTH_PX = 40
@@ -226,6 +235,48 @@ internal fun ellipsize(text: String, maxWidthPx: Float, measure: (String) -> Flo
 }
 
 /**
+ * 纯函数：把文本切成 <= maxLines 行，能完整放下就原样返回（不省略）。
+ * 放不下时在第 maxLines 行末尾加省略号，并二分找最长的能放下的前缀。
+ * measure 注入，不依赖 Paint。
+ *
+ * 贪心按字符断行（CJK 无空格可依赖）；文本自带 `\n` 先按硬换行切开，每段再各自贪心，
+ * 避免脏数据把行高算歪。
+ */
+internal fun wrapCellText(
+    text: String,
+    maxWidthPx: Float,
+    measure: (String) -> Float,
+    maxLines: Int = MAX_CELL_LINES,
+): List<String> {
+    if (maxWidthPx <= 0f || text.isEmpty()) return listOf("")
+    val lines = ArrayList<String>()
+    var segStart = 0
+    while (segStart <= text.length) {
+        val newline = text.indexOf('\n', segStart)
+        val segEnd = if (newline < 0) text.length else newline
+        var cursor = segStart
+        while (cursor < segEnd) {
+            var end = cursor + 1
+            // 单字就超宽时也先落这个字，保证推进（否则死循环）
+            while (end < segEnd && measure(text.substring(cursor, end + 1)) <= maxWidthPx) end++
+            lines.add(text.substring(cursor, end))
+            cursor = end
+        }
+        if (newline < 0) break
+        segStart = newline + 1
+        if (segStart == text.length) {
+            lines.add("") // 结尾换行：留一空行，保持行数口径
+            break
+        }
+    }
+    if (lines.isEmpty()) return listOf("")
+    if (lines.size <= maxLines) return lines
+    val kept = lines.take(maxLines - 1)
+    val rest = lines.subList(maxLines - 1, lines.size).joinToString("")
+    return kept + ellipsize(rest, maxWidthPx, measure)
+}
+
+/**
  * 用 android.graphics.Canvas 直画 Bitmap。
  * 不用 GraphicsLayer.toImageBitmap：它要求整表完成 Compose 布局，
  * 超长内容会撞 GPU 纹理上限（常见 4096/8192）而失败。
@@ -336,6 +387,8 @@ private fun drawBand(
             canvas,
             ellipsize(column.header, (w - 2 * CELL_PADDING_PX).toFloat(), headerPaint::measureText),
             headerPaint, x.toFloat(), headerTop, layout.headerHeightPx, column.alignEnd, w,
+            // 表头文字下压：84px 行里纯居中会显得贴着上分隔线，下移 8px 与数据行文字基线对齐
+            baselineBiasPx = 8f,
         )
     }
 
@@ -356,9 +409,10 @@ private fun drawBand(
         cells.forEachIndexed { i, cell ->
             val w = layout.columnWidth[i]
             val x = offsetX + layout.columnX[i]
-            drawText(
+            // 数据格两行优先（V9-C）：能完整放下就不省略，超过两行才在末行加省略号
+            drawTextLines(
                 canvas,
-                ellipsize(cell, (w - 2 * CELL_PADDING_PX).toFloat(), bodyPaint::measureText),
+                wrapCellText(cell, (w - 2 * CELL_PADDING_PX).toFloat(), bodyPaint::measureText),
                 bodyPaint, x.toFloat(), rowTop, layout.rowHeightPx, spec.columns[i].alignEnd, w,
             )
         }
@@ -385,8 +439,9 @@ private fun drawBadges(
 ) {
     val maxBadgeWidth = (canvas.width - 4 * CELL_PADDING_PX) / 2
     var x = CELL_PADDING_PX.toFloat()
-    val badgeHeight = BADGES_LINE_HEIGHT_PX - 12
-    val pillTop = top + 6f
+    // 药丸收到 36px（行高 52 留 16px 呼吸），上下各 8px 对称居中
+    val badgeHeight = BADGES_LINE_HEIGHT_PX - 16
+    val pillTop = top + 8f
     for (badge in badges) {
         val text = ellipsize(badge, (maxBadgeWidth - 2 * CELL_PADDING_PX).toFloat(), badgePaint::measureText)
         val textWidth = badgePaint.measureText(text)
@@ -414,14 +469,35 @@ private fun drawText(
     rowHeight: Int,
     alignEnd: Boolean,
     columnWidthPx: Int = 0,
+    baselineBiasPx: Float = 0f,
+) = drawTextLines(canvas, listOf(text), paint, x, rowTop, rowHeight, alignEnd, columnWidthPx, baselineBiasPx)
+
+/**
+ * 画一格的所有文字块，整体在行高内垂直居中。
+ * 单行时基线公式与历史实现逐字相同（居中 - (ascent+descent)/2），多行时按 lineHeight 堆叠后整体居中。
+ * alignEnd 时每行都用同一条右边界 x。
+ */
+private fun drawTextLines(
+    canvas: Canvas,
+    lines: List<String>,
+    paint: Paint,
+    x: Float,
+    rowTop: Int,
+    rowHeight: Int,
+    alignEnd: Boolean,
+    columnWidthPx: Int = 0,
+    baselineBiasPx: Float = 0f,
 ) {
-    if (text.isEmpty()) return
-    val baseline = rowTop + rowHeight / 2f - (paint.ascent() + paint.descent()) / 2f
-    if (alignEnd && columnWidthPx > 0) {
-        paint.textAlign = Paint.Align.RIGHT
-        canvas.drawText(text, x + columnWidthPx - CELL_PADDING_PX, baseline, paint)
-    } else {
-        paint.textAlign = Paint.Align.LEFT
-        canvas.drawText(text, x + CELL_PADDING_PX, baseline, paint)
+    if (lines.isEmpty()) return
+    val lineHeight = paint.textSize * CELL_LINE_HEIGHT_FACTOR
+    val blockHeight = lineHeight * lines.size
+    val blockTop = rowTop + rowHeight / 2f - blockHeight / 2f + baselineBiasPx
+    val centering = -(paint.ascent() + paint.descent()) / 2f
+    val endAligned = alignEnd && columnWidthPx > 0
+    paint.textAlign = if (endAligned) Paint.Align.RIGHT else Paint.Align.LEFT
+    val drawX = if (endAligned) x + columnWidthPx - CELL_PADDING_PX else x + CELL_PADDING_PX
+    lines.forEachIndexed { i, line ->
+        if (line.isEmpty()) return@forEachIndexed // drawText 对空串无意义
+        canvas.drawText(line, drawX, blockTop + lineHeight * i + lineHeight / 2f + centering, paint)
     }
 }

@@ -38,6 +38,29 @@ private const val FALLBACK_NAME = "卡面"
 private const val MAX_BASE_NAME_CHARS = 60
 private val ILLEGAL_FILE_NAME_CHARS = Regex("[\\\\/:*?\"<>|\\p{Cntrl}]")
 
+/**
+ * 长图导出默认 JPEG 质量（V9-C）。
+ * 1600×30524（行动牌 941 行双栏）用 PNG 约 8.3MB 且旧机解码极慢；JPEG q72 约 7.9MB，
+ * 真实卡名更短 ⇒ 实测更小（用户样例 6MB / 1.76MB）。再降档（q65）只省 0.7MB 却糊中文笔画。
+ */
+private const val DEFAULT_EXPORT_JPEG_QUALITY = 72
+
+/**
+ * CompressFormat → 文件名后缀 / MIME。
+ * 不复用 CoverFormat：那个枚举定义在 CardCoverViewModel（本棒范围外，且只有 Png/Gif 两种卡面格式），
+ * 长图要的是 JPEG，在这里做一层私有映射最省事。
+ * 只区分 PNG / 其余按 JPEG：WEBP 系列枚举项是 API 30+，在 WhenMappings 静态表里引用会在旧机抛错。
+ */
+private fun Bitmap.CompressFormat.fileExtension(): String = when (this) {
+    Bitmap.CompressFormat.PNG -> "png"
+    else -> "jpg"
+}
+
+private fun Bitmap.CompressFormat.mime(): String = when (this) {
+    Bitmap.CompressFormat.PNG -> "image/png"
+    else -> "image/jpeg"
+}
+
 fun requiresWriteExternalPermission(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
 
 /** Sheet 侧据此决定是否申请运行时权限（Q+ 由 MediaStore 代理写入，无需权限） */
@@ -47,13 +70,16 @@ fun hasWriteExternalPermission(context: Context): Boolean =
         PackageManager.PERMISSION_GRANTED
 
 /** 下载文件名 {name}.{png|gif}，非法文件名字符替换为下划线 */
-internal fun coverFileName(name: String, format: CoverFormat): String {
+internal fun coverFileName(name: String, format: CoverFormat): String = coverFileName(name, format.extension)
+
+/** 长图导出走 CompressFormat（jpg/png），扩展名跟着 format 走 */
+internal fun coverFileName(name: String, extension: String): String {
     val cleaned = ILLEGAL_FILE_NAME_CHARS.replace(name, "_")
         .trim()
         .trimEnd('.')
         .take(MAX_BASE_NAME_CHARS)
         .ifBlank { FALLBACK_NAME }
-    return "$cleaned.${format.extension}"
+    return "$cleaned.$extension"
 }
 
 class CardImageSaver(private val context: Context) {
@@ -68,30 +94,36 @@ class CardImageSaver(private val context: Context) {
     suspend fun save(url: String, name: String, format: CoverFormat) = withContext(Dispatchers.IO) {
         val bytes = downloadBytes(url)
         val fileName = coverFileName(name, format)
-        persist(bytes, fileName, format)
+        persist(bytes, fileName, format.mimeType)
     }
 
     /**
-     * 长图导出（V8 §3.4）：调用方已渲染好 Bitmap，这里只负责编码 + 落盘。
-     * PNG 无损、quality 参数无意义但契约要求传 100。
+     * 长图导出（V8 §3.4 / V9-C）：调用方已渲染好 Bitmap，这里只负责编码 + 落盘。
+     * 默认 JPEG q72：长图动辄 3 万像素高，PNG 既大（约 8MB）又要旧机做整幅 deflate 重建，解码慢；
+     * JPEG 渐进解码快、体积小，文字为主的图在 1600px 宽度下 q72 仍清晰可辨。
      * 不 recycle —— 位图生命周期归调用方（它在 finally 里回收，避免异常路径泄漏）。
      */
-    suspend fun saveBitmap(bitmap: Bitmap, baseName: String) = withContext(Dispatchers.IO) {
+    suspend fun saveBitmap(
+        bitmap: Bitmap,
+        baseName: String,
+        format: Bitmap.CompressFormat = Bitmap.CompressFormat.JPEG,
+        quality: Int = DEFAULT_EXPORT_JPEG_QUALITY,
+    ) = withContext(Dispatchers.IO) {
         val bytes = ByteArrayOutputStream().use { out ->
-            if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) {
+            if (!bitmap.compress(format, quality, out)) {
                 throw IOException("图片编码失败")
             }
             out.toByteArray()
         }
-        persist(bytes, coverFileName(baseName, CoverFormat.Png), CoverFormat.Png)
+        persist(bytes, coverFileName(baseName, format.fileExtension()), format.mime())
     }
 
     /** 两条落盘路径共用：Q+ 走 MediaStore 代理写入，API 24-28 走公共目录 + MediaScanner */
-    private fun persist(bytes: ByteArray, fileName: String, format: CoverFormat) {
+    private fun persist(bytes: ByteArray, fileName: String, mimeType: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            saveScoped(bytes, fileName, format)
+            saveScoped(bytes, fileName, mimeType)
         } else {
-            savePublicDirectory(bytes, fileName, format)
+            savePublicDirectory(bytes, fileName, mimeType)
         }
     }
 
@@ -106,11 +138,11 @@ class CardImageSaver(private val context: Context) {
     }
 
     /** Q+：IS_PENDING 建条目 → 写流 → 转正；任何异常回滚，不留半张图 */
-    private fun saveScoped(bytes: ByteArray, fileName: String, format: CoverFormat) {
+    private fun saveScoped(bytes: ByteArray, fileName: String, mimeType: String) {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
-            put(MediaStore.Images.Media.MIME_TYPE, format.mimeType)
+            put(MediaStore.Images.Media.MIME_TYPE, mimeType)
             put(MediaStore.Images.Media.RELATIVE_PATH, "$ALBUM_PARENT/$ALBUM_NAME")
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }
@@ -128,7 +160,7 @@ class CardImageSaver(private val context: Context) {
         }
     }
 
-    private fun savePublicDirectory(bytes: ByteArray, fileName: String, format: CoverFormat) {
+    private fun savePublicDirectory(bytes: ByteArray, fileName: String, mimeType: String) {
         if (!hasWriteExternalPermission(context)) {
             throw IOException(STORAGE_PERMISSION_MESSAGE)
         }
@@ -143,7 +175,7 @@ class CardImageSaver(private val context: Context) {
         MediaScannerConnection.scanFile(
             context,
             arrayOf(file.absolutePath),
-            arrayOf(format.mimeType),
+            arrayOf(mimeType),
             null,
         )
     }

@@ -9,6 +9,8 @@ import com.gigi.tcg.domain.CARD_TYPE_MODIFY
 import com.gigi.tcg.domain.GcgCard
 import com.gigi.tcg.domain.GcgSummary
 import com.gigi.tcg.ui.export.CELL_PADDING_PX
+import com.gigi.tcg.ui.export.MAX_CELL_LINES
+import com.gigi.tcg.ui.export.ROW_HEIGHT_PX
 import com.gigi.tcg.ui.export.TEXT_SIZE_BODY_PX
 import com.gigi.tcg.ui.export.TEXT_SIZE_HEADER_PX
 import com.gigi.tcg.ui.export.TableSpec
@@ -17,6 +19,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.floor
 
 class CardStatsExportTest {
 
@@ -265,23 +268,33 @@ class CardStatsExportTest {
         val charSpec = buildCharTableSpec(summary(), "u", List(147) { char(10, 5) })
         assertHeadersFitWith8PercentMargin(charSpec, charTable = true)
         assertHeadersFitWith8PercentMargin(actionSpec(941), charTable = false)
-        // 角色牌名称列（单栏）也要容得下 8 个中文字
+        // 角色牌名称列（单栏 avail=571）10 个中文字单行必须完整显示（用户口径：角色名 ≤10 字）
         val charLayout = layoutFor(charSpec, charTable = true)
         val nameIndex = charSpec.columns.indexOfFirst { it.header == "名称" }
-        assertTrue(availOf(charLayout.columnWidth[nameIndex]) >= 8 * TEXT_SIZE_BODY_PX)
+        assertTrue(
+            "角色牌名称列 avail=${availOf(charLayout.columnWidth[nameIndex])} 放不下 10 个中文字",
+            availOf(charLayout.columnWidth[nameIndex]) >= 10 * TEXT_SIZE_BODY_PX,
+        )
     }
 
+    // V9-C：行动牌名称列从"单行 8 字"升级为"两行 16 字"（正文 28f→26f + wrapCellText 两行换行）
     @Test
-    fun `行动牌双栏时名称列可容至少8个中文字`() {
+    fun `行动牌双栏时名称列两行可容至少15个中文字`() {
         val spec = actionSpec(941)
         val layout = layoutFor(spec, charTable = false)
         assertEquals(2, layout.columnsPerBand) // 前提：确为双栏
         val nameIndex = spec.columns.indexOfFirst { it.header == "名称" }
         val avail = availOf(layout.columnWidth[nameIndex])
-        val eightCjk = 8 * TEXT_SIZE_BODY_PX.toDouble()
+        val perLine = floor(avail / (TEXT_SIZE_BODY_PX * 1.05)).toInt() // 保守系数 1.05
         assertTrue(
-            "双栏名称列容不下 8 个中文字：width=${layout.columnWidth[nameIndex]} avail=$avail < $eightCjk",
-            avail >= eightCjk,
+            "双栏名称列两行容不下 15 个中文字：width=${layout.columnWidth[nameIndex]} avail=$avail " +
+                "每行$perLine 字 ×$MAX_CELL_LINES = ${perLine * MAX_CELL_LINES}",
+            perLine * MAX_CELL_LINES >= 15,
+        )
+        // 行高约束：两行文字块必须仍装得进 64px 数据行，否则相邻行重叠
+        assertTrue(
+            "两行高度 ${TEXT_SIZE_BODY_PX * 1.18 * MAX_CELL_LINES} 超出行高 $ROW_HEIGHT_PX",
+            TEXT_SIZE_BODY_PX * 1.18f * MAX_CELL_LINES <= ROW_HEIGHT_PX,
         )
     }
 
