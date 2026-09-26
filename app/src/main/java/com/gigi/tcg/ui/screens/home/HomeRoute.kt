@@ -6,6 +6,7 @@
 package com.gigi.tcg.ui.screens.home
 
 import android.app.Application
+import android.graphics.Bitmap
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -33,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gigi.tcg.R
+import com.gigi.tcg.i18n.LocaleStrings
 import com.gigi.tcg.data.model.GameRecord
 import com.gigi.tcg.data.model.PageInfo
 import com.gigi.tcg.di.AppContainer
@@ -61,9 +65,24 @@ import com.gigi.tcg.ui.components.CenteredScrollableContainer
 import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
+import com.gigi.tcg.ui.components.LocalToast
 import com.gigi.tcg.ui.components.tierLabel
+import com.gigi.tcg.ui.dialogs.cardcover.CardImageSaver
+import com.gigi.tcg.ui.dialogs.cardcover.albumRelativePath
+import com.gigi.tcg.ui.export.computeTableLayout
+import com.gigi.tcg.ui.export.renderTableBitmap
+import com.gigi.tcg.ui.screens.cardstats.EXPORT_IMAGE_WIDTH_PX
 import com.gigi.tcg.ui.theme.LocalSemanticColors
 import com.gigi.tcg.ui.theme.SemanticColors
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+
+/** 导出长图的 JPEG 质量：与 CardStatsRoute 的长图导出同档（72），1600px 宽的文字图仍清晰 */
+private const val EXPORT_JPEG_QUALITY = 72
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,6 +109,52 @@ fun HomeRoute(
     // 下拉刷新指示器：只由用户主动下拉（VM.refreshing）驱动，不从"是否在加载"派生，
     // 否则冷启动首屏顶部圈会与居中 LoadingView 同转（两个 progressbar）
     val isRefreshing by viewModel.refreshing.collectAsStateWithLifecycle()
+
+    // ---- 最近对局导出长图（V24）----
+    // 与 CardStatsRoute 的导出同构：渲染走 ui/export 的通用渲染器，落盘走 CardImageSaver，
+    // 结果提示走 LocalToast。渲染互斥用 Mutex（每次都是新图，但同一时刻只允许一张在渲染）。
+    val appContext = LocalContext.current.applicationContext
+    val showToast = LocalToast.current
+    val coroutineScope = rememberCoroutineScope()
+    val exportMutex = remember { Mutex() }
+    var exporting by remember { mutableStateOf(false) }
+    val recordList = (state.records as? Async.Content<List<GameRecord>>)?.value.orEmpty()
+    val startExport: () -> Unit = {
+        if (recordList.isNotEmpty() && !exporting) {
+            exporting = true
+            val nickname = (state.profile as? Async.Content<PageInfo>)?.value?.nickname
+            coroutineScope.launch {
+                try {
+                    withContext(Dispatchers.Default) {
+                        exportMutex.withLock {
+                            val spec = buildRecordsTableSpec(recordList, sessionUid.orEmpty(), nickname)
+                            // 最多 10 行，直接单栏（Int.MAX_VALUE = 永不触发双栏）
+                            val layout = computeTableLayout(spec, EXPORT_IMAGE_WIDTH_PX, Int.MAX_VALUE)
+                            val bitmap = renderTableBitmap(spec, layout)
+                            try {
+                                CardImageSaver(appContext).saveBitmap(
+                                    bitmap,
+                                    spec.title,
+                                    format = Bitmap.CompressFormat.JPEG,
+                                    quality = EXPORT_JPEG_QUALITY,
+                                )
+                            } finally {
+                                // 回收放 finally：saveBitmap 抛异常也不能漏掉位图
+                                bitmap.recycle()
+                            }
+                        }
+                    }
+                    showToast(LocaleStrings.get(R.string.toast_saved_to_album_path, albumRelativePath()))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    showToast(e.message ?: LocaleStrings.get(R.string.error_export_failed))
+                } finally {
+                    exporting = false
+                }
+            }
+        }
+    }
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -130,6 +195,17 @@ fun HomeRoute(
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f),
                     )
+                    // 导出最近对局长图（V24）：放在刷新按钮左侧，与「卡牌统计」页的
+                    // 导出按钮同款交互（导出中转圈、成功后 Toast 出相册路径）。
+                    IconButton(
+                        onClick = startExport,
+                        enabled = !exporting && recordList.isNotEmpty(),
+                    ) {
+                        Icon(
+                            Icons.Outlined.Download,
+                            contentDescription = stringResource(R.string.home_export_records),
+                        )
+                    }
                     IconButton(onClick = viewModel::refresh) {
                         Icon(Icons.Outlined.Refresh, contentDescription = stringResource(R.string.cd_refresh))
                     }
@@ -302,11 +378,21 @@ private fun RecordItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // V24（真机图 4）：原先一行是 "UID:340438735\n08-12 14:17"，
+                // 前缀 + 大字号让 9 位 UID 被挤成两行。现在去掉 "UID:" 文字标签
+                // （与排行榜同一套设计语言：位置即语义），并把 UID / 时间拆成各自单行。
                 Text(
-                    text = stringResource(R.string.player_uid, opponentUid) +
-                        "\n" + formatRecordTime(record.timestamp),
+                    text = opponentUid,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = formatRecordTime(record.timestamp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
