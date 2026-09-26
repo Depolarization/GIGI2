@@ -38,8 +38,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -229,11 +233,13 @@ private fun RankRow(
         3 -> RankBronzeColor
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val scoreText = if (tab == RankTab.Peak) {
-        stringResource(R.string.rank_peak_line, info.peakScore ?: 0)
-    } else {
-        stringResource(R.string.rank_comp_line, info.score ?: 0)
-    }
+    // V24（用户真机反馈图 3）：原先第二行是「巅峰积分:2310　UID:253991234」，
+    // 两个文字标签把整行挤到 Ellipsis 截断。现按用户拍板去掉标签、只留数值：
+    // 页头 Tab 已交代积分口径，靠「位置 + 颜色层级」区分 —— 积分主色稍重，UID 弱化色。
+    val score = if (tab == RankTab.Peak) info.peakScore ?: 0 else info.score ?: 0
+    val uid = uidOf(info)
+    val scoreColor = MaterialTheme.colorScheme.onSurface
+    val uidColor = MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -263,9 +269,15 @@ private fun RankRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "$scoreText　UID:${uidOf(info)}",
+                text = buildAnnotatedString {
+                    withStyle(SpanStyle(color = scoreColor, fontWeight = FontWeight.Medium)) {
+                        append("$score")
+                    }
+                    append(" · ")
+                    withStyle(SpanStyle(color = uidColor)) { append(uid) }
+                },
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = scoreColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
