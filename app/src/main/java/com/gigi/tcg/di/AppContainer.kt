@@ -20,6 +20,7 @@ import com.gigi.tcg.data.repo.GigiApiTransport
 import com.gigi.tcg.data.repo.GigiRepository
 import com.gigi.tcg.data.repo.MihoyoClientEnvelopeTransport
 import com.gigi.tcg.data.repo.SessionRefresher
+import com.gigi.tcg.i18n.LocaleStrings
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -77,6 +78,9 @@ class AppContainer(private val appContext: Context) {
     val activeAccountUid: StateFlow<String?> = _activeAccountUid.asStateFlow()
 
     init {
+        // 文案桥接线自检：数据层/ViewModel 取三语文案的通道必须随容器就绪
+        // （正常路径下 GigiApp.onCreate 已 attach；容器单独构造时兜底）
+        if (!LocaleStrings.resolved) LocaleStrings.attach(appContext)
         refreshAccounts()
     }
 

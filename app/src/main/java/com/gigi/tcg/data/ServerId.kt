@@ -3,13 +3,24 @@ package com.gigi.tcg.data
 /**
  * 服务器注册表，移植 web/src/config/servers.ts：展示名称/标识符的唯一数据源。
  * 全应用只允许从这里读取服务器信息，禁止硬编码标识符或名称。
+ *
+ * i18n：🔴 数据层不 import R —— 三语显示名由 `com.gigi.tcg.i18n.displayName()` 提供
+ * （那里做 id→资源映射）；[name]/[shortName] 为简中兜底字面量，仅供数据层/日志。
  */
 sealed class ServerId(val id: String, val name: String, val shortName: String) {
     /** 官服（天空岛）cn_gf01 */
-    data object Official : ServerId("cn_gf01", "官服（天空岛）", "官服")
+    data object Official :
+        ServerId("cn_gf01", "官服（天空岛）", "官服")
 
     /** 渠道服（世界树）cn_qd01 */
-    data object Channel : ServerId("cn_qd01", "渠道服（世界树）", "渠道服")
+    data object Channel :
+        ServerId("cn_qd01", "渠道服（世界树）", "渠道服")
+
+    /** 非 Compose 上下文（数据层/日志）的显示名：恒简中，UI 请走 i18n.displayName() */
+    fun nameOrDefault(): String = name
+
+    /** 非 Compose 上下文的简称：恒简中，UI 请走 i18n.displayShortName() */
+    fun shortNameOrDefault(): String = shortName
 
     companion object {
         /** 全部可选服务器（切换控件渲染顺序即此列表顺序）。

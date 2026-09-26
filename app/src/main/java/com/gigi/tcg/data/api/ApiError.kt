@@ -8,6 +8,9 @@ const val API_ERROR_KIND_RETCODE: String = "retcode"
 const val API_ERROR_KIND_NETWORK: String = "network"
 const val API_ERROR_KIND_THROTTLED: String = "throttled"
 
+// i18n：本文件内的可读文案常量恒为简中；三语通道见 com.gigi.tcg.i18n.apiErrorText /
+// apiErrorMessageRes（数据层不 import R，映射放在 i18n 层）。
+
 /**
  * retcode 语义（按实测观测，集中在此处判定）：
  * - 凭据失效：仅这两个码代表"需要重新登录"，其余 retcode 一律不得据此登出；
@@ -28,7 +31,12 @@ class ApiError(
 fun isAuthFailureError(t: Throwable): Boolean =
     t is ApiError && t.kind == API_ERROR_KIND_RETCODE && AUTH_FAILED_RETCODES.contains(t.retcode ?: 0)
 
-/** 错误 → 用户可读文案（限流与网络失败给出不同指引） */
+/**
+ * 错误 → 用户可读文案（限流与网络失败给出不同指引）。
+ * @Deprecated：内部常量为简中硬编码，三语文案请走 `com.gigi.tcg.i18n.apiErrorText(t)`
+ * （资源接线完成前两者行为一致）。
+ */
+@Deprecated("改用 com.gigi.tcg.i18n.apiErrorText()：按系统语言取三语文案")
 fun describeApiError(t: Throwable): String {
     if (t is ApiError) {
         if (RETRYABLE_RETCODES.contains(t.retcode ?: 0)) return "请求过于频繁，请稍后重试"
