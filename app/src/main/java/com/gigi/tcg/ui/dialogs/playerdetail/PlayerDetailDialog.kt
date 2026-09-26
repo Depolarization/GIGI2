@@ -73,7 +73,14 @@ fun PlayerDetailDialog(uid: String?, onClose: () -> Unit) {
         onDismissRequest = onClose,
         title = { Text(stringResource(R.string.detail_info_title)) },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
+            // 🔴 必须 fillMaxWidth：只挂 verticalScroll 时宽度不受约束，内容列会塌缩到
+            // 「最宽子项的内在宽度」（实测真机 ≈ 180dp），于是弹窗右侧空出约 140dp、
+            // FlowRow 却按这个窄宽度换行（用户真机反馈"右方第三列还有空间但卡片仍换行"）。
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+            ) {
                 when {
                     content != null -> PlayerDetailBody(content, semantic)
                     state is DetailUiState.Error -> {
@@ -212,17 +219,24 @@ private fun RolesSection(roles: List<com.gigi.tcg.data.model.RoleInfo>) {
     }
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         roles.forEach { role ->
             Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 1.dp) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                    Text(role.name ?: stringResource(R.string.common_unknown), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Column(Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
+                    Text(
+                        text = role.name ?: stringResource(R.string.common_unknown),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     Text(
                         text = stringResource(R.string.detail_proficiency, role.proficiency ?: 0),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
                     )
                 }
             }
