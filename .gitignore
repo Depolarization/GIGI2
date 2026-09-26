@@ -17,8 +17,13 @@ local.properties
 # 子代理协作运行时数据（勿提交）
 tools/.agent_monitor/
 .agent_work/
-.task/chains/
+.task/
 __pycache__/
+
+# AI 协作元数据（工作日志 / 记忆 / 派单记录），不属于产品源码，不入开源仓库
+.workbuddy-ai/
+skills/
+.github-workflow/
 
 # 协调网络的运行时噪音（事件流 / 原子写临时文件）
 .task/events/
