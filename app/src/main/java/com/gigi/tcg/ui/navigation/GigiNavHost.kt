@@ -6,6 +6,7 @@
 
 package com.gigi.tcg.ui.navigation
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -52,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -66,6 +68,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.gigi.tcg.GigiApp
+import com.gigi.tcg.R
+import com.gigi.tcg.i18n.LocaleStrings
+import com.gigi.tcg.i18n.displayShortName
+import com.gigi.tcg.i18n.displayNameSync
 import com.gigi.tcg.ui.components.LocalToast
 import com.gigi.tcg.ui.components.ToastController
 import com.gigi.tcg.ui.components.ToastHost
@@ -86,15 +92,15 @@ private const val ROUTE_CARD_WIKI = "cardwiki"
 
 private data class GigiDestination(
     val route: String,
-    val label: String,
+    @StringRes val labelRes: Int,
     val icon: ImageVector,
 )
 
 private val destinations = listOf(
-    GigiDestination(ROUTE_HOME, "首页", Icons.Outlined.Home),
-    GigiDestination(ROUTE_RANK, "排行榜", Icons.Outlined.EmojiEvents),
-    GigiDestination(ROUTE_CARD_STATS, "卡牌统计", Icons.Outlined.BarChart),
-    GigiDestination(ROUTE_CARD_WIKI, "卡牌图鉴", Icons.Outlined.Style),
+    GigiDestination(ROUTE_HOME, R.string.nav_home, Icons.Outlined.Home),
+    GigiDestination(ROUTE_RANK, R.string.nav_rank, Icons.Outlined.EmojiEvents),
+    GigiDestination(ROUTE_CARD_STATS, R.string.nav_card_stats, Icons.Outlined.BarChart),
+    GigiDestination(ROUTE_CARD_WIKI, R.string.nav_card_wiki, Icons.Outlined.Style),
 )
 
 private val RAIL_BREAKPOINT = 840.dp
@@ -132,7 +138,7 @@ fun GigiNavHost() {
     LaunchedEffect(server) {
         if (server != announcedServer) {
             announcedServer = server
-            toastController.show("已切换到${server.name}，正在按该服务器重新拉取数据")
+            toastController.show(LocaleStrings.get(R.string.toast_server_switched, server.displayNameSync()))
         }
     }
 
@@ -149,7 +155,7 @@ fun GigiNavHost() {
                     topBar = {
                         TopAppBar(
                             title = {
-                                Text(destinations.firstOrNull { it.route == currentRoute }?.label ?: "GIGI")
+                                Text(destinations.firstOrNull { it.route == currentRoute }?.let { stringResource(it.labelRes) } ?: "GIGI")
                             },
                             actions = {
                                 Box {
@@ -158,7 +164,7 @@ fun GigiNavHost() {
                                         modifier = Modifier.widthIn(max = 144.dp),
                                     ) {
                                         Text(
-                                            activeAccount?.displayName() ?: "账户",
+                                            activeAccount?.displayName() ?: stringResource(R.string.account_label),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
@@ -171,7 +177,11 @@ fun GigiNavHost() {
                                             DropdownMenuItem(
                                                 text = {
                                                     Text(
-                                                        "${account.displayName()}（${account.server().shortName}）",
+                                                        stringResource(
+                                                            R.string.account_entry,
+                                                            account.displayName(),
+                                                            account.server().displayShortName(),
+                                                        ),
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis,
                                                     )
@@ -195,7 +205,7 @@ fun GigiNavHost() {
                                             )
                                         }
                                         DropdownMenuItem(
-                                            text = { Text("添加账户") },
+                                            text = { Text(stringResource(R.string.account_add)) },
                                             leadingIcon = { Icon(Icons.Outlined.Add, contentDescription = null) },
                                             onClick = {
                                                 accountMenuOpen = false
@@ -203,7 +213,7 @@ fun GigiNavHost() {
                                             },
                                         )
                                         DropdownMenuItem(
-                                            text = { Text("退出当前账户") },
+                                            text = { Text(stringResource(R.string.account_logout_item)) },
                                             leadingIcon = {
                                                 Icon(Icons.AutoMirrored.Outlined.Logout, contentDescription = null)
                                             },
@@ -215,10 +225,10 @@ fun GigiNavHost() {
                                     }
                                 }
                                 IconButton(onClick = { queryOpen = true }) {
-                                    Icon(Icons.Outlined.PersonSearch, contentDescription = "玩家查询")
+                                    Icon(Icons.Outlined.PersonSearch, contentDescription = stringResource(R.string.query_title))
                                 }
                                 IconButton(onClick = { aboutOpen = true }) {
-                                    Icon(Icons.Outlined.Info, contentDescription = "关于")
+                                    Icon(Icons.Outlined.Info, contentDescription = stringResource(R.string.cd_about))
                                 }
                             },
                         )
@@ -230,10 +240,10 @@ fun GigiNavHost() {
                                     NavigationBarItem(
                                         selected = currentRoute == dest.route,
                                         onClick = { navController.navigateToTab(dest.route) },
-                                        icon = { Icon(dest.icon, contentDescription = dest.label) },
+                                        icon = { Icon(dest.icon, contentDescription = stringResource(dest.labelRes)) },
                                         label = {
                                             Text(
-                                                dest.label,
+                                                stringResource(dest.labelRes),
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
                                             )
@@ -269,10 +279,10 @@ fun GigiNavHost() {
                                     NavigationRailItem(
                                         selected = currentRoute == dest.route,
                                         onClick = { navController.navigateToTab(dest.route) },
-                                        icon = { Icon(dest.icon, contentDescription = dest.label) },
+                                        icon = { Icon(dest.icon, contentDescription = stringResource(dest.labelRes)) },
                                         label = {
                                             Text(
-                                                dest.label,
+                                                stringResource(dest.labelRes),
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
                                             )
@@ -342,10 +352,10 @@ fun GigiNavHost() {
         if (logoutConfirmOpen) {
             AlertDialog(
                 onDismissRequest = { logoutConfirmOpen = false },
-                title = { Text("退出当前账户？") },
-                text = { Text("退出后将删除本机保存的当前账户凭据，其他账户不受影响。") },
+                title = { Text(stringResource(R.string.account_logout_confirm_title)) },
+                text = { Text(stringResource(R.string.account_logout_message)) },
                 dismissButton = {
-                    TextButton(onClick = { logoutConfirmOpen = false }) { Text("取消") }
+                    TextButton(onClick = { logoutConfirmOpen = false }) { Text(stringResource(R.string.action_cancel)) }
                 },
                 confirmButton = {
                     TextButton(
@@ -353,7 +363,7 @@ fun GigiNavHost() {
                             logoutConfirmOpen = false
                             actions.logout()
                         },
-                    ) { Text("退出") }
+                    ) { Text(stringResource(R.string.action_logout)) }
                 },
             )
         }

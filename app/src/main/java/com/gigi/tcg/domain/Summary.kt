@@ -4,6 +4,8 @@
 
 package com.gigi.tcg.domain
 
+import com.gigi.tcg.R
+import com.gigi.tcg.i18n.LocaleStrings
 import kotlin.math.floor
 
 /** 卡牌条目（对应 types/api.ts GcgCard，全字段可空） */
@@ -98,7 +100,7 @@ fun computeGcgSummary(stats: GcgStats?, lists: PreparedCardLists): GcgSummary {
     val eventUse = actionUseByType(CARD_TYPE_EVENT)
 
     return GcgSummary(
-        nickname = stats?.nickname ?: "未知",
+        nickname = stats?.nickname ?: LocaleStrings.getOrDefault(R.string.common_unknown, "未知"),
         level = stats?.level ?: 0,
         avatarCardNum = stats?.avatarCardNumGained ?: 0,
         actionCardNum = stats?.actionCardNumGained ?: 0,

@@ -2,7 +2,7 @@
 // - 1 秒详情节流 + 5 分钟资料缓存放在 companion（进程级），对齐 tsx 里模块级 detailThrottle
 //   与"所有详情入口共享同一实例"的语义（本工程不提供全局 controller，故以类级单例近似）；
 // - 换服作废缓存（对齐 tsx useEffect[server.id]）；
-// - 错误统一经 describeApiError 出文案，重试入口暴露给 UI；retcode 业务失败不可重试。
+// - 错误统一经 apiErrorText 出文案，重试入口暴露给 UI；retcode 业务失败不可重试。
 
 package com.gigi.tcg.ui.dialogs.playerdetail
 
@@ -14,7 +14,7 @@ import androidx.lifecycle.viewModelScope
 import com.gigi.tcg.GigiApp
 import com.gigi.tcg.data.api.API_ERROR_KIND_RETCODE
 import com.gigi.tcg.data.api.ApiError
-import com.gigi.tcg.data.api.describeApiError
+import com.gigi.tcg.i18n.apiErrorText
 import com.gigi.tcg.data.model.OtherHomePageData
 import com.gigi.tcg.di.AppContainer
 import com.gigi.tcg.domain.Throttle
@@ -86,7 +86,7 @@ class PlayerDetailViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 if (lastUid == uid) {
                     _uiState.value = DetailUiState.Error(
-                        message = describeApiError(e),
+                        message = apiErrorText(e),
                         canRetry = e !is ApiError || e.kind != API_ERROR_KIND_RETCODE,
                     )
                 }

@@ -36,10 +36,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gigi.tcg.R
 import com.gigi.tcg.data.ServerId
+import com.gigi.tcg.i18n.displayName
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,10 +65,10 @@ fun LoginScreen(
         topBar = {
             if (addAccount) {
                 CenterAlignedTopAppBar(
-                    title = { Text("添加账户") },
+                    title = { Text(stringResource(R.string.account_add)) },
                     navigationIcon = {
                         TextButton(onClick = { onCancelAddAccount?.invoke() }) {
-                            Text("返回")
+                            Text(stringResource(R.string.action_back))
                         }
                     },
                 )
@@ -87,14 +90,14 @@ fun LoginScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     Text(
-                        if (addAccount) "GIGI · 添加账户" else "GIGI · 七圣召唤赛事工具",
+                        stringResource(if (addAccount) R.string.login_title_add else R.string.login_title),
                         style = MaterialTheme.typography.titleLarge,
                         textAlign = TextAlign.Center,
                     )
 
                     if (expiredNotice) {
                         Text(
-                            "登录已失效，请重新扫码登录",
+                            stringResource(R.string.login_expired_notice),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.error,
                             textAlign = TextAlign.Center,
@@ -115,7 +118,7 @@ fun LoginScreen(
                             FilterChip(
                                 selected = option == server,
                                 onClick = { viewModel.selectServer(option) },
-                                label = { Text(option.name) },
+                                label = { Text(option.displayName()) },
                             )
                         }
                     }
@@ -130,17 +133,14 @@ fun LoginScreen(
 
                     if (state is LoginUiState.Failed) {
                         Button(onClick = { viewModel.retry() }) {
-                            Text("重新生成二维码")
+                            Text(stringResource(R.string.action_regenerate_qr))
                         }
                     }
 
                     Text(
-                        if (addAccount) {
-                            "新扫码账户将加入本机账户列表，其他账户不会丢失。"
-                        } else {
-                            "二维码由米哈游通行证签发，确认后自动按当前所选服务器完成凭据交换。" +
-                                "凭据仅保存在本机加密区，不会上传至任何服务器。"
-                        },
+                        stringResource(
+                            if (addAccount) R.string.login_add_account_hint else R.string.login_qr_hint
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -158,7 +158,7 @@ private fun QrBox(state: LoginUiState) {
         if (qr != null) {
             Image(
                 bitmap = qr.payload,
-                contentDescription = "米游社扫码登录二维码",
+                contentDescription = stringResource(R.string.login_qr_image_desc),
                 modifier = Modifier.size(260.dp),
                 contentScale = ContentScale.Fit,
             )
@@ -175,11 +175,11 @@ private fun QrBox(state: LoginUiState) {
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Check,
-                            contentDescription = "已扫描",
+                            contentDescription = stringResource(R.string.login_qr_scanned_badge),
                             tint = Color.White,
                         )
                         Text(
-                            "已扫描，请在手机确认",
+                            stringResource(R.string.login_qr_scanned_confirm),
                             color = Color.White,
                             style = MaterialTheme.typography.bodyMedium,
                         )
@@ -201,14 +201,15 @@ private fun QrBox(state: LoginUiState) {
     }
 }
 
+@Composable
 private fun statusText(state: LoginUiState): String = when (state) {
-    is LoginUiState.Checking -> "正在生成二维码…"
+    is LoginUiState.Checking -> stringResource(R.string.login_status_generating)
     is LoginUiState.Qr -> when (state.phase) {
-        QrPhase.Waiting -> "请用米游社或云·原神扫码并确认登录"
-        QrPhase.Scanned -> "已扫描，请在手机上确认登录…"
-        QrPhase.Refreshing -> "二维码已失效，正在换新码…"
+        QrPhase.Waiting -> stringResource(R.string.login_status_waiting)
+        QrPhase.Scanned -> stringResource(R.string.login_status_scanned)
+        QrPhase.Refreshing -> stringResource(R.string.login_status_refreshing)
     }
-    is LoginUiState.Finalizing -> "登录已确认，正在完成凭据交换…"
-    is LoginUiState.Failed -> "生成失败：${state.message}"
-    is LoginUiState.LoggedIn -> "登录成功"
+    is LoginUiState.Finalizing -> stringResource(R.string.login_status_finalizing)
+    is LoginUiState.Failed -> stringResource(R.string.login_status_failed, state.message)
+    is LoginUiState.LoggedIn -> stringResource(R.string.login_status_success)
 }

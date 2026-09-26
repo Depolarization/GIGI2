@@ -23,8 +23,28 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.gigi.tcg.R
+import com.gigi.tcg.domain.TierStars
+
+/**
+ * 段位三语通道：把 domain 的中文段位名（TierTest 锁定、保持不动）映射到当前语言资源，
+ * "★" 星缀语义与 domain formatTier 一致（0 星不显示）。
+ */
+@Composable
+fun tierLabel(t: TierStars): String {
+    val name = when (t.tier) {
+        "" -> return stringResource(R.string.home_tier_none)
+        "黄铜" -> stringResource(R.string.tier_brass)
+        "星银" -> stringResource(R.string.tier_silver)
+        "赤金" -> stringResource(R.string.tier_gold)
+        "影幻" -> stringResource(R.string.tier_phantom)
+        else -> t.tier
+    }
+    return if (t.stars > 0) name + "★".repeat(t.stars) else name
+}
 
 /** 加载态：居中环 + 可选文案（对应 Feedback.tsx Spinner） */
 @Composable
@@ -114,7 +134,7 @@ fun ErrorState(
         )
         if (onRetry != null) {
             TextButton(onClick = onRetry, modifier = Modifier.padding(top = 8.dp)) {
-                Text("重试")
+                Text(stringResource(R.string.action_retry))
             }
         }
     }

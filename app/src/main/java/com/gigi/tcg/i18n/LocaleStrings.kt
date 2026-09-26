@@ -52,6 +52,16 @@ object LocaleStrings {
     fun getOrDefault(@StringRes id: Int, default: String): String =
         runCatching { resolver?.invoke(id) }.getOrNull() ?: default
 
+    /**
+     * 带参数的 [getOrDefault]：模板取不到时用 `default` 作为格式化模板。
+     * 供**纯函数**（导出表头/徽章这类要在无 Android 环境的 JVM 单测里直接调用的代码）使用，
+     * 让旧调用点与测试断言都不必改。
+     */
+    fun getOrDefault(@StringRes id: Int, default: String, vararg args: Any): String {
+        val template = runCatching { resolver?.invoke(id) }.getOrNull() ?: default
+        return runCatching { String.format(template, *args) }.getOrDefault(template)
+    }
+
     private fun resolveFrom(resources: Resources?, @StringRes id: Int): String? =
         runCatching { resources?.getString(id) }.getOrNull()
 }

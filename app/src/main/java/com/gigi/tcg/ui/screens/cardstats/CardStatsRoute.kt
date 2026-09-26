@@ -6,6 +6,7 @@ package com.gigi.tcg.ui.screens.cardstats
 
 import android.app.Application
 import android.graphics.Bitmap
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -88,19 +89,19 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-private val TAB_LABELS = listOf("角色牌", "行动牌")
+private val TAB_LABEL_IDS = listOf(R.string.card_type_character, R.string.card_type_action)
 
 /** 统计数值列定义：固定列宽 + 右对齐 + 等宽数字，保证四列纵向对齐。 */
-private data class StatColumn(val label: String, val width: Dp)
+private data class StatColumn(@StringRes val labelRes: Int, val width: Dp)
 
 private val StatCountWidth: Dp = 48.dp
 private val StatPercentWidth: Dp = 60.dp
 private val ListRowVerticalPadding = 8.dp
 private val CHAR_STAT_COLUMNS = listOf(
-    StatColumn("出场", StatCountWidth),
-    StatColumn("出场率", StatPercentWidth),
-    StatColumn("胜率", StatPercentWidth),
-    StatColumn("胜场", StatCountWidth),
+    StatColumn(R.string.stat_appear, StatCountWidth),
+    StatColumn(R.string.stat_appear_rate, StatPercentWidth),
+    StatColumn(R.string.stat_win_rate, StatPercentWidth),
+    StatColumn(R.string.stat_wins, StatCountWidth),
 )
 
 // 签名由派单固定：container 供 VM factory 与 sessionUid（导出长图副标题）、onShowToast 供导出结果反馈。
@@ -236,14 +237,14 @@ private fun CardStatsContent(
             ) {
                 ExportButton(
                     exporting = exportingChar,
-                    label = "导出角色牌",
+                    labelRes = R.string.stats_export_char,
                     enabled = state.summary != null,
                     onClick = { startExport(true) },
                     modifier = ComposeModifier.weight(1f),
                 )
                 ExportButton(
                     exporting = exportingAction,
-                    label = "导出行动牌",
+                    labelRes = R.string.stats_export_action,
                     enabled = state.summary != null,
                     onClick = { startExport(false) },
                     modifier = ComposeModifier.weight(1f),
@@ -251,8 +252,12 @@ private fun CardStatsContent(
             }
 
             TabRow(selectedTabIndex = tabIndex) {
-                TAB_LABELS.forEachIndexed { index, label ->
-                    Tab(selected = tabIndex == index, onClick = { tabIndex = index }, text = { Text(label) })
+                TAB_LABEL_IDS.forEachIndexed { index, labelRes ->
+                    Tab(
+                        selected = tabIndex == index,
+                        onClick = { tabIndex = index },
+                        text = { Text(stringResource(labelRes)) },
+                    )
                 }
             }
 
@@ -276,12 +281,12 @@ private fun CardStatsContent(
                                     onClick = { viewModel.setCharSort(key) },
                                     shape = SegmentedButtonDefaults.itemShape(index = index, count = CharSortKey.entries.size),
                                 ) {
-                                    Text(key.label)
+                                    Text(stringResource(key.labelRes))
                                 }
                             }
                         }
                         if (state.sortedCharList.isEmpty()) {
-                            NoMatchHint("没有匹配的角色牌")
+                            NoMatchHint(R.string.stats_no_match_char)
                         } else {
                             CharTableHeader()
                             state.sortedCharList.forEach { card ->
@@ -299,12 +304,12 @@ private fun CardStatsContent(
                                 FilterChip(
                                     selected = state.actionType == filter,
                                     onClick = { viewModel.setActionType(filter) },
-                                    label = { Text(filter.label) },
+                                    label = { Text(stringResource(filter.labelRes)) },
                                 )
                             }
                         }
                         if (state.filteredActionList.isEmpty()) {
-                            NoMatchHint("没有匹配的行动牌")
+                            NoMatchHint(R.string.stats_no_match_action)
                         } else {
                             state.filteredActionList.forEach { card ->
                                 ActionCardRow(card)
@@ -320,7 +325,7 @@ private fun CardStatsContent(
 @Composable
 private fun ExportButton(
     exporting: Boolean,
-    label: String,
+    @StringRes labelRes: Int,
     enabled: Boolean,
     onClick: () -> Unit,
     modifier: ComposeModifier,
@@ -330,7 +335,10 @@ private fun ExportButton(
         enabled = enabled && !exporting,
         modifier = modifier,
     ) {
-        Text(if (exporting) "导出中…" else label, maxLines = 1)
+        Text(
+            stringResource(if (exporting) R.string.stats_exporting else labelRes),
+            maxLines = 1,
+        )
     }
 }
 
@@ -343,14 +351,14 @@ private fun CharTableHeader() {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "角色牌",
+            stringResource(R.string.card_type_character),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = ComposeModifier.weight(1f),
         )
         CHAR_STAT_COLUMNS.forEach { col ->
             Text(
-                col.label,
+                stringResource(col.labelRes),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.End,
@@ -418,7 +426,7 @@ private fun ActionCardRow(card: GcgCard) {
         )
         Spacer(ComposeModifier.width(12.dp))
         Text(
-            "出场",
+            stringResource(R.string.stat_appear),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -438,9 +446,9 @@ private fun ActionCardRow(card: GcgCard) {
 }
 
 @Composable
-private fun NoMatchHint(message: String) {
+private fun NoMatchHint(@StringRes messageRes: Int) {
     Text(
-        message,
+        stringResource(messageRes),
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
@@ -471,16 +479,19 @@ private fun PlayerInfoCard(
                 )
             }
             Row(ComposeModifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Metric("总对局", summary.totalGames.toString())
-                Metric("获胜对局", summary.winGames.toString())
-                Metric("打出行动牌", summary.actionTotalUse.toString())
-                Metric("总胜率", summary.winRate)
+                Metric(R.string.stats_total_games, summary.totalGames.toString())
+                Metric(R.string.stats_win_games, summary.winGames.toString())
+                Metric(R.string.stats_action_played, summary.actionTotalUse.toString())
+                Metric(R.string.stats_total_win_rate, summary.winRate)
             }
             FilledTonalButton(onClick = onToggle, modifier = ComposeModifier.fillMaxWidth()) {
-                Text(if (detailOpen) "收起详情" else "展开详情")
+                val detailToggleLabel = stringResource(
+                    if (detailOpen) R.string.stats_detail_collapse else R.string.stats_detail_expand,
+                )
+                Text(detailToggleLabel)
                 Icon(
                     if (detailOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                    contentDescription = if (detailOpen) "收起详情" else "展开详情",
+                    contentDescription = detailToggleLabel,
                 )
             }
             AnimatedVisibility(
@@ -490,19 +501,19 @@ private fun PlayerInfoCard(
             ) {
                 Column {
                     DetailGroup(
-                        "行动牌详情",
+                        R.string.stats_action_detail,
                         listOf(
-                            Triple("装备牌", summary.modifyUse.toString(), "占比 ${summary.modifyPercent}"),
-                            Triple("支援牌", summary.assistUse.toString(), "占比 ${summary.assistPercent}"),
-                            Triple("事件牌", summary.eventUse.toString(), "占比 ${summary.eventPercent}"),
+                            DetailRow(R.string.card_type_modify, summary.modifyUse.toString(), summary.modifyPercent),
+                            DetailRow(R.string.card_type_assist, summary.assistUse.toString(), summary.assistPercent),
+                            DetailRow(R.string.card_type_event, summary.eventUse.toString(), summary.eventPercent),
                         ),
                     )
                     DetailGroup(
-                        "足迹",
+                        R.string.stats_footprint,
                         listOf(
-                            Triple("牌手等级", summary.level.toString(), null),
-                            Triple("角色牌收集", summary.avatarCardNum.toString(), null),
-                            Triple("行动牌收集", summary.actionCardNum.toString(), null),
+                            DetailRow(R.string.stats_player_level, summary.level.toString()),
+                            DetailRow(R.string.stats_char_collected, summary.avatarCardNum.toString()),
+                            DetailRow(R.string.stats_action_collected, summary.actionCardNum.toString()),
                         ),
                     )
                 }
@@ -511,24 +522,34 @@ private fun PlayerInfoCard(
     }
 }
 
+/** 详情面板一行：label 存资源 id，hintPercent 非空时才拼「占比」（null = 无占比列） */
+private data class DetailRow(
+    @StringRes val labelRes: Int,
+    val value: String,
+    val hintPercent: String? = null,
+)
+
 @Composable
-private fun Metric(label: String, value: String) {
+private fun Metric(@StringRes labelRes: Int, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(labelRes), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.titleMedium)
     }
 }
 
 @Composable
-private fun DetailGroup(title: String, rows: List<Triple<String, String, String?>>) {
+private fun DetailGroup(@StringRes titleRes: Int, rows: List<DetailRow>) {
     Column(ComposeModifier.fillMaxWidth().padding(top = 12.dp)) {
         Text(
-            title,
+            stringResource(titleRes),
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        rows.forEach { (label, value, hint) ->
+        rows.forEach { row ->
+            val label = stringResource(row.labelRes)
+            // 「（占比 x%）」整体是一句资源：括号随语种走（英文资源用 ASCII 括号），代码不拼括号
+            val hint = row.hintPercent?.let { stringResource(R.string.stats_ratio, it) }
             Row(ComposeModifier.fillMaxWidth().padding(vertical = 2.dp)) {
                 Text(
                     label,
@@ -537,7 +558,7 @@ private fun DetailGroup(title: String, rows: List<Triple<String, String, String?
                     modifier = ComposeModifier.weight(1f),
                 )
                 Text(
-                    if (hint != null) "$value（$hint）" else value,
+                    if (hint != null) row.value + hint else row.value,
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }

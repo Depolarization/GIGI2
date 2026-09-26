@@ -3,9 +3,9 @@
 // 本文件刻意做成「内容 Column」而非弹窗：宿主 AboutDialog 的 AlertDialog 已经是导航入口
 // （GigiNavHost 里的 aboutOpen），换壳等于改导航——留给后续棒合并时统一处理。
 //
-// 文案 i18n（V9-F1 keys）：「关于本软件/使用要点/数据来源与权限/原理与致谢/反馈」各段已接线
-// stringResource；更新检查与公告相关（「更新与反馈」区块、两个弹窗、UpdateStateLine 状态句）
-// 尚无对应 key，暂留中文。
+// 文案全部走 R.string（V9-F1 keys，F3 补齐更新/公告/反馈段与排版 glue）。
+// 🔴 项目符号 / 「label：value」分隔符 / 括号一律不写死在代码里，改由 about_bullet、
+// about_label_separator 等资源提供，否则英文设备会带着全角标点。
 // 链接跳转必须兜 ActivityNotFoundException：国内设备无默认浏览器、或浏览器被停用时，
 // 不兜就是点一下崩一次；兜法是「复制链接 + 提示」，用户仍有路可走。
 
@@ -73,11 +73,8 @@ private const val BILIBILI_FEEDBACK_URL = "https://space.bilibili.com/560719483"
 private val PROJECT_FACTS = listOf(
     R.string.about_fact_project to R.string.about_value_project,
     R.string.about_fact_form to R.string.about_value_form,
+    R.string.about_fact_license to R.string.about_value_license,
 )
-
-/** 「开源协议」无对应 key，三语版暂沿用原文（V9-H 不许改 res/） */
-private const val LICENSE_FACT_LABEL = "开源协议"
-private const val LICENSE_FACT_VALUE = "Apache License 2.0，完整开源"
 
 private val USAGE_TIP_IDS = listOf(
     R.string.about_tip_delay,
@@ -90,11 +87,8 @@ private val USAGE_TIP_IDS = listOf(
 private val DATA_SOURCE_BULLET_IDS = listOf(
     R.string.about_data_bullet_source,
     R.string.about_data_bullet_credential,
+    R.string.about_bullet_update_check,
 )
-
-/** 更新检查/公告说明句无对应 key，三语版暂沿用原文 */
-private const val DATA_SOURCE_UPDATE_BULLET =
-    "• 更新检查与公告只读取公开仓库的静态文件，经国内镜像访问，全程不携带任何账号凭据。"
 
 /** 关于页 VM：宿主不传时自建（VM 挂在 Activity 作用域，跨开关复用同一份已读队列） */
 @Composable
@@ -121,7 +115,7 @@ fun AboutScreen(
     }
     val openUrl: (String) -> Unit = { url ->
         if (!startViewIntent(context, url)) {
-            copyText(url, "未找到可用的浏览器，链接已复制")
+            copyText(url, context.getString(R.string.about_no_browser))
         }
     }
 
@@ -133,27 +127,36 @@ fun AboutScreen(
     LaunchedEffect(updateState) { updateDialogOpen = updateState is UpdateState.Available }
 
     Column(modifier = modifier.verticalScroll(rememberScrollState())) {
+        val bullet = stringResource(R.string.about_bullet)
+        val labelSep = stringResource(R.string.about_label_separator)
         SectionTitle(stringResource(R.string.about_section_software))
         val factRows = PROJECT_FACTS.map { (labelId, valueId) ->
             stringResource(labelId) to stringResource(valueId)
-        } + (LICENSE_FACT_LABEL to LICENSE_FACT_VALUE)
+        }
         factRows.forEach { (label, value) ->
             AboutParagraph {
                 withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(label) }
-                append("：$value")
+                append("$labelSep$value")
             }
         }
 
-        SectionTitle("版本")
-        AboutParagraph { append("版本 ${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）") }
+        SectionTitle(stringResource(R.string.about_section_version))
+        val versionLine = stringResource(R.string.about_version_line, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
+        val repoLabel = stringResource(R.string.about_bullet_repo)
+        val licenseLabel = stringResource(R.string.about_bullet_license)
+        AboutParagraph { append(versionLine) }
         AboutParagraph {
-            append("• 源码仓库：")
+            append(bullet)
+            append(repoLabel)
             appendLink("Depolarization/GIGI2", GITHUB_REPO_URL)
-            append("　开源协议：")
+            append(licenseLabel)
             appendLink("Apache License 2.0", LICENSE_URL)
         }
 
-        SectionTitle("更新与反馈")
+        SectionTitle(stringResource(R.string.about_section_update_feedback))
+        // onClick 不是 Composable 作用域，文案先在组合里解析再捕获
+        val issueSummary = stringResource(R.string.about_issue_summary)
+        val copiedReport = stringResource(R.string.about_copied_report)
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -166,17 +169,22 @@ fun AboutScreen(
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
                 }
-                Text(if (updateState is UpdateState.Checking) "检查中…" else "检查更新")
+                Text(
+                    stringResource(
+                        if (updateState is UpdateState.Checking) R.string.about_update_checking
+                        else R.string.about_update_check,
+                    ),
+                )
             }
-            OutlinedButton(onClick = { openUrl(viewModel.buildBugReportUrl()) }) {
-                Text("反馈问题")
+            OutlinedButton(onClick = { openUrl(viewModel.buildBugReportUrl(issueSummary)) }) {
+                Text(stringResource(R.string.about_feedback_issue))
             }
         }
         TextButton(
-            onClick = { copyText(viewModel.buildCopyableReport(), "诊断信息已复制") },
+            onClick = { copyText(viewModel.buildCopyableReport(), copiedReport) },
             modifier = Modifier.padding(top = 4.dp),
         ) {
-            Text("复制诊断信息")
+            Text(stringResource(R.string.about_copy_report))
         }
         UpdateStateLine(updateState)
 
@@ -186,7 +194,7 @@ fun AboutScreen(
         // AboutParagraph 的 lambda 不是 Composable scope，stringResource 一律先在组合内解析
         USAGE_TIP_IDS.forEach { tipId ->
             val tip = stringResource(tipId)
-            AboutParagraph { append("• $tip") }
+            AboutParagraph { append("$bullet$tip") }
         }
 
         SectionTitle(stringResource(R.string.about_section_data))
@@ -195,17 +203,16 @@ fun AboutScreen(
         val dataDetail = stringResource(R.string.about_data_bold_detail)
         val dataEnd = stringResource(R.string.about_data_end)
         AboutParagraph {
-            append("• ")
+            append(bullet)
             withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(dataCover) }
             append(dataMid)
             withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(dataDetail) }
             append(dataEnd)
         }
         DATA_SOURCE_BULLET_IDS.forEach { bulletId ->
-            val bullet = stringResource(bulletId)
-            AboutParagraph { append("• $bullet") }
+            val text = stringResource(bulletId)
+            AboutParagraph { append("$bullet$text") }
         }
-        AboutParagraph { append(DATA_SOURCE_UPDATE_BULLET) }
 
         SectionTitle(stringResource(R.string.about_section_thanks))
         val thanksIntro = stringResource(R.string.about_thanks_intro)
@@ -221,21 +228,27 @@ fun AboutScreen(
 
         SectionTitle(stringResource(R.string.about_section_feedback))
         val feedbackHint = stringResource(R.string.about_feedback_hint)
+        val bilibiliHome = stringResource(R.string.about_link_bilibili_home)
         AboutParagraph {
-            append("• $feedbackHint")
-            appendLink("B 站主页", BILIBILI_FEEDBACK_URL)
+            append("$bullet$feedbackHint")
+            appendLink(bilibiliHome, BILIBILI_FEEDBACK_URL)
         }
     }
 
     val available = (updateState as? UpdateState.Available)?.info
     if (updateDialogOpen && available != null) {
+        val unknown = stringResource(R.string.common_unknown)
         AlertDialog(
             onDismissRequest = { updateDialogOpen = false },
-            title = { Text("发现新版本") },
+            title = { Text(stringResource(R.string.about_update_dialog_title)) },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     Text(
-                        "当前 ${BuildConfig.VERSION_NAME} → 最新 ${available.latestVersionName ?: "未知"}",
+                        stringResource(
+                            R.string.about_update_dialog_versions,
+                            BuildConfig.VERSION_NAME,
+                            available.latestVersionName ?: unknown,
+                        ),
                         style = MaterialTheme.typography.titleSmall,
                     )
                     available.releaseNotes?.takeIf { it.isNotBlank() }?.let { notes ->
@@ -244,7 +257,7 @@ fun AboutScreen(
                     }
                     Spacer(Modifier.size(8.dp))
                     Text(
-                        "来源：${available.source}",
+                        stringResource(R.string.about_update_dialog_source, available.source),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -256,10 +269,12 @@ fun AboutScreen(
                         openUrl(available.downloadUrl?.takeIf { it.isNotBlank() } ?: GITHUB_RELEASES_URL)
                         updateDialogOpen = false
                     },
-                ) { Text("去下载") }
+                ) { Text(stringResource(R.string.about_update_dialog_download)) }
             },
             dismissButton = {
-                TextButton(onClick = { updateDialogOpen = false }) { Text("稍后再说") }
+                TextButton(onClick = { updateDialogOpen = false }) {
+                    Text(stringResource(R.string.about_update_dialog_later))
+                }
             },
         )
     }
@@ -268,14 +283,18 @@ fun AboutScreen(
     announcements.firstOrNull()?.let { announcement ->
         AlertDialog(
             onDismissRequest = { viewModel.markAnnouncementRead(announcement.id) },
-            title = { Text(announcement.title.ifBlank { "公告" }) },
+            title = {
+                Text(
+                    announcement.title.ifBlank { stringResource(R.string.about_announcement_title) },
+                )
+            },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     Text(announcement.body, style = MaterialTheme.typography.bodyMedium)
                     announcement.url?.takeIf { it.isNotBlank() }?.let { url ->
                         Spacer(Modifier.size(8.dp))
                         Text(
-                            "点击查看详细内容",
+                            stringResource(R.string.about_announcement_hint),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.clickable { openUrl(url) },
@@ -285,7 +304,12 @@ fun AboutScreen(
             },
             confirmButton = {
                 TextButton(onClick = { viewModel.markAnnouncementRead(announcement.id) }) {
-                    Text(if (announcement.url.isNullOrBlank()) "知道了" else "查看链接")
+                    Text(
+                        stringResource(
+                            if (announcement.url.isNullOrBlank()) R.string.about_announcement_ok
+                            else R.string.about_announcement_link,
+                        ),
+                    )
                 }
             },
         )
@@ -296,10 +320,13 @@ fun AboutScreen(
 private fun UpdateStateLine(state: UpdateState) {
     val message = when (state) {
         UpdateState.Idle -> null
-        UpdateState.Checking -> "正在检查更新…"
-        is UpdateState.UpToDate -> "已是最新版本（${state.source}）"
-        is UpdateState.Available -> "发现新版本 ${state.info.latestVersionName ?: ""}，点「去下载」获取"
-        is UpdateState.Failed -> "检查失败，请稍后重试"
+        UpdateState.Checking -> stringResource(R.string.about_update_status_checking)
+        is UpdateState.UpToDate -> stringResource(R.string.about_update_status_up_to_date, state.source)
+        is UpdateState.Available -> stringResource(
+            R.string.about_update_status_available,
+            state.info.latestVersionName.orEmpty(),
+        )
+        is UpdateState.Failed -> stringResource(R.string.about_update_status_failed)
     } ?: return
     Text(
         text = message,

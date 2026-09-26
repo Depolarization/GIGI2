@@ -34,19 +34,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.gigi.tcg.domain.formatTier
+import com.gigi.tcg.R
 import com.gigi.tcg.domain.getTierStars
 import com.gigi.tcg.ui.components.Avatar
 import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LocalToast
 import com.gigi.tcg.ui.components.LoadingView
+import com.gigi.tcg.ui.components.tierLabel
 import com.gigi.tcg.ui.theme.LocalSemanticColors
 import com.gigi.tcg.ui.theme.SemanticColors
 
@@ -69,7 +71,7 @@ fun PlayerDetailDialog(uid: String?, onClose: () -> Unit) {
 
     AlertDialog(
         onDismissRequest = onClose,
-        title = { Text("玩家信息") },
+        title = { Text(stringResource(R.string.detail_info_title)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 when {
@@ -78,20 +80,22 @@ fun PlayerDetailDialog(uid: String?, onClose: () -> Unit) {
                         val e = state as DetailUiState.Error
                         ErrorState(message = e.message, onRetry = if (e.canRetry) viewModel::retry else null)
                     }
-                    else -> LoadingView(label = "正在查询玩家信息")
+                    else -> LoadingView(label = stringResource(R.string.state_detail_loading))
                 }
             }
         },
         confirmButton = {
             if (content != null) {
+                val copiedSelfToast = stringResource(R.string.toast_copied_uid, content.uid)
+                val copiedOpponentToast = stringResource(R.string.toast_copied_opponent_uid, content.uid)
                 TextButton(onClick = {
                     @Suppress("DEPRECATION") clipboard.setText(AnnotatedString(content.uid))
-                    toast(if (isSelf) "已复制UID:${content.uid}" else "已复制对手UID:${content.uid}")
-                }) { Text("复制UID") }
+                    toast(if (isSelf) copiedSelfToast else copiedOpponentToast)
+                }) { Text(stringResource(R.string.action_copy_uid)) }
             }
         },
         dismissButton = {
-            TextButton(onClick = onClose) { Text("关闭") }
+            TextButton(onClick = onClose) { Text(stringResource(R.string.action_close)) }
         },
     )
 }
@@ -103,16 +107,15 @@ private fun PlayerDetailBody(content: DetailUiState.Content, semantic: SemanticC
         // T10：接口无该玩家数据 → 说明式版式（区别于加载失败）
         pageInfo == null -> EmptyState(
             icon = Icons.Outlined.Search,
-            title = "未查询到玩家信息",
-            message = "未查询到 UID ${content.uid} 的七圣召唤信息。可能该玩家从未进行过七圣对局、" +
-                "在游戏中关闭了资料公开，或近期无对局数据尚未同步。",
+            title = stringResource(R.string.detail_not_found_title),
+            message = stringResource(R.string.detail_not_found_message, content.uid),
         )
         // 屏蔽分支：仅保留昵称与 UID
         pageInfo.isShield == true -> Column {
             HeaderRow(uid = content.uid, nickname = pageInfo.nickname, avatarUrl = pageInfo.avatarUrl)
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "无权访问该玩家其他信息",
+                text = stringResource(R.string.detail_shielded),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -122,7 +125,7 @@ private fun PlayerDetailBody(content: DetailUiState.Content, semantic: SemanticC
                 uid = content.uid,
                 nickname = pageInfo.nickname,
                 avatarUrl = pageInfo.avatarUrl,
-                tier = formatTier(getTierStars(pageInfo.ladderScore ?: 0)),
+                tier = tierLabel(getTierStars(pageInfo.ladderScore ?: 0)),
             )
             Spacer(Modifier.height(8.dp))
             ScoresRow(
@@ -146,7 +149,7 @@ private fun HeaderRow(uid: String, nickname: String?, avatarUrl: String?, tier: 
             // 昵称与段位字号不同，基线对齐避免视觉不齐；Bottom 兜底无基线的子项
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
-                    text = nickname ?: "未知",
+                    text = nickname ?: stringResource(R.string.common_unknown),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -166,7 +169,7 @@ private fun HeaderRow(uid: String, nickname: String?, avatarUrl: String?, tier: 
                 }
             }
             Text(
-                text = "UID $uid",
+                text = stringResource(R.string.player_uid, uid),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -177,8 +180,8 @@ private fun HeaderRow(uid: String, nickname: String?, avatarUrl: String?, tier: 
 @Composable
 private fun ScoresRow(ladder: Int, peak: Int, semantic: SemanticColors) {
     Row(Modifier.fillMaxWidth()) {
-        ScoreItem(label = "天梯积分", value = ladder, color = semantic.win, modifier = Modifier.weight(1f))
-        ScoreItem(label = "巅峰积分", value = peak, color = semantic.gold, modifier = Modifier.weight(1f))
+        ScoreItem(label = stringResource(R.string.score_ladder), value = ladder, color = semantic.win, modifier = Modifier.weight(1f))
+        ScoreItem(label = stringResource(R.string.score_peak), value = peak, color = semantic.gold, modifier = Modifier.weight(1f))
     }
 }
 
@@ -202,9 +205,9 @@ private fun ScoreItem(label: String, value: Int, color: Color, modifier: Modifie
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RolesSection(roles: List<com.gigi.tcg.data.model.RoleInfo>) {
-    SectionTitle("展示角色", roles.size)
+    SectionTitle(stringResource(R.string.detail_roles_section), roles.size)
     if (roles.isEmpty()) {
-        Text("无展示角色", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(R.string.detail_roles_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
     }
     FlowRow(
@@ -215,9 +218,9 @@ private fun RolesSection(roles: List<com.gigi.tcg.data.model.RoleInfo>) {
         roles.forEach { role ->
             Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 1.dp) {
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                    Text(role.name ?: "未知", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text(role.name ?: stringResource(R.string.common_unknown), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                     Text(
-                        text = "熟练度 ${role.proficiency ?: 0}",
+                        text = stringResource(R.string.detail_proficiency, role.proficiency ?: 0),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -229,9 +232,9 @@ private fun RolesSection(roles: List<com.gigi.tcg.data.model.RoleInfo>) {
 
 @Composable
 private fun EntriesSection(entries: List<com.gigi.tcg.data.model.EntryExperience>, semantic: SemanticColors) {
-    SectionTitle("参赛经历", entries.size)
+    SectionTitle(stringResource(R.string.detail_history_section), entries.size)
     if (entries.isEmpty()) {
-        Text("无参赛经历", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(R.string.detail_history_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
     }
     entries.forEachIndexed { index, entry ->
@@ -243,14 +246,14 @@ private fun EntriesSection(entries: List<com.gigi.tcg.data.model.EntryExperience
                 modifier = Modifier.width(20.dp),
             )
             Text(
-                text = entry.competitionName ?: "未知",
+                text = entry.competitionName ?: stringResource(R.string.common_unknown),
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             Text(
-                text = entry.competitionResult ?: "未知",
+                text = entry.competitionResult ?: stringResource(R.string.common_unknown),
                 style = MaterialTheme.typography.labelLarge,
                 color = resultColor(entry.competitionResult, semantic),
                 maxLines = 1,
@@ -259,7 +262,7 @@ private fun EntriesSection(entries: List<com.gigi.tcg.data.model.EntryExperience
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = "${entry.score ?: 0} 积分",
+                text = stringResource(R.string.detail_points, entry.score ?: 0),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

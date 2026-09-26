@@ -12,8 +12,10 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import com.gigi.tcg.R
 import com.gigi.tcg.data.ServerId
 import com.gigi.tcg.data.api.CredentialSource
+import com.gigi.tcg.i18n.LocaleStrings
 import java.security.GeneralSecurityException
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -38,7 +40,10 @@ data class StoredAccount(
     fun server(): ServerId = ServerId.from(serverId) ?: ServerId.DEFAULT
 
     /** 菜单展示名：昵称缺失时以 uid 尾号兜底，保证可区分 */
-    fun displayName(): String = nickname?.takeIf { it.isNotBlank() } ?: "玩家${uid.takeLast(4)}"
+    fun displayName(): String = nickname?.takeIf { it.isNotBlank() } ?: run {
+        val tail = uid.takeLast(4)
+        if (LocaleStrings.resolved) LocaleStrings.get(R.string.account_default_nickname, tail) else "玩家$tail"
+    }
 }
 
 class CredentialStore(context: Context) : CredentialSource {

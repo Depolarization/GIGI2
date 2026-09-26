@@ -6,16 +6,19 @@
 package com.gigi.tcg.ui.dialogs.cardcover
 
 import android.app.Application
+import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gigi.tcg.GigiApp
-import com.gigi.tcg.data.api.describeApiError
+import com.gigi.tcg.R
+import com.gigi.tcg.i18n.apiErrorText
 import com.gigi.tcg.data.model.CardBasicInfo
 import com.gigi.tcg.data.model.EntryPageData
 import com.gigi.tcg.di.AppContainer
 import com.gigi.tcg.domain.Throttle
+import com.gigi.tcg.i18n.LocaleStrings
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,10 +27,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerializationException
 
-/** 卡面格式：普通(PNG)=common_img、动态(GIF)=gold_img */
-enum class CoverFormat(val label: String, val extension: String, val mimeType: String) {
-    Png("普通卡面(PNG)", "png", "image/png"),
-    Gif("动态卡面(GIF)", "gif", "image/gif"),
+/** 卡面格式：普通(PNG)=common_img、动态(GIF)=gold_img；labelRes 供 UI 三语展示 */
+enum class CoverFormat(@StringRes val labelRes: Int, val extension: String, val mimeType: String) {
+    Png(R.string.cover_format_png, "png", "image/png"),
+    Gif(R.string.cover_format_gif, "gif", "image/gif"),
 }
 
 sealed interface CoverUiState {
@@ -111,13 +114,13 @@ class CardCoverViewModel(app: Application) : AndroidViewModel(app) {
         downloadJob?.cancel()
         downloadJob = viewModelScope.launch {
             try {
-                saver.save(url, info.name ?: FALLBACK_NAME, state.format)
-                show(SAVED_TOAST)
+                saver.save(url, info.name ?: LocaleStrings.get(R.string.cover_title_fallback), state.format)
+                show(LocaleStrings.get(R.string.toast_saved_to_album))
                 onSaved()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                show(e.message ?: SAVE_FAILED_TOAST)
+                show(e.message ?: LocaleStrings.get(R.string.toast_save_failed))
             }
         }
     }
@@ -139,7 +142,7 @@ class CardCoverViewModel(app: Application) : AndroidViewModel(app) {
                 val info = parseBasicInfo(container.repository.fetchCardDetail(id))
                 if (gen != generation) return@launch
                 if (info == null) {
-                    _uiState.value = CoverUiState.Error(PARSE_FAILED)
+                    _uiState.value = CoverUiState.Error(LocaleStrings.get(R.string.error_cover_parse_failed))
                 } else {
                     parsedCache[id] = info
                     _uiState.value = CoverUiState.Content(info)
@@ -148,8 +151,8 @@ class CardCoverViewModel(app: Application) : AndroidViewModel(app) {
                 throw e
             } catch (e: Exception) {
                 if (gen == generation) {
-                    // retcode/网络归因集中在数据层，本层只转文案（设计红线 2）
-                    _uiState.value = CoverUiState.Error(describeApiError(e))
+                    // retcode/网络归因集中在数据层，本层经 apiErrorText 转文案（设计红线 2）
+                    _uiState.value = CoverUiState.Error(apiErrorText(e))
                 }
             }
         }
@@ -173,10 +176,6 @@ class CardCoverViewModel(app: Application) : AndroidViewModel(app) {
         /** 对齐 CardCoverDialog DETAIL_CACHE_MAX */
         private const val DETAIL_CACHE_MAX = 200
         private const val BASIC_INFO_MODULE = "基础信息"
-        private const val PARSE_FAILED = "获取数据失败"
-        private const val SAVED_TOAST = "已保存到相册"
-        private const val SAVE_FAILED_TOAST = "保存失败，请重试"
-        private const val FALLBACK_NAME = "卡面"
 
         /** 对齐 web createThrottle(1000) */
         private const val DOWNLOAD_THROTTLE_MS: Long = 1000L

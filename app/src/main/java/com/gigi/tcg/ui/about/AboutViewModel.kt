@@ -89,8 +89,8 @@ class AboutViewModel(
         _pendingAnnouncements.update { list -> list.filterNot { it.id == id } }
     }
 
-    /** 预填好设备信息的 GitHub Issue 链接，交给浏览器提交 */
-    fun buildBugReportUrl(summary: String = DEFAULT_ISSUE_SUMMARY): String =
+    /** 预填好设备信息的 GitHub Issue 链接，交给浏览器提交（标题文案由 UI 侧本地化传入） */
+    fun buildBugReportUrl(summary: String): String =
         bugReporter.buildIssueUrl(summary, appContext)
 
     /** 剪贴板版反馈正文：非 GitHub 渠道（B 站私信/群）也能带上完整上下文 */
@@ -98,7 +98,6 @@ class AboutViewModel(
 
     companion object {
         const val TAG: String = "GIGI.AboutViewModel"
-        const val DEFAULT_ISSUE_SUMMARY: String = "问题反馈"
 
         fun factory(app: Application): ViewModelProvider.Factory =
             object : ViewModelProvider.AndroidViewModelFactory(app) {

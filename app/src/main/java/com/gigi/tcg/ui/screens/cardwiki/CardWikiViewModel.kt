@@ -8,13 +8,16 @@ package com.gigi.tcg.ui.screens.cardwiki
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.gigi.tcg.data.api.describeApiError
+import com.gigi.tcg.i18n.apiErrorText
 import com.gigi.tcg.data.repo.WikiListData
 import com.gigi.tcg.di.AppContainer
+import androidx.annotation.StringRes
+import com.gigi.tcg.R
 import com.gigi.tcg.domain.WikiFilterDef
 import com.gigi.tcg.domain.parseCardFilters
 import com.gigi.tcg.domain.parseFilterDefs
 import com.gigi.tcg.domain.stripTitleSuffix
+import com.gigi.tcg.i18n.LocaleStrings
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,11 +25,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** 图鉴频道 id 与展示名/归属标签键（对齐原 cards.lua 与 CardWikiPage） */
+/** 图鉴频道 id 与展示名资源/归属标签键（对齐原 cards.lua 与 CardWikiPage） */
 internal const val CATEGORY_HERO_ID: Int = 233
 private val CATEGORY_IDS: List<Int> = listOf(233, 234, 235)
-private val CATEGORY_TITLES: Map<Int, String> =
-    mapOf(233 to "角色牌", 234 to "行动牌", 235 to "魔物牌")
+private val CATEGORY_TITLE_RES: Map<Int, Int> =
+    mapOf(233 to R.string.card_type_character, 234 to R.string.card_type_action, 235 to R.string.card_type_monster)
 private val EXT_KEYS: Map<Int, String> =
     mapOf(233 to "c_233", 234 to "c_234", 235 to "c_235")
 
@@ -38,10 +41,10 @@ data class CardVm(
     val filterArray: List<String>,
 )
 
-/** 一个频道分类：筛选维度定义 + 卡牌列表 */
+/** 一个频道分类：筛选维度定义 + 卡牌列表；titleRes 由 UI 侧 stringResource 解析 */
 data class CategoryVm(
     val id: Int,
-    val title: String,
+    @StringRes val titleRes: Int,
     val filterDefs: List<WikiFilterDef>,
     val cards: List<CardVm>,
 )
@@ -98,7 +101,7 @@ class CardWikiViewModel(private val container: AppContainer) : ViewModel() {
                 val categories = parseCategories(data)
                 if (categories.isEmpty()) {
                     _uiState.update {
-                        it.copy(loading = false, error = FORMAT_ERROR, categories = emptyList())
+                        it.copy(loading = false, error = LocaleStrings.get(R.string.error_format), categories = emptyList())
                     }
                 } else {
                     _uiState.update {
@@ -108,10 +111,10 @@ class CardWikiViewModel(private val container: AppContainer) : ViewModel() {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // retcode/网络归因集中在数据层，本层只转文案（设计红线 2）
+                // retcode/网络归因集中在数据层，本层经 apiErrorText 转文案（设计红线 2）
                 if (gen == generation) {
                     _uiState.update {
-                        it.copy(loading = false, error = describeApiError(e), categories = emptyList())
+                        it.copy(loading = false, error = apiErrorText(e), categories = emptyList())
                     }
                 }
             }
@@ -148,14 +151,14 @@ class CardWikiViewModel(private val container: AppContainer) : ViewModel() {
             val cards = child.list.orEmpty().map { entry ->
                 CardVm(
                     contentId = entry.contentId?.toLong(),
-                    title = stripTitleSuffix(entry.title ?: UNKNOWN_TITLE),
+                    title = stripTitleSuffix(entry.title ?: LocaleStrings.get(R.string.common_unknown)),
                     icon = entry.icon ?: "",
                     filterArray = parseCardFilters(entry.ext, extKey),
                 )
             }
             CategoryVm(
                 id = id,
-                title = CATEGORY_TITLES.getValue(id),
+                titleRes = CATEGORY_TITLE_RES.getValue(id),
                 filterDefs = parseFilterDefs(child.chExt),
                 cards = cards,
             )
@@ -163,8 +166,6 @@ class CardWikiViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     companion object {
-        private const val FORMAT_ERROR = "返回数据格式异常"
-        private const val UNKNOWN_TITLE = "未知"
 
         fun factory(container: AppContainer): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {

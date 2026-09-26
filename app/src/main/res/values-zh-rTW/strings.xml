@@ -176,7 +176,7 @@
     <string name="stats_detail_expand">展開詳情</string>
     <string name="stats_detail_collapse">收合詳情</string>
     <string name="stats_action_detail">行動牌詳情</string>
-    <string name="stats_ratio">佔比 %1$s</string>
+    <string name="stats_ratio">（佔比 %1$s）</string>
     <string name="stats_footprint">足跡</string>
     <string name="stats_player_level">牌手等級</string>
     <string name="stats_char_collected">角色牌收集</string>
@@ -242,4 +242,38 @@
     <string name="about_feedback_hint">若在使用中遇到任何異常錯誤，歡迎回饋。</string>
     <string name="about_section_version">版本</string>
     <string name="about_version">版本 %1$s</string>
+
+    <!-- 关于页：排版 glue -->
+    <string name="about_bullet">"• "</string>
+    <string name="about_label_separator">"："</string>
+    <string name="about_version_line">版本 %1$s（%2$d）</string>
+    <string name="about_fact_license">開源協議</string>
+    <string name="about_value_license">Apache License 2.0，完整開源</string>
+    <string name="about_bullet_repo">"原始碼倉庫："</string>
+    <string name="about_bullet_license">"　開源協議："</string>
+    <string name="about_link_bilibili_home">B 站主頁</string>
+
+    <!-- 关于页：更新检查 / 反馈 / 公告 -->
+    <string name="about_section_update_feedback">更新與回饋</string>
+    <string name="about_update_check">檢查更新</string>
+    <string name="about_update_checking">檢查中…</string>
+    <string name="about_feedback_issue">回饋問題</string>
+    <string name="about_copy_report">複製診斷資訊</string>
+    <string name="about_copied_report">診斷資訊已複製</string>
+    <string name="about_no_browser">找不到可用的瀏覽器，連結已複製</string>
+    <string name="about_bullet_update_check">更新檢查與公告只讀取公開倉庫的靜態檔案，經國內鏡像存取，全程不攜帶任何帳號憑證。</string>
+    <string name="about_update_status_checking">正在檢查更新…</string>
+    <string name="about_update_status_up_to_date">已是最新版本（%1$s）</string>
+    <string name="about_update_status_available">發現新版本 %1$s，點「去下載」取得</string>
+    <string name="about_update_status_failed">檢查失敗，請稍後重試</string>
+    <string name="about_update_dialog_title">發現新版本</string>
+    <string name="about_update_dialog_versions">目前 %1$s → 最新 %2$s</string>
+    <string name="about_update_dialog_source">來源：%1$s</string>
+    <string name="about_update_dialog_download">去下載</string>
+    <string name="about_update_dialog_later">稍後再說</string>
+    <string name="about_announcement_title">公告</string>
+    <string name="about_announcement_hint">點擊檢視詳細內容</string>
+    <string name="about_announcement_ok">知道了</string>
+    <string name="about_announcement_link">檢視連結</string>
+    <string name="about_issue_summary">問題回饋</string>
 </resources>

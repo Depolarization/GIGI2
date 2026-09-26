@@ -7,16 +7,19 @@
 package com.gigi.tcg.ui.screens.cardstats
 
 import android.app.Application
+import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gigi.tcg.GigiApp
+import com.gigi.tcg.R
 import com.gigi.tcg.data.api.API_ERROR_KIND_RETCODE
 import com.gigi.tcg.data.api.ApiError
 import com.gigi.tcg.data.model.GcgCard as ApiGcgCard
 import com.gigi.tcg.data.model.GcgStats as ApiGcgStats
 import com.gigi.tcg.di.AppContainer
+import com.gigi.tcg.i18n.LocaleStrings
 import com.gigi.tcg.domain.CARD_TYPE_ASSIST
 import com.gigi.tcg.domain.CARD_TYPE_EVENT
 import com.gigi.tcg.domain.CARD_TYPE_MODIFY
@@ -34,19 +37,23 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** 角色牌排序维度（对齐 CHAR_SORT_OPTIONS）：出场次数 / 胜率 / 胜场 */
-enum class CharSortKey(val label: String) {
-    Use("出场次数"),
-    WinRate("胜率"),
-    Wins("胜场"),
+/**
+ * 角色牌排序维度（对齐 CHAR_SORT_OPTIONS）：出场次数 / 胜率 / 胜场。
+ * labelRes 存 @StringRes id 而非成品文案：枚举在 VM 层（非组合作用域），
+ * 展示由 CardStatsRoute 用 stringResource 解析，语言切换才会即时重绘。
+ */
+enum class CharSortKey(@StringRes val labelRes: Int) {
+    Use(R.string.stat_use_count),
+    WinRate(R.string.stat_win_rate),
+    Wins(R.string.stat_wins),
 }
 
 /** 行动牌类型筛选（对齐 ACTION_TYPES）；typeValue 为 null 表示"全部" */
-enum class ActionTypeFilter(val label: String, val typeValue: String?) {
-    All("全部", null),
-    Modify("装备牌", CARD_TYPE_MODIFY),
-    Assist("支援牌", CARD_TYPE_ASSIST),
-    Event("事件牌", CARD_TYPE_EVENT),
+enum class ActionTypeFilter(@StringRes val labelRes: Int, val typeValue: String?) {
+    All(R.string.common_all, null),
+    Modify(R.string.card_type_modify, CARD_TYPE_MODIFY),
+    Assist(R.string.card_type_assist, CARD_TYPE_ASSIST),
+    Event(R.string.card_type_event, CARD_TYPE_EVENT),
 }
 
 data class StatsUiState(
@@ -186,7 +193,11 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
                 _uiState.update {
                     it.copy(
                         loading = false,
-                        error = if (isRetcode) "卡牌信息获取失败: ${e.message}" else "请检查网络重试",
+                        error = if (isRetcode) {
+                            LocaleStrings.get(R.string.error_card_fetch_failed, e.message.orEmpty())
+                        } else {
+                            LocaleStrings.get(R.string.error_check_network)
+                        },
                         errorCanRetry = !isRetcode,
                     )
                 }

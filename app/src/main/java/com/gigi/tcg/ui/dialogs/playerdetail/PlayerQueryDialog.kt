@@ -16,17 +16,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import com.gigi.tcg.R
 
 @Composable
 fun PlayerQueryDialog(onSubmit: (String) -> Unit, onClose: () -> Unit) {
     var text by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
+    val invalidUidError = stringResource(R.string.error_uid_invalid)
 
     fun submit() {
         val trimmed = text.trim()
         if (trimmed.length != 9 || trimmed.any { !it.isDigit() }) {
-            error = "UID不符合格式"
+            error = invalidUidError
             return
         }
         error = ""
@@ -38,7 +41,7 @@ fun PlayerQueryDialog(onSubmit: (String) -> Unit, onClose: () -> Unit) {
             error = ""
             onClose()
         },
-        title = { Text("玩家查询") },
+        title = { Text(stringResource(R.string.query_title)) },
         text = {
             Column {
                 OutlinedTextField(
@@ -47,7 +50,7 @@ fun PlayerQueryDialog(onSubmit: (String) -> Unit, onClose: () -> Unit) {
                         text = it.filter(Char::isDigit).take(9)
                         error = ""
                     },
-                    label = { Text("输入玩家UID") },
+                    label = { Text(stringResource(R.string.query_uid_hint)) },
                     singleLine = true,
                     isError = error.isNotEmpty(),
                     supportingText = { if (error.isNotEmpty()) Text(error) },
@@ -57,13 +60,13 @@ fun PlayerQueryDialog(onSubmit: (String) -> Unit, onClose: () -> Unit) {
             }
         },
         confirmButton = {
-            TextButton(onClick = { submit() }) { Text("查询") }
+            TextButton(onClick = { submit() }) { Text(stringResource(R.string.action_query)) }
         },
         dismissButton = {
             TextButton(onClick = {
                 error = ""
                 onClose()
-            }) { Text("取消") }
+            }) { Text(stringResource(R.string.action_cancel)) }
         },
     )
 }

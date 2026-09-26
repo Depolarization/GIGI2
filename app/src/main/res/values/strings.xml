@@ -176,7 +176,7 @@
     <string name="stats_detail_expand">展开详情</string>
     <string name="stats_detail_collapse">收起详情</string>
     <string name="stats_action_detail">行动牌详情</string>
-    <string name="stats_ratio">占比 %1$s</string>
+    <string name="stats_ratio">（占比 %1$s）</string>
     <string name="stats_footprint">足迹</string>
     <string name="stats_player_level">牌手等级</string>
     <string name="stats_char_collected">角色牌收集</string>
@@ -242,4 +242,39 @@
     <string name="about_feedback_hint">若在使用中遇到任何异常错误，欢迎反馈。</string>
     <string name="about_section_version">版本</string>
     <string name="about_version">版本 %1$s</string>
+
+    <!-- 关于页：排版 glue（全角标点/项目符号不能留给代码拼） -->
+    <string name="about_bullet">"• "</string>
+    <string name="about_label_separator">"："</string>
+    <string name="about_version_line">版本 %1$s（%2$d）</string>
+    <string name="about_fact_license">开源协议</string>
+    <string name="about_value_license">Apache License 2.0，完整开源</string>
+    <string name="about_bullet_repo">"源码仓库："</string>
+    <!-- 前导全角空格是原排版（与上一条链接拉开间距），用引号包住防被 aapt 裁掉 -->
+    <string name="about_bullet_license">"　开源协议："</string>
+    <string name="about_link_bilibili_home">B 站主页</string>
+
+    <!-- 关于页：更新检查 / 反馈 / 公告 -->
+    <string name="about_section_update_feedback">更新与反馈</string>
+    <string name="about_update_check">检查更新</string>
+    <string name="about_update_checking">检查中…</string>
+    <string name="about_feedback_issue">反馈问题</string>
+    <string name="about_copy_report">复制诊断信息</string>
+    <string name="about_copied_report">诊断信息已复制</string>
+    <string name="about_no_browser">未找到可用的浏览器，链接已复制</string>
+    <string name="about_bullet_update_check">更新检查与公告只读取公开仓库的静态文件，经国内镜像访问，全程不携带任何账号凭据。</string>
+    <string name="about_update_status_checking">正在检查更新…</string>
+    <string name="about_update_status_up_to_date">已是最新版本（%1$s）</string>
+    <string name="about_update_status_available">发现新版本 %1$s，点「去下载」获取</string>
+    <string name="about_update_status_failed">检查失败，请稍后重试</string>
+    <string name="about_update_dialog_title">发现新版本</string>
+    <string name="about_update_dialog_versions">当前 %1$s → 最新 %2$s</string>
+    <string name="about_update_dialog_source">来源：%1$s</string>
+    <string name="about_update_dialog_download">去下载</string>
+    <string name="about_update_dialog_later">稍后再说</string>
+    <string name="about_announcement_title">公告</string>
+    <string name="about_announcement_hint">点击查看详细内容</string>
+    <string name="about_announcement_ok">知道了</string>
+    <string name="about_announcement_link">查看链接</string>
+    <string name="about_issue_summary">问题反馈</string>
 </resources>

@@ -57,9 +57,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.gigi.tcg.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gigi.tcg.di.AppContainer
@@ -68,14 +70,6 @@ import com.gigi.tcg.ui.components.CenteredScrollableContainer
 import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
-
-private const val WIKI_LOADING_LABEL = "卡牌图鉴加载中"
-private const val EMPTY_FILTERED = "暂无符合条件的卡牌"
-private const val CARD_DATA_ERROR = "卡牌数据异常"
-private const val NO_IMAGE = "无图"
-private const val SEARCH_PLACEHOLDER = "搜索卡牌名称"
-private const val CLEAR_KEYWORD = "清空搜索"
-private const val FILTER_ALL = "不限"
 
 /** 官方卡面 420x720 竖版，网格缩略图按同比例铺位 */
 private const val CARD_ASPECT_RATIO: Float = 7f / 12f
@@ -103,6 +97,8 @@ fun CardWikiRoute(
 ) {
     val viewModel: CardWikiViewModel = viewModel(factory = CardWikiViewModel.factory(container))
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    // onCardClick 回调非组合上下文，toast 文案先取
+    val cardDataError = stringResource(R.string.wiki_card_data_error)
 
     // 待打开卡面：上抛宿主后立即置空，保证再次点击同一张也能触发
     val pendingCoverId = state.coverId
@@ -137,7 +133,7 @@ fun CardWikiRoute(
                 // 加载态走共享容器：与主页/排行榜/卡牌统计同为整屏居中（图鉴页无 PullToRefreshBox，
                 // 换容器不改变下拉行为，纯为视觉一致）
                 state.loading -> CenteredScrollableContainer {
-                    LoadingView(label = WIKI_LOADING_LABEL)
+                    LoadingView(label = stringResource(R.string.state_wiki_loading))
                 }
                 error != null -> ErrorState(
                     modifier = Modifier.align(Alignment.Center),
@@ -146,13 +142,13 @@ fun CardWikiRoute(
                 )
                 state.filteredCards.isEmpty() -> EmptyState(
                     modifier = Modifier.align(Alignment.Center),
-                    title = EMPTY_FILTERED,
+                    title = stringResource(R.string.wiki_empty_filtered),
                 )
                 else -> CardGrid(
                     cards = state.filteredCards,
                     onCardClick = { card ->
                         val id = card.contentId
-                        if (id == null) onShowToast(CARD_DATA_ERROR) else viewModel.openCover(id)
+                        if (id == null) onShowToast(cardDataError) else viewModel.openCover(id)
                     },
                 )
             }
@@ -172,7 +168,7 @@ private fun WikiTabs(
             Tab(
                 selected = category.id == activeCatId,
                 onClick = { onSelect(category.id) },
-                text = { Text(category.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                text = { Text(stringResource(category.titleRes), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             )
         }
     }
@@ -239,7 +235,7 @@ private fun KeywordField(keyword: String, onKeywordChange: (String) -> Unit) {
             ) {
                 Icon(
                     imageVector = Icons.Outlined.Search,
-                    contentDescription = "搜索",
+                    contentDescription = stringResource(R.string.cd_search),
                     modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -247,7 +243,7 @@ private fun KeywordField(keyword: String, onKeywordChange: (String) -> Unit) {
                 Box(modifier = Modifier.weight(1f)) {
                     if (keyword.isEmpty()) {
                         Text(
-                            text = SEARCH_PLACEHOLDER,
+                            text = stringResource(R.string.wiki_search_placeholder),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -261,7 +257,7 @@ private fun KeywordField(keyword: String, onKeywordChange: (String) -> Unit) {
                     IconButton(onClick = { onKeywordChange("") }) {
                         Icon(
                             imageVector = Icons.Outlined.Close,
-                            contentDescription = CLEAR_KEYWORD,
+                            contentDescription = stringResource(R.string.wiki_clear_search),
                             modifier = Modifier.size(20.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -295,7 +291,7 @@ private fun FilterDropdown(
         onExpandedChange = { expanded = it },
     ) {
         OutlinedTextField(
-            value = selected.ifEmpty { FILTER_ALL },
+            value = selected.ifEmpty { stringResource(R.string.wiki_filter_all) },
             onValueChange = {},
             readOnly = true,
             singleLine = true,
@@ -310,7 +306,7 @@ private fun FilterDropdown(
             onDismissRequest = { expanded = false },
         ) {
             FilterOption(
-                text = FILTER_ALL,
+                text = stringResource(R.string.wiki_filter_all),
                 selected = selected.isEmpty(),
                 onClick = {
                     onSelectionChange(label, "")
@@ -401,7 +397,7 @@ private fun WikiCard(card: CardVm, onClick: () -> Unit) {
                 )
             } else {
                 Text(
-                    text = NO_IMAGE,
+                    text = stringResource(R.string.wiki_no_image),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

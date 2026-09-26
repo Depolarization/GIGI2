@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gigi.tcg.R
 import com.gigi.tcg.data.model.GameRecord
 import com.gigi.tcg.data.model.PageInfo
 import com.gigi.tcg.di.AppContainer
@@ -53,19 +55,15 @@ import com.gigi.tcg.domain.UNKNOWN_OPPONENT_UID
 import com.gigi.tcg.domain.extractOpponentUid
 import com.gigi.tcg.domain.formatRecordTime
 import com.gigi.tcg.domain.formatScoreChange
-import com.gigi.tcg.domain.formatTier
 import com.gigi.tcg.domain.getTierStars
 import com.gigi.tcg.ui.components.Avatar
 import com.gigi.tcg.ui.components.CenteredScrollableContainer
 import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
+import com.gigi.tcg.ui.components.tierLabel
 import com.gigi.tcg.ui.theme.LocalSemanticColors
 import com.gigi.tcg.ui.theme.SemanticColors
-
-private const val HOME_FIRST_LOADING_LABEL = "正在加载个人数据"
-private const val HOME_PROFILE_LOADING_LABEL = "正在加载个人资料"
-private const val HOME_RECORDS_LOADING_LABEL = "正在加载对局记录"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,7 +100,7 @@ fun HomeRoute(
             // 首屏两块同在加载：整屏居中，与排行榜/图鉴/卡牌统计三页一致。
             // 不再套外层滚动 Column——CenteredScrollableContainer 内部自带 verticalScroll，
             // PullToRefreshBox 依然收得到 nestedScroll，下拉刷新不失效。
-            CenteredScrollableContainer { LoadingView(label = HOME_FIRST_LOADING_LABEL) }
+            CenteredScrollableContainer { LoadingView(label = stringResource(R.string.state_home_first_loading)) }
         } else {
             Column(
                 Modifier
@@ -111,14 +109,14 @@ fun HomeRoute(
                     .padding(16.dp),
             ) {
                 when (val profile = state.profile) {
-                    is Async.Loading -> LoadingView(label = HOME_PROFILE_LOADING_LABEL)
+                    is Async.Loading -> LoadingView(label = stringResource(R.string.state_home_profile_loading))
                     is Async.Content -> ProfileCard(
                         profile = profile.value,
                         uid = sessionUid.orEmpty(),
                         onClick = { onOpenPlayerDetail(sessionUid.orEmpty()) },
                     )
                     is Async.Error -> ErrorState(
-                        message = profile.message ?: "资料卡数据为空",
+                        message = profile.message ?: stringResource(R.string.state_home_profile_empty),
                         onRetry = viewModel::retryProfile,
                     )
                 }
@@ -128,25 +126,25 @@ fun HomeRoute(
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "最近对局",
+                        text = stringResource(R.string.home_recent_games),
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f),
                     )
                     IconButton(onClick = viewModel::refresh) {
-                        Icon(Icons.Outlined.Refresh, contentDescription = "刷新")
+                        Icon(Icons.Outlined.Refresh, contentDescription = stringResource(R.string.cd_refresh))
                     }
                 }
                 Spacer(Modifier.height(4.dp))
 
                 when (val records = state.records) {
-                    is Async.Loading -> LoadingView(label = HOME_RECORDS_LOADING_LABEL)
+                    is Async.Loading -> LoadingView(label = stringResource(R.string.state_home_records_loading))
                     is Async.Error -> ErrorState(
-                        message = records.message ?: "对局数据为空",
+                        message = records.message ?: stringResource(R.string.state_home_records_empty),
                         onRetry = viewModel::retryRecords,
                     )
                     is Async.Content -> {
                         if (records.value.isEmpty()) {
-                            EmptyState(title = "暂无对局记录，打一场七圣召唤再来查看吧")
+                            EmptyState(title = stringResource(R.string.home_empty_records))
                         } else {
                             // 服务端最多返回 10 条：外层整页已可滚，直接顺序渲染。
                             // 不再嵌套 LazyColumn——原"视口高 − 列表顶部偏移"方案把两个
@@ -182,8 +180,9 @@ private fun ProfileCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val tier = formatTier(getTierStars(profile.ladderScore ?: 0))
+    val tier = tierLabel(getTierStars(profile.ladderScore ?: 0))
     val semantic = LocalSemanticColors.current
+    val unknownLabel = stringResource(R.string.common_unknown)
     Card(
         modifier
             .fillMaxWidth()
@@ -199,20 +198,20 @@ private fun ProfileCard(
                 Avatar(url = profile.avatarUrl, size = 64.dp, contentDescription = profile.nickname)
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text(
-                        text = profile.nickname ?: "未知",
+                        text = profile.nickname ?: unknownLabel,
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = "UID:$uid",
+                        text = stringResource(R.string.player_uid, uid),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = "段位:${tier.ifEmpty { "无段位" }}",
+                        text = stringResource(R.string.home_tier_label, tier),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -224,13 +223,13 @@ private fun ProfileCard(
             // 积分区垂直置于个人信息下方，布局对齐 PlayerDetailDialog.ScoresRow
             Row(Modifier.fillMaxWidth()) {
                 ScoreItem(
-                    label = "天梯积分",
+                    label = stringResource(R.string.score_ladder),
                     value = profile.ladderScore ?: 0,
                     color = semantic.win,
                     modifier = Modifier.weight(1f),
                 )
                 ScoreItem(
-                    label = "巅峰积分",
+                    label = stringResource(R.string.score_peak),
                     value = profile.peakScore ?: 0,
                     color = semantic.gold,
                     modifier = Modifier.weight(1f),
@@ -274,6 +273,10 @@ private fun RecordItem(
     val ladderChange = record.ladderScore?.scoreChange ?: 0
     val peakScore = record.peakScore?.score ?: 0
     val peakChange = record.peakScore?.scoreChange ?: 0
+    // buildAnnotatedString 的 lambda 非组合上下文，文案先取好
+    val ladderPrefix = stringResource(R.string.home_ladder_prefix)
+    val peakPrefix = stringResource(R.string.home_peak_prefix)
+    val peakPlaceholder = stringResource(R.string.home_peak_placeholder)
 
     Card(
         modifier
@@ -294,13 +297,14 @@ private fun RecordItem(
                     .padding(horizontal = 12.dp),
             ) {
                 Text(
-                    text = record.nickname ?: "未知",
+                    text = record.nickname ?: stringResource(R.string.common_unknown),
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "UID:$opponentUid\n${formatRecordTime(record.timestamp)}",
+                    text = stringResource(R.string.player_uid, opponentUid) +
+                        "\n" + formatRecordTime(record.timestamp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -308,7 +312,7 @@ private fun RecordItem(
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = buildAnnotatedString {
-                        append("天梯 $ladderScore ")
+                        append("$ladderPrefix $ladderScore ")
                         withStyle(SpanStyle(color = semantic.win)) {
                             append(formatScoreChange(ladderChange))
                         }
@@ -318,9 +322,9 @@ private fun RecordItem(
                 Text(
                     text = buildAnnotatedString {
                         if (peakScore == 0 && peakChange == 0) {
-                            append("巅峰 -")
+                            append(peakPlaceholder)
                         } else {
-                            append("巅峰 $peakScore ")
+                            append("$peakPrefix $peakScore ")
                             withStyle(SpanStyle(color = semantic.gold)) {
                                 append(formatScoreChange(peakChange))
                             }
@@ -330,7 +334,13 @@ private fun RecordItem(
                 )
             }
             Text(
-                text = if (isWin) "胜" else if (isLose) "负" else "空",
+                text = if (isWin) {
+                    stringResource(R.string.home_result_win)
+                } else if (isLose) {
+                    stringResource(R.string.home_result_lose)
+                } else {
+                    stringResource(R.string.home_result_none)
+                },
                 style = MaterialTheme.typography.titleSmall,
                 color = when {
                     isWin -> semantic.win

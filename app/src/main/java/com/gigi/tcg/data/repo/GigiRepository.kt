@@ -13,6 +13,7 @@ package com.gigi.tcg.data.repo
 
 import android.util.LruCache
 import androidx.annotation.VisibleForTesting
+import com.gigi.tcg.R
 import com.gigi.tcg.data.ServerId
 import com.gigi.tcg.data.api.API_ERROR_KIND_NETWORK
 import com.gigi.tcg.data.api.API_ERROR_KIND_RETCODE
@@ -22,6 +23,7 @@ import com.gigi.tcg.data.api.MihoyoClient
 import com.gigi.tcg.data.api.RETRYABLE_RETCODES
 import com.gigi.tcg.data.api.cardDetailUrl
 import com.gigi.tcg.data.api.cardListUrl
+import com.gigi.tcg.i18n.LocaleStrings
 import com.gigi.tcg.data.api.competitionRankUrl
 import com.gigi.tcg.data.api.gameRecordsUrl
 import com.gigi.tcg.data.api.isAuthFailureError
@@ -287,7 +289,14 @@ class GigiRepository(
         if (retcode != 0 || raw == null) {
             throw ApiError(
                 API_ERROR_KIND_RETCODE,
-                message?.takeIf { it.isNotEmpty() } ?: "接口返回 retcode=${retcode ?: 0}",
+                message?.takeIf { it.isNotEmpty() } ?: run {
+                    val code = retcode ?: 0
+                    if (LocaleStrings.resolved) {
+                        LocaleStrings.get(R.string.error_api_retcode, code)
+                    } else {
+                        "接口返回 retcode=$code"
+                    }
+                },
                 retcode,
             )
         }

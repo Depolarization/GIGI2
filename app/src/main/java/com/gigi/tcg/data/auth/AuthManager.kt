@@ -5,9 +5,11 @@
 
 package com.gigi.tcg.data.auth
 
+import com.gigi.tcg.R
 import com.gigi.tcg.data.ServerApi
 import com.gigi.tcg.data.ServerId
 import com.gigi.tcg.data.api.RETRYABLE_RETCODES
+import com.gigi.tcg.i18n.LocaleStrings
 import java.io.IOException
 import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
@@ -84,14 +86,15 @@ class AuthManager(
                     return QrSession.Created(url = url, ticket = ticket, deviceId = deviceId)
                 }
                 QrCreateException(
-                    message = envelope.message?.takeIf { it.isNotEmpty() } ?: "二维码生成失败",
+                    message = envelope.message?.takeIf { it.isNotEmpty() }
+                        ?: LocaleStrings.getOrDefault(R.string.error_qr_failed, "二维码生成失败"),
                     isNetwork = false,
                     retryable = RETRYABLE_RETCODES.contains(envelope.retcode),
                 )
             } catch (e: IOException) {
                 // 传输层瞬时失败（DNS/连接/读取超时、TLS、socket 断开）都值得重发一次
                 QrCreateException(
-                    message = e.message ?: "网络请求失败",
+                    message = e.message ?: LocaleStrings.getOrDefault(R.string.error_network, "网络请求失败"),
                     isNetwork = true,
                     retryable = true,
                     cause = e,
@@ -160,7 +163,7 @@ class AuthManager(
 
     suspend fun refreshStoredSession(account: StoredAccount): AuthFinalizeResult {
         val cookie = credentialStore.cookieHeaderFor(account.uid)
-            ?: throw IOException("登录凭据已失效，请重新扫码")
+            ?: throw IOException(LocaleStrings.getOrDefault(R.string.error_credential_expired, "登录凭据已失效，请重新扫码"))
         return completeExchange(
             fragments = mergeFragments(listOf(cookie)),
             server = account.server(),
@@ -178,7 +181,12 @@ class AuthManager(
             findPair(fragments, "account_id") ?: findPair(fragments, "account_id_v2")
         val cookieTokenV2 = findPair(fragments, "cookie_token_v2")
         if (accountId == null || cookieTokenV2 == null) {
-            throw IOException("登录凭据不完整（缺少 account_id / cookie_token_v2）")
+            throw IOException(
+                LocaleStrings.getOrDefault(
+                    R.string.error_credential_incomplete,
+                    "登录凭据不完整（缺少 account_id / cookie_token_v2）",
+                ),
+            )
         }
 
         val cardRequest = Request.Builder()
@@ -197,7 +205,7 @@ class AuthManager(
         val region = role.region.orEmpty()
         val gameRoleId = role.gameRoleId.orEmpty()
         if (previous != null && previous.uid != gameRoleId) {
-            throw IOException("账户角色不匹配")
+            throw IOException(LocaleStrings.getOrDefault(R.string.error_role_mismatch, "账户角色不匹配"))
         }
         val exchangeRequest = Request.Builder()
             .url(BADGE_LOGIN_URL)
@@ -209,7 +217,12 @@ class AuthManager(
         }
         val exchanged = hasFreshEhk4e(exchange.extraCookies)
         if (!exchanged) {
-            throw IOException("凭据交换失败：响应未携带 e_hk4e_token")
+            throw IOException(
+                LocaleStrings.getOrDefault(
+                    R.string.error_token_exchange_failed,
+                    "凭据交换失败：响应未携带 e_hk4e_token",
+                ),
+            )
         }
         if (previous != null && credentialStore.activeUid() != previous.uid) {
             throw IOException("账户已切换，放弃本次续命")
@@ -265,7 +278,13 @@ class AuthManager(
             val response = suspendCancellableCall(request)
             response.use { resp ->
                 if (!resp.isSuccessful) {
-                    throw IOException("网络请求失败（HTTP ${resp.code}）")
+                    throw IOException(
+                        if (LocaleStrings.resolved) {
+                            LocaleStrings.get(R.string.error_http_code, resp.code)
+                        } else {
+                            "网络请求失败（HTTP ${resp.code}）"
+                        },
+                    )
                 }
                 parse(resp)
             }

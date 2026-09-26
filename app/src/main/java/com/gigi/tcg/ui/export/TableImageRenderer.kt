@@ -3,6 +3,8 @@ package com.gigi.tcg.ui.export
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import com.gigi.tcg.R
+import com.gigi.tcg.i18n.LocaleStrings
 import java.io.IOException
 import kotlin.math.ceil
 
@@ -207,7 +209,11 @@ internal fun checkRenderMemoryBudget(widthPx: Int, heightPx: Int, config: Bitmap
     val bytes = bitmapMemoryBytes(widthPx, heightPx, config)
     if (bytes > MAX_RENDERABLE_MEMORY_BYTES) {
         throw IOException(
-            "内容过多，无法导出（约需 ${bytes / (1024 * 1024)}MB 显存，超出安全上限）",
+            LocaleStrings.getOrDefault(
+                R.string.error_export_memory,
+                "内容过多，无法导出（约需 %1\$dMB 显存，超出安全上限）",
+                bytes / (1024 * 1024),
+            ),
         )
     }
 }

@@ -1,7 +1,7 @@
 // 首页状态机：移植 web/src/pages/HomePage.tsx 的 ProfileState/RecordsState 双块独立加载。
 // - 两块各自持有代数（对齐 profileSeq/recordsSeq）：单块重试不作废另一块在途请求；
 // - 已有数据时静默更新（不回落 Loading，避免整屏抖动）；任何结局 loading 必落定；
-// - retcode 判定集中在数据层（设计红线 2），本层仅经 describeApiError 转文案；
+// - retcode 判定集中在数据层（设计红线 2），本层仅经 apiErrorText 转文案；
 //   凭据失效由 AppGate 后台校验统一处理，页面不自行踢会话。
 
 package com.gigi.tcg.ui.screens.home
@@ -15,7 +15,7 @@ import com.gigi.tcg.GigiApp
 import com.gigi.tcg.data.ServerId
 import com.gigi.tcg.data.api.ApiError
 import com.gigi.tcg.data.api.RETRYABLE_RETCODES
-import com.gigi.tcg.data.api.describeApiError
+import com.gigi.tcg.i18n.apiErrorText
 import com.gigi.tcg.data.model.GameRecord
 import com.gigi.tcg.data.model.PageInfo
 import com.gigi.tcg.di.AppContainer
@@ -144,7 +144,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 if (pageInfo != null) Async.Content(pageInfo) else Async.Error()
             } catch (e: Exception) {
-                Async.Error(describeApiError(e))
+                Async.Error(apiErrorText(e))
             }
             if (gen == profileGeneration) {
                 _uiState.value = _uiState.value.copy(profile = next)
@@ -168,7 +168,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                     }.gameRecords.orEmpty(),
                 )
             } catch (e: Exception) {
-                Async.Error(describeApiError(e))
+                Async.Error(apiErrorText(e))
             }
             if (gen == recordsGeneration) {
                 _uiState.value = _uiState.value.copy(records = next)

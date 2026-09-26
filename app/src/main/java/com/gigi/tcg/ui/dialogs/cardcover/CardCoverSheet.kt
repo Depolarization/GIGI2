@@ -48,21 +48,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gigi.tcg.R
 import com.gigi.tcg.ui.components.AppImage
 import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LocalToast
 import com.gigi.tcg.ui.components.LoadingView
 import com.gigi.tcg.ui.theme.Motion
-
-private const val SHEET_TITLE_FALLBACK = "卡面"
-private const val SHEET_LOADING_LABEL = "正在加载卡面数据"
-private const val SHEET_EMPTY_FORMAT = "该格式暂无卡面图片"
-private const val DOWNLOAD_LABEL = "下载"
 
 /** 卡面 420x720（7:12）：高度上限 360dp 折算成宽度上限，窄屏按比例自适应用宽度撑 */
 private const val CARD_ASPECT_RATIO: Float = 7f / 12f
@@ -107,7 +104,8 @@ fun CardCoverSheet(
     }
 
     val content = state as? CoverUiState.Content
-    val title = content?.info?.name?.takeIf { it.isNotBlank() } ?: SHEET_TITLE_FALLBACK
+    val title = content?.info?.name?.takeIf { it.isNotBlank() }
+        ?: stringResource(R.string.cover_title_fallback)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -132,7 +130,7 @@ fun CardCoverSheet(
                 IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.Outlined.Close,
-                        contentDescription = "关闭",
+                        contentDescription = stringResource(R.string.action_close),
                     )
                 }
             }
@@ -152,7 +150,7 @@ fun CardCoverSheet(
                                 index = index,
                                 count = CoverFormat.entries.size,
                             ),
-                            label = { Text(format.label) },
+                            label = { Text(stringResource(format.labelRes)) },
                         )
                     }
                 }
@@ -165,7 +163,7 @@ fun CardCoverSheet(
                     .fillMaxWidth()
                     .padding(top = 12.dp),
             ) {
-                Text(DOWNLOAD_LABEL)
+                Text(stringResource(R.string.action_download))
             }
 
             Column(
@@ -177,7 +175,7 @@ fun CardCoverSheet(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 when (val current = state) {
-                    CoverUiState.Loading -> LoadingView(label = SHEET_LOADING_LABEL)
+                    CoverUiState.Loading -> LoadingView(label = stringResource(R.string.state_cover_loading))
 
                     is CoverUiState.Error -> ErrorState(
                         message = current.message,
@@ -195,7 +193,7 @@ fun CardCoverSheet(
 private fun CoverPreview(state: CoverUiState.Content) {
     val url = state.imageUrl
     if (url == null) {
-        EmptyState(title = SHEET_EMPTY_FORMAT)
+        EmptyState(title = stringResource(R.string.cover_empty_format))
         return
     }
     Box(
@@ -214,7 +212,7 @@ private fun CoverPreview(state: CoverUiState.Content) {
         ) { targetUrl ->
             AppImage(
                 model = targetUrl,
-                contentDescription = "${state.info?.name.orEmpty()} ${state.format.label}",
+                contentDescription = "${state.info?.name.orEmpty()} ${stringResource(state.format.labelRes)}",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
             )

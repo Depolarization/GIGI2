@@ -3,14 +3,14 @@
 // - 刷新重取两表（force=true，绕 3 分钟 TTL 缓存）；下拉刷新/retry 只重取当前 Tab，
 //   refreshing 标志由"发起刷新的 tab"（refreshingTab）落定时清除，与切换后的 activeTab 无关；
 // - 分页渲染：首屏 PAGE_CHUNK 条，滚动到底追加（对应 visibleCount + IntersectionObserver）；
-// - retcode 判定集中在数据层，本层只经 describeApiError 转文案（设计红线 2）。
+// - retcode 判定集中在数据层，本层只经 apiErrorText 转文案（设计红线 2）。
 
 package com.gigi.tcg.ui.screens.rank
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.gigi.tcg.data.api.describeApiError
+import com.gigi.tcg.i18n.apiErrorText
 import com.gigi.tcg.data.model.RankInfo
 import com.gigi.tcg.data.repo.RankTab
 import com.gigi.tcg.di.AppContainer
@@ -128,7 +128,7 @@ class RankViewModel(private val container: AppContainer) : ViewModel() {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                setState(tab, AsyncRankList.Error(describeApiError(e)))
+                setState(tab, AsyncRankList.Error(apiErrorText(e)))
             }
         }
     }

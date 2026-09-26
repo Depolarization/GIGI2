@@ -37,6 +37,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gigi.tcg.R
 import com.gigi.tcg.data.model.RankInfo
 import com.gigi.tcg.data.repo.RankTab
 import com.gigi.tcg.di.AppContainer
@@ -56,14 +58,14 @@ import com.gigi.tcg.ui.theme.GoldColor
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.contentOrNull
 
-private const val RANK_LOADING_LABEL = "排行榜加载中"
-
 private val RankSilverColor = Color(0xFF9AA2AD)
 private val RankBronzeColor = Color(0xFFB07A4A)
 
 private val rankTabs = listOf(RankTab.Peak, RankTab.Competition)
 
-private fun tabTitle(tab: RankTab): String = if (tab == RankTab.Peak) "巅峰积分" else "赛事积分"
+@Composable
+private fun tabTitle(tab: RankTab): String =
+    stringResource(if (tab == RankTab.Peak) R.string.score_peak else R.string.score_competition)
 
 private fun uidOf(info: RankInfo): String = info.uid?.contentOrNull.orEmpty()
 
@@ -163,7 +165,7 @@ private fun RankPageContent(
 ) {
     when (list) {
         AsyncRankList.Loading, AsyncRankList.NotLoaded -> CenteredScrollableContainer {
-            LoadingView(label = RANK_LOADING_LABEL)
+            LoadingView(label = stringResource(R.string.state_rank_loading))
         }
 
         is AsyncRankList.Error -> CenteredScrollableContainer {
@@ -173,7 +175,10 @@ private fun RankPageContent(
         is AsyncRankList.Content -> {
             if (list.items.isEmpty()) {
                 CenteredScrollableContainer {
-                    EmptyState(modifier = Modifier.fillMaxWidth(), title = "${tabTitle(tab)}暂无上榜玩家")
+                    EmptyState(
+                        modifier = Modifier.fillMaxWidth(),
+                        title = stringResource(R.string.rank_empty, tabTitle(tab)),
+                    )
                 }
             } else {
                 val shown = remember(list.items, visibleCount) { list.items.take(visibleCount) }
@@ -192,7 +197,7 @@ private fun RankPageContent(
                             // 哨兵进入组合即触底：自动追加一页（对齐 IntersectionObserver 语义）
                             LaunchedEffect(Unit) { onLoadMore() }
                             Text(
-                                text = "已显示 ${shown.size} / ${list.items.size} 名",
+                                text = stringResource(R.string.rank_shown_count, shown.size, list.items.size),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
@@ -224,7 +229,11 @@ private fun RankRow(
         3 -> RankBronzeColor
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val scoreText = if (tab == RankTab.Peak) "巅峰积分:${info.peakScore ?: 0}" else "赛事积分:${info.score ?: 0}"
+    val scoreText = if (tab == RankTab.Peak) {
+        stringResource(R.string.rank_peak_line, info.peakScore ?: 0)
+    } else {
+        stringResource(R.string.rank_comp_line, info.score ?: 0)
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()

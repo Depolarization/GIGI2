@@ -13,12 +13,15 @@ import androidx.lifecycle.viewModelScope
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.gigi.tcg.GigiApp
+import com.gigi.tcg.R
 import com.gigi.tcg.data.ServerId
 import com.gigi.tcg.data.auth.AuthFinalizeResult
 import com.gigi.tcg.data.auth.AuthManager
 import com.gigi.tcg.data.auth.QrCreateException
 import com.gigi.tcg.data.auth.QrSession
 import com.gigi.tcg.di.AppContainer
+import com.gigi.tcg.i18n.LocaleStrings
+import com.gigi.tcg.i18n.displayNameSync
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -136,7 +139,7 @@ class LoginViewModel(
                 val bitmap = try {
                     encodeQrBitmap(created.url)
                 } catch (e: Exception) {
-                    throw IOException("二维码生成失败")
+                    throw IOException(LocaleStrings.get(R.string.error_qr_failed))
                 }
                 _uiState.value = LoginUiState.Qr(
                     payload = bitmap,
@@ -160,9 +163,9 @@ class LoginViewModel(
     /** 失败文案分流：网络类（AuthManager 重试已耗尽）给统一指引；业务类透出米哈游原始 message */
     private fun qrFailureMessage(e: Exception): String =
         if (e is QrCreateException && e.isNetwork) {
-            "网络不稳定，请重试"
+            LocaleStrings.get(R.string.error_network_unstable)
         } else {
-            e.message ?: "二维码生成失败"
+            e.message ?: LocaleStrings.get(R.string.error_qr_failed)
         }
 
     private suspend fun poll(gen: Int, created: QrSession.Created, deadline: Long) {
@@ -210,7 +213,10 @@ class LoginViewModel(
                     // 🔴 设计 §3.3：凭据未写入（AuthManager 保证）、不切登录态，
                     // 留在登录页并高亮/提示当前服务器；对齐 web 继续 QR 流程，提示随状态保留
                     _uiState.value = LoginUiState.Checking(
-                        notice = "该米游社账号未绑定${server.name}的原神角色，请切换服务器后重试",
+                        notice = LocaleStrings.get(
+                            R.string.login_no_role_notice,
+                            server.displayNameSync(),
+                        ),
                     )
                     startQr()
                 }
@@ -218,7 +224,7 @@ class LoginViewModel(
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (e: Exception) {
-            _uiState.value = LoginUiState.Failed(e.message ?: "登录失败，请重试")
+            _uiState.value = LoginUiState.Failed(e.message ?: LocaleStrings.get(R.string.error_login_retry))
         }
     }
 

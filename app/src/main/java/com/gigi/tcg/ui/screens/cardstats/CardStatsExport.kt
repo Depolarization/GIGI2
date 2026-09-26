@@ -4,11 +4,14 @@
 
 package com.gigi.tcg.ui.screens.cardstats
 
+import androidx.annotation.StringRes
+import com.gigi.tcg.R
 import com.gigi.tcg.domain.CARD_TYPE_ASSIST
 import com.gigi.tcg.domain.CARD_TYPE_EVENT
 import com.gigi.tcg.domain.CARD_TYPE_MODIFY
 import com.gigi.tcg.domain.GcgCard
 import com.gigi.tcg.domain.GcgSummary
+import com.gigi.tcg.i18n.LocaleStrings
 import com.gigi.tcg.ui.export.TableColumn
 import com.gigi.tcg.ui.export.TableSpec
 import java.util.Locale
@@ -32,6 +35,19 @@ internal fun exportTwoColumnThreshold(charTable: Boolean): Int =
 
 private const val UNKNOWN_CARD_NAME = "未知"
 
+/**
+ * 文案通道：本文件是**纯函数层**（JVM 单测直接调 buildCharTableSpec，见 CardStatsExportTest），
+ * 拿不到 Compose 的 stringResource，也不能依赖已 attach 的 resolver。
+ * 故走 [LocaleStrings.getOrDefault]：有 resolver 时按当前语言取资源，
+ * 没有（纯 JVM 测试）时回落到这里的中文默认值 ⇒ 测试与旧调用点都不必改。
+ * 🔴 默认值必须与 values/strings.xml 里的同 id 文案逐字一致，否则中文设备上的导出图会跟着变。
+ */
+private fun exportText(@StringRes id: Int, default: String): String =
+    LocaleStrings.getOrDefault(id, default)
+
+private fun exportText(@StringRes id: Int, default: String, vararg args: Any): String =
+    LocaleStrings.getOrDefault(id, default, *args)
+
 internal fun buildCharTableSpec(summary: GcgSummary, uid: String, cards: List<GcgCard>): TableSpec {
     // 出场率分母 = Σ角色牌 useCount（与 StatsUiState.charTotalUse / Summary.charTotalUse 同口径，
     // 而非"游玩场次数"——说明文案与原版代码的差异照原版保留）
@@ -41,18 +57,18 @@ internal fun buildCharTableSpec(summary: GcgSummary, uid: String, cards: List<Gc
     val visible = cards.filter { (it.useCount ?: 0) > 0 }
     val columns = listOf(
         TableColumn("#", 1.0f, alignEnd = false),
-        TableColumn("名称", 5.0f, alignEnd = false),
-        TableColumn("出场数", 1.3f, alignEnd = true),
-        TableColumn("出场率%", 1.7f, alignEnd = true),
-        TableColumn("胜率%", 1.6f, alignEnd = true),
-        TableColumn("胜局数", 1.3f, alignEnd = true),
+        TableColumn(exportText(R.string.export_col_name, "名称"), 5.0f, alignEnd = false),
+        TableColumn(exportText(R.string.export_col_appear_count, "出场数"), 1.3f, alignEnd = true),
+        TableColumn(exportText(R.string.export_col_appear_rate, "出场率%"), 1.7f, alignEnd = true),
+        TableColumn(exportText(R.string.export_col_win_rate, "胜率%"), 1.6f, alignEnd = true),
+        TableColumn(exportText(R.string.export_col_win_count, "胜局数"), 1.3f, alignEnd = true),
     )
     val rows = visible.mapIndexed { index, card ->
         val useCount = card.useCount ?: 0
         val wins = card.proficiency ?: 0
         listOf(
             (index + 1).toString(),
-            card.name ?: UNKNOWN_CARD_NAME,
+            card.name ?: exportText(R.string.common_unknown, UNKNOWN_CARD_NAME),
             useCount.toString(),
             formatExportPercent(useCount, totalUse),
             formatExportPercent(wins, useCount),
@@ -60,7 +76,7 @@ internal fun buildCharTableSpec(summary: GcgSummary, uid: String, cards: List<Gc
         )
     }
     return TableSpec(
-        title = "角色牌数据",
+        title = exportText(R.string.export_char_title, "角色牌数据"),
         subtitle = buildSubtitle(summary, uid),
         badges = buildBadges(summary),
         columns = columns,
@@ -76,10 +92,10 @@ internal fun buildActionTableSpec(summary: GcgSummary, uid: String, cards: List<
     // 「使用次数」表头余量只剩 6.3%（<8%），故微调为下面这组（总权重 10.0）。
     val columns = listOf(
         TableColumn("#", 0.9f, alignEnd = false),
-        TableColumn("类别", 1.5f, alignEnd = false),
-        TableColumn("名称", 3.8f, alignEnd = false),
-        TableColumn("使用次数", 1.9f, alignEnd = true),
-        TableColumn("使用率%", 1.9f, alignEnd = true),
+        TableColumn(exportText(R.string.export_col_type, "类别"), 1.5f, alignEnd = false),
+        TableColumn(exportText(R.string.export_col_name, "名称"), 3.8f, alignEnd = false),
+        TableColumn(exportText(R.string.export_col_use_count, "使用次数"), 1.9f, alignEnd = true),
+        TableColumn(exportText(R.string.export_col_use_rate, "使用率%"), 1.9f, alignEnd = true),
     )
     // 使用次数为 0（含 null）的牌不进表（用户要求减少绘制压力）；序号按过滤后的下标重新连续，
     // 排序沿用服务端返回顺序。
@@ -89,13 +105,13 @@ internal fun buildActionTableSpec(summary: GcgSummary, uid: String, cards: List<
         listOf(
             (index + 1).toString(),
             actionTypeName(card.cardType),
-            card.name ?: UNKNOWN_CARD_NAME,
+            card.name ?: exportText(R.string.common_unknown, UNKNOWN_CARD_NAME),
             useCount.toString(),
             formatExportPercent(useCount, totalUse),
         )
     }
     return TableSpec(
-        title = "行动牌数据",
+        title = exportText(R.string.export_action_title, "行动牌数据"),
         subtitle = buildSubtitle(summary, uid),
         badges = buildBadges(summary),
         columns = columns,
@@ -105,9 +121,9 @@ internal fun buildActionTableSpec(summary: GcgSummary, uid: String, cards: List<
 
 /** 未知类型原样回显（服务端新增类型时导出不能崩） */
 private fun actionTypeName(cardType: String?): String = when (cardType) {
-    CARD_TYPE_MODIFY -> "装备牌"
-    CARD_TYPE_ASSIST -> "支援牌"
-    CARD_TYPE_EVENT -> "事件牌"
+    CARD_TYPE_MODIFY -> exportText(R.string.card_type_modify, "装备牌")
+    CARD_TYPE_ASSIST -> exportText(R.string.card_type_assist, "支援牌")
+    CARD_TYPE_EVENT -> exportText(R.string.card_type_event, "事件牌")
     else -> cardType.orEmpty()
 }
 
@@ -121,8 +137,8 @@ private fun buildSubtitle(summary: GcgSummary, uid: String): String =
 
 /** 图鉴总数（147 / 941）接口拿不到 ⇒ 按设计文档只显分子 */
 private fun buildBadges(summary: GcgSummary): List<String> = listOf(
-    "角色牌 ${summary.avatarCardNum}",
-    "行动牌 ${summary.actionCardNum}",
-    "共进行 ${summary.totalGames} 场游戏",
-    "胜率 ${summary.winRate}",
+    exportText(R.string.export_badge_char, "角色牌 %1\$d", summary.avatarCardNum),
+    exportText(R.string.export_badge_action, "行动牌 %1\$d", summary.actionCardNum),
+    exportText(R.string.export_badge_total_games, "共进行 %1\$d 场游戏", summary.totalGames),
+    exportText(R.string.export_badge_win_rate, "胜率 %1\$s", summary.winRate),
 )
