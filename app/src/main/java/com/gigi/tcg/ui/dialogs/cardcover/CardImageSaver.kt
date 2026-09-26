@@ -1,6 +1,6 @@
 // 卡面下载：设计文档 §4.4 —— web 版 download.ts 的 fallback（新标签打开原图）分支整体删除，
 // 因为原生侧 OkHttp 直连不受 CORS 约束。失败即失败，由调用方 toast 归因，不做任何回退。
-// 落相册两条路径：Q+ 走 MediaStore(RELATIVE_PATH=Pictures/GIGI, IS_PENDING)；
+// 落相册两条路径：Q+ 走 MediaStore(RELATIVE_PATH=albumRelativePath(), IS_PENDING)；
 // API 24-28 走公共目录 File + MediaScanner（需 WRITE_EXTERNAL_STORAGE，见 hasWriteExternalPermission）。
 
 package com.gigi.tcg.ui.dialogs.cardcover
@@ -14,6 +14,8 @@ import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import com.gigi.tcg.R
+import com.gigi.tcg.i18n.LocaleStrings
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -27,12 +29,18 @@ import okhttp3.Request
 private const val DOWNLOAD_CONNECT_TIMEOUT_S = 10L
 private const val DOWNLOAD_READ_TIMEOUT_S = 30L
 
-/** 相册目录名（Q+ RELATIVE_PATH 与 <Q 公共目录子文件夹共用）；ALBUM_PARENT 即 Environment.DIRECTORY_PICTURES */
-private const val ALBUM_PARENT = "Pictures"
-private const val ALBUM_NAME = "GIGI"
-private const val STORAGE_PERMISSION_MESSAGE = "需要存储权限才能保存卡面"
-private const val WRITE_FAILED_MESSAGE = "相册写入失败"
-private const val FALLBACK_NAME = "卡面"
+/** 相册子目录名：应用自有命名（非系统目录，父目录一律走 Environment 常量），不入 xml、三语不翻译 */
+const val GIGI_ALBUM_NAME: String = "GIGI"
+
+/** 纯算术：相册相对路径 = 父目录 + 子目录。parent 由调用方传系统常量，便于 JVM 单测 */
+internal fun buildAlbumRelativePath(systemPicturesDir: String, albumName: String): String =
+    "$systemPicturesDir/$albumName"
+
+/**
+ * 相册相对路径：父目录走系统 API（Environment.DIRECTORY_PICTURES，不写字面量），子目录是应用自有命名。
+ * Q+ 的 RELATIVE_PATH、<Q 的 File 目录、导出 Toast 文案三处必须同源。
+ */
+fun albumRelativePath(): String = buildAlbumRelativePath(Environment.DIRECTORY_PICTURES, GIGI_ALBUM_NAME)
 
 /** 卡名可能很长且含非法字符：清洗后截断，避免 MediaStore insert / File 创建失败 */
 private const val MAX_BASE_NAME_CHARS = 60
@@ -78,7 +86,7 @@ internal fun coverFileName(name: String, extension: String): String {
         .trim()
         .trimEnd('.')
         .take(MAX_BASE_NAME_CHARS)
-        .ifBlank { FALLBACK_NAME }
+        .ifBlank { LocaleStrings.get(R.string.cover_title_fallback) }
     return "$cleaned.$extension"
 }
 
@@ -111,7 +119,7 @@ class CardImageSaver(private val context: Context) {
     ) = withContext(Dispatchers.IO) {
         val bytes = ByteArrayOutputStream().use { out ->
             if (!bitmap.compress(format, quality, out)) {
-                throw IOException("图片编码失败")
+                throw IOException(LocaleStrings.get(R.string.error_image_encode))
             }
             out.toByteArray()
         }
@@ -131,9 +139,9 @@ class CardImageSaver(private val context: Context) {
         val request = Request.Builder().url(url).build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw IOException("下载失败 HTTP ${response.code}")
+                throw IOException(LocaleStrings.get(R.string.error_download_failed_http, response.code))
             }
-            return response.body?.bytes() ?: throw IOException("下载失败：响应为空")
+            return response.body?.bytes() ?: throw IOException(LocaleStrings.get(R.string.error_download_empty))
         }
     }
 
@@ -143,13 +151,14 @@ class CardImageSaver(private val context: Context) {
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
             put(MediaStore.Images.Media.MIME_TYPE, mimeType)
-            put(MediaStore.Images.Media.RELATIVE_PATH, "$ALBUM_PARENT/$ALBUM_NAME")
+            put(MediaStore.Images.Media.RELATIVE_PATH, albumRelativePath())
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-            ?: throw IOException(WRITE_FAILED_MESSAGE)
+            ?: throw IOException(LocaleStrings.get(R.string.error_album_write_failed))
         try {
-            val output = resolver.openOutputStream(uri) ?: throw IOException(WRITE_FAILED_MESSAGE)
+            val output = resolver.openOutputStream(uri)
+                ?: throw IOException(LocaleStrings.get(R.string.error_album_write_failed))
             output.use { it.write(bytes) }
             values.clear()
             values.put(MediaStore.Images.Media.IS_PENDING, 0)
@@ -162,13 +171,13 @@ class CardImageSaver(private val context: Context) {
 
     private fun savePublicDirectory(bytes: ByteArray, fileName: String, mimeType: String) {
         if (!hasWriteExternalPermission(context)) {
-            throw IOException(STORAGE_PERMISSION_MESSAGE)
+            throw IOException(LocaleStrings.get(R.string.error_storage_permission))
         }
         @Suppress("DEPRECATION")
         val pictures = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
-        val dir = File(pictures, ALBUM_NAME)
+        val dir = File(pictures, GIGI_ALBUM_NAME)
         if (!dir.exists() && !dir.mkdirs()) {
-            throw IOException(WRITE_FAILED_MESSAGE)
+            throw IOException(LocaleStrings.get(R.string.error_album_write_failed))
         }
         val file = File(dir, fileName)
         file.writeBytes(bytes)

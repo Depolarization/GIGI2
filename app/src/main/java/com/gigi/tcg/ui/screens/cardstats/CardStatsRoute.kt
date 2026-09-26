@@ -55,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier as ComposeModifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -65,15 +66,18 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gigi.tcg.R
 import com.gigi.tcg.di.AppContainer
 import com.gigi.tcg.domain.GcgCard
 import com.gigi.tcg.domain.GcgSummary
 import com.gigi.tcg.domain.calcPercent
+import com.gigi.tcg.i18n.LocaleStrings
 import com.gigi.tcg.ui.components.Avatar
 import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
 import com.gigi.tcg.ui.dialogs.cardcover.CardImageSaver
+import com.gigi.tcg.ui.dialogs.cardcover.albumRelativePath
 import com.gigi.tcg.ui.export.computeTableLayout
 import com.gigi.tcg.ui.export.renderTableBitmap
 import com.gigi.tcg.ui.theme.Motion
@@ -85,9 +89,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 private val TAB_LABELS = listOf("角色牌", "行动牌")
-
-/** 相册落盘目录，与 CardImageSaver 的 ALBUM_PARENT/ALBUM_NAME 保持一致 */
-private const val ALBUM_TOAST_PATH = "Pictures/GIGI"
 
 /** 统计数值列定义：固定列宽 + 右对齐 + 等宽数字，保证四列纵向对齐。 */
 private data class StatColumn(val label: String, val width: Dp)
@@ -119,7 +120,7 @@ fun CardStatsRoute(
     // 全屏加载仅在"首屏无数据"时出现；下拉刷新（有 summary 的 loading）保留内容 + 刷新指示器。
     when {
         state.loading && state.summary == null -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            LoadingView(label = "卡牌统计加载中")
+            LoadingView(label = stringResource(R.string.state_stats_loading))
         }
 
         state.error != null -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -128,7 +129,7 @@ fun CardStatsRoute(
         }
 
         state.isEmpty -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            EmptyState(title = "返回数据为空")
+            EmptyState(title = stringResource(R.string.state_empty_response))
         }
 
         else -> CardStatsContent(state, viewModel, uid, onShowToast, modifier)
@@ -193,12 +194,13 @@ private fun CardStatsContent(
                             }
                         }
                     }
-                    onShowToast("已保存到相册：$ALBUM_TOAST_PATH")
+                    // 路径与 CardImageSaver 写入同源（albumRelativePath），不再各写一份字面量
+                    onShowToast(LocaleStrings.get(R.string.toast_saved_to_album_path, albumRelativePath()))
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     // CardImageSaver 抛的 IOException message 已是中文可读文案（含缺存储权限提示）
-                    onShowToast(e.message ?: "导出失败")
+                    onShowToast(e.message ?: LocaleStrings.get(R.string.error_export_failed))
                 } finally {
                     // 各自复位：只影响自己按钮的可用性/文案
                     if (charTable) exportingChar = false else exportingAction = false
@@ -377,7 +379,7 @@ private fun CharCardRow(card: GcgCard, charTotalUse: Int) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            card.name ?: "未知",
+            card.name ?: stringResource(R.string.common_unknown),
             style = MaterialTheme.typography.bodyLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -408,7 +410,7 @@ private fun ActionCardRow(card: GcgCard) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            card.name ?: "未知",
+            card.name ?: stringResource(R.string.common_unknown),
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

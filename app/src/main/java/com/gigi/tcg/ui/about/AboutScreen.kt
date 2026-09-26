@@ -3,7 +3,9 @@
 // 本文件刻意做成「内容 Column」而非弹窗：宿主 AboutDialog 的 AlertDialog 已经是导航入口
 // （GigiNavHost 里的 aboutOpen），换壳等于改导航——留给后续棒合并时统一处理。
 //
-// 文案目前硬编码中文：F1/F3 棒正在做 i18n，此处抢着改 stringResource 会撞车。
+// 文案 i18n（V9-F1 keys）：「关于本软件/使用要点/数据来源与权限/原理与致谢/反馈」各段已接线
+// stringResource；更新检查与公告相关（「更新与反馈」区块、两个弹窗、UpdateStateLine 状态句）
+// 尚无对应 key，暂留中文。
 // 链接跳转必须兜 ActivityNotFoundException：国内设备无默认浏览器、或浏览器被停用时，
 // 不兜就是点一下崩一次；兜法是「复制链接 + 提示」，用户仍有路可走。
 
@@ -43,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -55,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gigi.tcg.BuildConfig
+import com.gigi.tcg.R
 import com.gigi.tcg.data.github.GITHUB_RELEASES_URL
 import com.gigi.tcg.data.github.GITHUB_REPO_URL
 import com.gigi.tcg.ui.components.LocalToast
@@ -65,34 +69,32 @@ private const val LICENSE_URL = "$GITHUB_REPO_URL/blob/main/LICENSE"
 /** 原「反馈」入口：B 站主页，与 GitHub Issue 并列保留 */
 private const val BILIBILI_FEEDBACK_URL = "https://space.bilibili.com/560719483"
 
-private data class Fact(val label: String, val value: String)
-
+/** label/value 均存 @StringRes id，渲染期再解析（顶层 val 拿不到 Compose 作用域） */
 private val PROJECT_FACTS = listOf(
-    Fact("项目名", "GIGI（Genshin Impact Genius Invokation TCG Tool）"),
-    Fact("形态", "Android 原生应用 —— 安装即用，米游社或云·原神扫码登录"),
-    Fact("开源协议", "Apache License 2.0，完整开源"),
+    R.string.about_fact_project to R.string.about_value_project,
+    R.string.about_fact_form to R.string.about_value_form,
 )
 
-private val USAGE_TIPS = listOf(
-    "与抽卡记录类似，新对局数据的获取存在一定延迟；若未即时获取到最新记录，请稍后重试。",
-    "急着更新数据时，请小退原神（返回开门界面）后再次进门，可加快数据更新速度。",
-    "首页的对局查询最多可查看最近十局的对局详情，单击列表任一项即可查看对手信息。",
-    "顶栏的玩家查询功能支持手动输入 UID，查询该玩家的七圣相关信息。",
-    "鉴于赛事已经关停，无法确保赛事信息部分长期有效。",
+/** 「开源协议」无对应 key，三语版暂沿用原文（V9-H 不许改 res/） */
+private const val LICENSE_FACT_LABEL = "开源协议"
+private const val LICENSE_FACT_VALUE = "Apache License 2.0，完整开源"
+
+private val USAGE_TIP_IDS = listOf(
+    R.string.about_tip_delay,
+    R.string.about_tip_restart,
+    R.string.about_tip_recent,
+    R.string.about_tip_uid_query,
+    R.string.about_tip_sunset,
 )
 
-private val DATA_SOURCE_TIPS: List<AnnotatedString.Builder.() -> Unit> = listOf(
-    {
-        append("• ")
-        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("卡面下载") }
-        append("来自公开接口、不含个人战绩数据；")
-        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("卡牌使用详情") }
-        append("需要登录凭据支持。")
-    },
-    { append("• 所有信息均来自七圣赛事与米游社，卡牌数据及卡面图片来自米游社七圣 Wiki。") },
-    { append("• 登录凭据仅保存在本机加密存储区（Keystore 加密），不会上传至任何服务器。") },
-    { append("• 更新检查与公告只读取公开仓库的静态文件，经国内镜像访问，全程不携带任何账号凭据。") },
+private val DATA_SOURCE_BULLET_IDS = listOf(
+    R.string.about_data_bullet_source,
+    R.string.about_data_bullet_credential,
 )
+
+/** 更新检查/公告说明句无对应 key，三语版暂沿用原文 */
+private const val DATA_SOURCE_UPDATE_BULLET =
+    "• 更新检查与公告只读取公开仓库的静态文件，经国内镜像访问，全程不携带任何账号凭据。"
 
 /** 关于页 VM：宿主不传时自建（VM 挂在 Activity 作用域，跨开关复用同一份已读队列） */
 @Composable
@@ -131,11 +133,14 @@ fun AboutScreen(
     LaunchedEffect(updateState) { updateDialogOpen = updateState is UpdateState.Available }
 
     Column(modifier = modifier.verticalScroll(rememberScrollState())) {
-        SectionTitle("关于本软件")
-        PROJECT_FACTS.forEach { fact ->
+        SectionTitle(stringResource(R.string.about_section_software))
+        val factRows = PROJECT_FACTS.map { (labelId, valueId) ->
+            stringResource(labelId) to stringResource(valueId)
+        } + (LICENSE_FACT_LABEL to LICENSE_FACT_VALUE)
+        factRows.forEach { (label, value) ->
             AboutParagraph {
-                withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(fact.label) }
-                append("：${fact.value}")
+                withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(label) }
+                append("：$value")
             }
         }
 
@@ -177,29 +182,47 @@ fun AboutScreen(
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
-        SectionTitle("使用要点")
-        USAGE_TIPS.forEach { tip ->
+        SectionTitle(stringResource(R.string.about_section_tips))
+        // AboutParagraph 的 lambda 不是 Composable scope，stringResource 一律先在组合内解析
+        USAGE_TIP_IDS.forEach { tipId ->
+            val tip = stringResource(tipId)
             AboutParagraph { append("• $tip") }
         }
 
-        SectionTitle("数据来源与权限")
-        DATA_SOURCE_TIPS.forEach { build ->
-            AboutParagraph(build = build)
+        SectionTitle(stringResource(R.string.about_section_data))
+        val dataCover = stringResource(R.string.about_data_bold_cover)
+        val dataMid = stringResource(R.string.about_data_mid)
+        val dataDetail = stringResource(R.string.about_data_bold_detail)
+        val dataEnd = stringResource(R.string.about_data_end)
+        AboutParagraph {
+            append("• ")
+            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(dataCover) }
+            append(dataMid)
+            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(dataDetail) }
+            append(dataEnd)
         }
+        DATA_SOURCE_BULLET_IDS.forEach { bulletId ->
+            val bullet = stringResource(bulletId)
+            AboutParagraph { append("• $bullet") }
+        }
+        AboutParagraph { append(DATA_SOURCE_UPDATE_BULLET) }
 
-        SectionTitle("原理与致谢")
+        SectionTitle(stringResource(R.string.about_section_thanks))
+        val thanksIntro = stringResource(R.string.about_thanks_intro)
+        val thanksLink = stringResource(R.string.about_thanks_link)
+        val thanksPeriod = stringResource(R.string.about_thanks_period)
+        val thanksBody = stringResource(R.string.about_thanks_body)
         AboutParagraph {
-            append("最早借助七圣赛事官网查询对手信息的原理见")
-            appendLink("B 站原理讲解视频", "https://www.bilibili.com/video/BV1boF5z6E9G")
-            append("。")
+            append(thanksIntro)
+            appendLink(thanksLink, "https://www.bilibili.com/video/BV1boF5z6E9G")
+            append(thanksPeriod)
         }
-        AboutParagraph {
-            append("项目基于米游社公开接口与官方赛事数据构建。感谢所有提供公开数据与接口研究资料的社区贡献者。")
-        }
+        AboutParagraph { append(thanksBody) }
 
-        SectionTitle("反馈")
+        SectionTitle(stringResource(R.string.about_section_feedback))
+        val feedbackHint = stringResource(R.string.about_feedback_hint)
         AboutParagraph {
-            append("• 若在使用中遇到任何异常错误，欢迎用上方「反馈问题」提交 Issue，或联系：")
+            append("• $feedbackHint")
             appendLink("B 站主页", BILIBILI_FEEDBACK_URL)
         }
     }
