@@ -24,6 +24,7 @@ import com.gigi.tcg.data.api.RETRYABLE_RETCODES
 import com.gigi.tcg.data.api.cardDetailUrl
 import com.gigi.tcg.data.api.cardListUrl
 import com.gigi.tcg.i18n.LocaleStrings
+import com.gigi.tcg.i18n.apiLangParam
 import com.gigi.tcg.data.api.competitionRankUrl
 import com.gigi.tcg.data.api.gameRecordsUrl
 import com.gigi.tcg.data.api.isAuthFailureError
@@ -127,40 +128,42 @@ class GigiRepository(
 ) {
 
     // ---- mihoyo.ts 原始接口（无缓存） ----
+    // lang 一律现取 LocaleStrings.currentLanguage()（跟随系统界面语言；未 attach 时简中，与旧行为一致）
 
     /** 登录态检测：成功时通过 data.game_uid 取得当前用户 UID */
     suspend fun fetchLoginInfo(server: ServerId): LoginInfoData =
-        get(userInfoUrl(server), LoginInfoData.serializer(), "")
+        get(userInfoUrl(server, LocaleStrings.currentLanguage()), LoginInfoData.serializer(), "")
 
     /** 最近对局记录（服务端最多返回最近 10 条） */
     suspend fun fetchGameRecords(uid: String, server: ServerId): GameRecordsData =
-        get(gameRecordsUrl(uid, server), GameRecordsData.serializer(), "")
+        get(gameRecordsUrl(uid, server, LocaleStrings.currentLanguage()), GameRecordsData.serializer(), "")
 
     /** 我的主页（资料卡数据） */
     suspend fun fetchMyHomePage(uid: String, server: ServerId): MyHomePageData =
-        get(myHomePageUrl(uid, server), MyHomePageData.serializer(), "")
+        get(myHomePageUrl(uid, server, LocaleStrings.currentLanguage()), MyHomePageData.serializer(), "")
 
     /** 他人主页（玩家详情弹窗数据；code 由 generateCode 生成） */
     suspend fun fetchOtherHomePage(code: String, myUid: String, server: ServerId): OtherHomePageData =
-        get(otherHomePageUrl(code, myUid, server), OtherHomePageData.serializer(), "")
+        get(otherHomePageUrl(code, myUid, server, LocaleStrings.currentLanguage()), OtherHomePageData.serializer(), "")
 
     /** 巅峰积分排行榜 */
     suspend fun fetchPeakRank(uid: String, server: ServerId): RankData =
-        get(peakRankUrl(uid, server), RankData.serializer(), "")
+        get(peakRankUrl(uid, server, LocaleStrings.currentLanguage()), RankData.serializer(), "")
 
     /** 赛事积分排行榜 */
     suspend fun fetchCompetitionRank(uid: String, server: ServerId): RankData =
-        get(competitionRankUrl(uid, server), RankData.serializer(), "")
+        get(competitionRankUrl(uid, server, LocaleStrings.currentLanguage()), RankData.serializer(), "")
 
-    /** 个人卡牌使用统计 */
+    /** 个人卡牌使用统计（cardListUrl 无 lang 参数，服务端不支持本地化） */
     suspend fun fetchGcgCardList(uid: String, server: ServerId): GcgCardListData =
         get(cardListUrl(uid, server), GcgCardListData.serializer(), "")
 
-    /** 卡面详情（公开接口）：LRU 200 命中即复用，未命中打 TAG_DETAIL 交 client 节流 */
+    /** 卡面详情（公开接口）：LRU 200 命中即复用（键含 lang，切语言不串缓存），未命中打 TAG_DETAIL 交 client 节流 */
     suspend fun fetchCardDetail(entryPageId: Int): EntryPageData {
-        val key = entryPageId.toString()
+        val lang = LocaleStrings.currentLanguage()
+        val key = "${lang.apiLangParam()}:$entryPageId"
         detailCache.get(key)?.let { return it }
-        val fresh = get(cardDetailUrl(entryPageId), EntryPageData.serializer(), MihoyoClient.TAG_DETAIL)
+        val fresh = get(cardDetailUrl(entryPageId, lang), EntryPageData.serializer(), MihoyoClient.TAG_DETAIL)
         detailCache.put(key, fresh)
         return fresh
     }

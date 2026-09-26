@@ -3,8 +3,8 @@
 // 服务器绑定的参数（badge_region / server）由调用方传入当前服务器标识符（data.ServerId）；
 // 域名与 game_biz 对国服两个服务器完全一致，恒取 data.ServerApi 运行时访问器（BuildConfig 优先），
 // 不允许在此硬编码 'cn_gf01' 等标识符或域名。
-// lang 参数随界面语言（AppLanguage），默认简中仅为兼容既有调用点，
-// TODO(F3)：MihoyoClient / GigiRepository 等调用点改为传 currentAppLanguage(ctx)。
+// lang 参数随界面语言（AppLanguage），默认参数简中仅为兼容既有调用点与单测；
+// 业务调用点（data.repo.GigiRepository）传 LocaleStrings.currentLanguage()。
 
 package com.gigi.tcg.data.api
 
@@ -17,9 +17,8 @@ import com.gigi.tcg.i18n.apiLangParam
 /** 官方赛事页（登录引导入口） */
 val LOGIN_URL: String get() = ServerApi.loginPageUrl
 
-/** 默认头像（头像加载失败时的回退） */
-const val DEFAULT_AVATAR_URL: String =
-    "https://webstatic.mihoyo.com/upload/event/2023-05-16/7c0b9ec9dac9c3b75204bdebef3cb794_9053060040416908582.png"
+/** 默认头像（头像加载失败时的回退）：主机走 ServerApi 访问器（BuildConfig.LOGIN_URL 的 origin 优先），路径是静态资源相对路径 */
+val DEFAULT_AVATAR_URL: String get() = ServerApi.defaultAvatarUrl
 
 /** 卡牌图鉴列表（米游社 Wiki，公开接口，与服务器无关） */
 val CARD_INFO_URL: String get() = BuildConfig.CONTENT_LIST_URL

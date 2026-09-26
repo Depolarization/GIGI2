@@ -36,6 +36,14 @@ object LocaleStrings {
     /** 已注册的 Context；未 attach 为 null。自检用 */
     val attachedContext: Context? get() = contextRef?.get()
 
+    /**
+     * 当前界面语言（数据层接口 lang 参数用）：每次读 attach 时的 Context 当前 Configuration ⇒ 跟随系统语言。
+     * 未 attach（纯 JVM 单测）/ Configuration 读取异常 ⇒ 回落简中，与 URL 构造函数的默认参数一致。
+     */
+    fun currentLanguage(): AppLanguage =
+        attachedContext?.let { ctx -> runCatching { currentAppLanguage(ctx) }.getOrNull() }
+            ?: AppLanguage.SimplifiedChinese
+
     /** 解析器是否就绪（attach 或注入过）；未就绪时调用方应回落字面量而非哨兵 */
     val resolved: Boolean get() = resolver != null
 
