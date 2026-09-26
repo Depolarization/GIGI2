@@ -43,8 +43,9 @@ fun GigiTheme(
         else -> LightColors
     }
 
-    // win/lose/gold 随主题取色：亮色下暗色档对比度不足（win 约 3.96:1、lose 约 4.41:1、
-    // gold 约 2.3:1，均低于 WCAG AA 4.5:1），换用深色调档；
+    // win/lose/gold 随主题取色：暗色档对 Card 容器(0xFF36343B) AA ✓（win 4.63、lose 4.58），
+    // 但在亮底上对比度不足（约 2.6:1），亮色档换用深色调——对白底 AA ✓（约 5.0~5.1）、
+    // 对 Card 容器(M3 light surfaceContainerLow ≈0xFFF7F2FA) AA ✓（win 4.57、lose 4.62）；
     // 判据与本函数 colorScheme 的 darkTheme 分支一致，不另引 isSystemInDarkTheme()。
     val semanticColors = SemanticColors(
         win = if (darkTheme) WinColor else WinColorLight,

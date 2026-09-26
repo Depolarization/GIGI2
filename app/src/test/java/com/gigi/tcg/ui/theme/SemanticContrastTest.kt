@@ -6,12 +6,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * V8F：深色档胜负语义色的 WCAG AA 对比度锁。
- * 口径与亮色档（ContrastTest 对白底 surface）对称：对 darkColorScheme().surface = 0xFF1C1B1F。
+ * V8F/V9-B：深色档胜负语义色的 WCAG AA 对比度锁。
+ * 口径：对 darkColorScheme().surface = 0xFF1C1B1F，以及对深色 Card 容器 0xFF36343B（V9-B 新增，
+ * win/lose 在该容器上从 3.46:1 提亮到 4.63/4.58:1）。亮色档口径与 ContrastTest 对称（对白底 surface）。
  * 纯 JVM 单测：只把 Color 拆成 sRGB 分量算数，不碰 android.graphics。
  *
- * ⚠️ 实测坑：`Color(0xFF439865u)`（**UInt** 重载）在本工程 Compose 版本上是坏的 ——
- * 分量解出 r=0.0 / g=0.0 / b=NaN（位段没被重排）。`Color(0xFF439865)`（Int → **Long** 重载，
+ * ⚠️ 实测坑：`Color(0xFF58B07Eu)`（**UInt** 重载）在本工程 Compose 版本上是坏的 ——
+ * 分量解出 r=0.0 / g=0.0 / b=NaN（位段没被重排）。`Color(0xFF58B07E)`（Int → **Long** 重载，
  * 生产 Color.kt 用的就是这个）才正常，且 `red/green/blue` 返回的是 **sRGB 0..1**（非线性）。
  * 所以构造测试基准色一律用不带 `u` 的字面量，分量要 WCAG 前必须自己 gamma 线性化。
  */
@@ -45,15 +46,16 @@ class SemanticContrastTest {
     private companion object {
         // 基准色用 Long 字面量（与 relativeLuminance 形参同口径）；`u` 后缀会走坏的 UInt 重载
         const val DarkSurface = 0xFF1C1B1FL
+        const val DarkCard = 0xFF36343BL
         const val White = 0xFFFFFFFFL
     }
 
     @Test
     fun colorComponents_readableOnJvm() {
-        val c = Color(0xFF439865)
-        assertEquals(0x43L, c.argbLong() shr 16 and 0xFF)
-        assertEquals(0x98L, c.argbLong() shr 8 and 0xFF)
-        assertEquals(0x65L, c.argbLong() and 0xFF)
+        val c = Color(0xFF58B07E)
+        assertEquals(0x58L, c.argbLong() shr 16 and 0xFF)
+        assertEquals(0xB0L, c.argbLong() shr 8 and 0xFF)
+        assertEquals(0x7EL, c.argbLong() and 0xFF)
     }
 
     @Test
@@ -76,6 +78,20 @@ class SemanticContrastTest {
     fun loseColor_meetsWcagAA_onDarkSurface() {
         val ratio = contrastRatio(LoseColor.argbLong(), DarkSurface)
         assertTrue("LoseColor vs dark surface = $ratio:1, need >= 4.5", ratio >= 4.5)
+    }
+
+    @Test
+    fun winColor_meetsWcagAA_onDarkCard() {
+        // V9-B：胜负文案实际渲染在深色 Card 容器(0xFF36343B)上，锁该容器口径（实测 4.63:1）
+        val ratio = contrastRatio(WinColor.argbLong(), DarkCard)
+        assertTrue("WinColor vs dark Card = $ratio:1, need >= 4.5", ratio >= 4.5)
+    }
+
+    @Test
+    fun loseColor_meetsWcagAA_onDarkCard() {
+        // V9-B：同上，LoseColor 对 Card 容器实测 4.58:1
+        val ratio = contrastRatio(LoseColor.argbLong(), DarkCard)
+        assertTrue("LoseColor vs dark Card = $ratio:1, need >= 4.5", ratio >= 4.5)
     }
 
     @Test
