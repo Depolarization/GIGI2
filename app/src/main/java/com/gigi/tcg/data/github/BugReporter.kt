@@ -4,6 +4,8 @@
 // 2. 预填文本复制到剪贴板（发给 B 站私信/群等非 GitHub 渠道时用）。
 // 设备信息段写成「纯数据 + 纯格式化」两层：android.util.Build 与 Context 只在收集层出现，
 // 格式化层可在 JVM 单测里断言，不必引 Robolectric。
+// 本文件所有中文文案集中在 IssueText（Issue 内容刻意不本地化，理由见该对象 KDoc）；
+// 面向用户的 UI 文案才走 i18n，这里的内容是给仓库维护者看的技术沟通。
 
 package com.gigi.tcg.data.github
 
@@ -12,6 +14,39 @@ import android.os.Build
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/**
+ * 反馈 Issue 的标题与模板正文**固定用中文，不随系统语言变化** —— 这是刻意决策，不是遗漏：
+ * 反馈内容是提交给开源仓库维护者的技术沟通，仓库 README / Issue 模板同为中文；
+ * 若跟随设备语言，英文用户提交的 Issue 会与仓库既有文档语种不一致，反而抬高维护成本。
+ * 🔴 新增面向用户的功能文案时，不要往这里加本地化；面向用户的 UI 文案才走 i18n。
+ *
+ * 同一策略覆盖本文件里所有拼进 Issue 的中文：设备信息段的字段名（formatDeviceSnapshot）、
+ * 兜底值 [IssueText.UNKNOWN]。它们是 Issue 正文的一部分，因此**不**改用 R.string.common_unknown
+ * —— 那个 key 的英文值是 "Unknown"，会在一整段中文模板里夹出英文词。UI 上的兜底才用 common_unknown。
+ */
+private object IssueText {
+    /** 剪贴板报告标题里跟在版本号后那段；GitHub Issue 标题只用「[版本] 摘要」，不带此后缀 */
+    const val REPORT_TITLE_SUFFIX: String = "问题反馈"
+
+    /** Build.* 为 null、或取安装时间抛错时的兜底展示值 */
+    const val UNKNOWN: String = "未知"
+
+    /** 模板正文：Markdown，字段名固定（与 .github/ISSUE_TEMPLATE/bug_report.yml 配套） */
+    val BODY: String = buildString {
+        appendLine("### 问题描述")
+        appendLine()
+        appendLine("### 复现步骤")
+        appendLine("1. ")
+        appendLine("2. ")
+        appendLine()
+        appendLine("### 期望行为")
+        appendLine()
+        appendLine("### 实际行为")
+        appendLine()
+        appendLine("### 日志 / 截图")
+    }
+}
 
 /** 上报所需的运行环境快照（纯数据，便于单测与未来的网络上报复用） */
 data class DeviceSnapshot(
@@ -43,12 +78,16 @@ class BugReporter(
 
     /** Issue 正文：设备信息 + 让用户填写的模板段 */
     fun buildAutoFilledBody(context: Context): String =
-        formatDeviceSnapshot(collectDeviceSnapshot(context)) + "\n\n" + ISSUE_TEMPLATE_BODY
+        formatDeviceSnapshot(collectDeviceSnapshot(context)) + "\n\n" + IssueText.BODY
+
+    /** 剪贴板版首行（纯函数，不碰 Context ⇒ JVM 单测可锁「恒中文、不随 locale 变」） */
+    fun buildReportHeader(): String =
+        "GIGI $appVersionName（$appVersionCode）${IssueText.REPORT_TITLE_SUFFIX}"
 
     /** 剪贴板版：不依赖 GitHub，粘到任何反馈渠道都自带上下文 */
     fun buildCopyableReport(context: Context): String =
-        "GIGI ${appVersionName}（$appVersionCode）问题反馈\n" +
-            formatDeviceSnapshot(collectDeviceSnapshot(context)) + "\n\n" + ISSUE_TEMPLATE_BODY
+        buildReportHeader() + "\n" +
+            formatDeviceSnapshot(collectDeviceSnapshot(context)) + "\n\n" + IssueText.BODY
 
     /** 从系统读快照：唯一的 Android 依赖点 */
     fun collectDeviceSnapshot(context: Context): DeviceSnapshot {
@@ -56,14 +95,14 @@ class BugReporter(
         val installedAt = runCatching {
             val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
             INSTALL_TIME_FORMAT.format(Date(packageInfo.lastUpdateTime))
-        }.getOrDefault("未知")
+        }.getOrDefault(IssueText.UNKNOWN)
         return DeviceSnapshot(
             appVersionName = appVersionName,
             appVersionCode = appVersionCode,
-            androidRelease = Build.VERSION.RELEASE ?: "未知",
+            androidRelease = Build.VERSION.RELEASE ?: IssueText.UNKNOWN,
             androidSdkInt = Build.VERSION.SDK_INT,
-            manufacturer = Build.MANUFACTURER ?: "未知",
-            model = Build.MODEL ?: "未知",
+            manufacturer = Build.MANUFACTURER ?: IssueText.UNKNOWN,
+            model = Build.MODEL ?: IssueText.UNKNOWN,
             language = "${locale.language}-${locale.country}",
             installedAt = installedAt,
         )
@@ -72,13 +111,11 @@ class BugReporter(
     companion object {
         const val BUG_LABEL: String = "bug"
 
-        /** 待填写段：与 .github/ISSUE_TEMPLATE/bug_report.yml 的字段保持一致，两边改一处就要改两处 */
-        const val ISSUE_TEMPLATE_BODY: String =
-            "### 问题描述\n\n" +
-                "### 复现步骤\n1. \n2. \n\n" +
-                "### 期望行为\n\n" +
-                "### 实际行为\n\n" +
-                "### 日志 / 截图\n"
+        /**
+         * 兼容既有调用点的别名（V9-D 起的公开名字）；正文**唯一来源是 [IssueText.BODY]**，
+         * 别再在这里重抄一遍，否则改一处漏一处。
+         */
+        val ISSUE_TEMPLATE_BODY: String get() = IssueText.BODY
 
         /**
          * query 值百分号编码（RFC 3986）。
@@ -100,7 +137,7 @@ class BugReporter(
             return builder.toString()
         }
 
-        /** 报告正文的环境信息段（纯函数） */
+        /** 报告正文的环境信息段（纯函数）；字段名同为 Issue 内容，随 [IssueText] 的策略保持中文 */
         fun formatDeviceSnapshot(snapshot: DeviceSnapshot): String = buildString {
             appendLine("**应用版本**：${snapshot.appVersionName}（versionCode ${snapshot.appVersionCode}）")
             appendLine("**Android**：${snapshot.androidRelease}（API ${snapshot.androidSdkInt}）")
