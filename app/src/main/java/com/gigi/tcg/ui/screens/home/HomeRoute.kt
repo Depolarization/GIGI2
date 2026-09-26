@@ -1,7 +1,7 @@
 // 首页路由：移植 web/src/pages/HomePage.tsx（ProfileCard + RecordItem + 双块三态渲染）。
 // 展示逻辑一律走 domain 纯函数（tier/opponent/format），UI 层不重算；
 // 胜负语义色取 LocalSemanticColors（红线 8 固定色，不参与动态取色）；
-// 整页 PullToRefreshBox 下拉触发 refresh()，首屏两块同在加载时只渲染一个 LoadingView。
+// 整页 PullToRefreshBox 下拉触发 refresh()，首屏两块同在加载时只渲染一个 LoadingView（整屏居中）。
 
 package com.gigi.tcg.ui.screens.home
 
@@ -56,11 +56,16 @@ import com.gigi.tcg.domain.formatScoreChange
 import com.gigi.tcg.domain.formatTier
 import com.gigi.tcg.domain.getTierStars
 import com.gigi.tcg.ui.components.Avatar
+import com.gigi.tcg.ui.components.CenteredScrollableContainer
 import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
 import com.gigi.tcg.ui.theme.LocalSemanticColors
 import com.gigi.tcg.ui.theme.SemanticColors
+
+private const val HOME_FIRST_LOADING_LABEL = "正在加载个人数据"
+private const val HOME_PROFILE_LOADING_LABEL = "正在加载个人资料"
+private const val HOME_RECORDS_LOADING_LABEL = "正在加载对局记录"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -93,18 +98,20 @@ fun HomeRoute(
         onRefresh = viewModel::refresh,
         modifier = modifier.fillMaxSize(),
     ) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-        ) {
-            if (state.profile is Async.Loading && state.records is Async.Loading) {
-                // 首屏两块同在加载：只亮一个圈（原双 LoadingView 同转）
-                LoadingView()
-            } else {
+        if (state.profile is Async.Loading && state.records is Async.Loading) {
+            // 首屏两块同在加载：整屏居中，与排行榜/图鉴/卡牌统计三页一致。
+            // 不再套外层滚动 Column——CenteredScrollableContainer 内部自带 verticalScroll，
+            // PullToRefreshBox 依然收得到 nestedScroll，下拉刷新不失效。
+            CenteredScrollableContainer { LoadingView(label = HOME_FIRST_LOADING_LABEL) }
+        } else {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+            ) {
                 when (val profile = state.profile) {
-                    is Async.Loading -> LoadingView()
+                    is Async.Loading -> LoadingView(label = HOME_PROFILE_LOADING_LABEL)
                     is Async.Content -> ProfileCard(
                         profile = profile.value,
                         uid = sessionUid.orEmpty(),
@@ -132,7 +139,7 @@ fun HomeRoute(
                 Spacer(Modifier.height(4.dp))
 
                 when (val records = state.records) {
-                    is Async.Loading -> LoadingView()
+                    is Async.Loading -> LoadingView(label = HOME_RECORDS_LOADING_LABEL)
                     is Async.Error -> ErrorState(
                         message = records.message ?: "对局数据为空",
                         onRetry = viewModel::retryRecords,

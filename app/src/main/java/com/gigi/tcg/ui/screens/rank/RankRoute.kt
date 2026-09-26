@@ -8,15 +8,11 @@
 package com.gigi.tcg.ui.screens.rank
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -25,8 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
@@ -54,12 +48,15 @@ import com.gigi.tcg.data.model.RankInfo
 import com.gigi.tcg.data.repo.RankTab
 import com.gigi.tcg.di.AppContainer
 import com.gigi.tcg.ui.components.Avatar
+import com.gigi.tcg.ui.components.CenteredScrollableContainer
 import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
 import com.gigi.tcg.ui.theme.GoldColor
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.contentOrNull
+
+private const val RANK_LOADING_LABEL = "排行榜加载中"
 
 private val RankSilverColor = Color(0xFF9AA2AD)
 private val RankBronzeColor = Color(0xFFB07A4A)
@@ -165,17 +162,17 @@ private fun RankPageContent(
     onOpenPlayerDetail: (String) -> Unit,
 ) {
     when (list) {
-        AsyncRankList.Loading, AsyncRankList.NotLoaded -> CenteredScrollableBox {
-            LoadingView()
+        AsyncRankList.Loading, AsyncRankList.NotLoaded -> CenteredScrollableContainer {
+            LoadingView(label = RANK_LOADING_LABEL)
         }
 
-        is AsyncRankList.Error -> CenteredScrollableBox {
+        is AsyncRankList.Error -> CenteredScrollableContainer {
             ErrorState(modifier = Modifier.fillMaxWidth(), message = list.message, onRetry = onRetry)
         }
 
         is AsyncRankList.Content -> {
             if (list.items.isEmpty()) {
-                CenteredScrollableBox {
+                CenteredScrollableContainer {
                     EmptyState(modifier = Modifier.fillMaxWidth(), title = "${tabTitle(tab)}暂无上榜玩家")
                 }
             } else {
@@ -211,29 +208,8 @@ private fun RankPageContent(
     }
 }
 
-// 缺陷 B：Loading/Error/Empty 三态原本是不可滚动的 Box，PullToRefreshBox 收不到
-// nestedScroll 事件 → 这些状态下拉无反应。包一层 verticalScroll 使其可下拉；
-// 修饰符顺序：BoxWithConstraints 必须在**外层**只挂 fillMaxSize()，这样 maxHeight
-// 拿到的是有界的视口高（verticalScroll 若挂在外层，它会把传给 BoxWithConstraints 的
-// maxHeight 放宽成 Constraints.Infinity，viewportHeight 随之变成 ~Int.MAX_VALUE，
-// 内层 heightIn(min=…) 把盒子撑到屏幕外，三态居中即变成空白）。
-// verticalScroll 放到内层 Box，且必须在 heightIn **之前**：先由 verticalScroll 把
-// 传给 heightIn 的 maxHeight 放宽成无限，heightIn(min=视口高) 才能在内容不足一屏时
-// 撑满视口让 Center 生效、超一屏时随内容增高并可滚动。
-@Composable
-private fun CenteredScrollableBox(content: @Composable BoxScope.() -> Unit) {
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val viewportHeight = maxHeight
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .heightIn(min = viewportHeight),
-            contentAlignment = Alignment.Center,
-            content = content,
-        )
-    }
-}
+// 三态（Loading/Error/Empty）用共享 CenteredScrollableContainer：整屏居中且内部可滚动，
+// 否则 PullToRefreshBox 收不到 nestedScroll，这些状态下拉无反应（缺陷 B，见该组件 KDoc）。
 
 @Composable
 private fun RankRow(

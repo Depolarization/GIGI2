@@ -64,10 +64,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gigi.tcg.di.AppContainer
 import com.gigi.tcg.ui.components.AppImage
+import com.gigi.tcg.ui.components.CenteredScrollableContainer
 import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
 
+private const val WIKI_LOADING_LABEL = "卡牌图鉴加载中"
 private const val EMPTY_FILTERED = "暂无符合条件的卡牌"
 private const val CARD_DATA_ERROR = "卡牌数据异常"
 private const val NO_IMAGE = "无图"
@@ -132,7 +134,11 @@ fun CardWikiRoute(
         Box(modifier = Modifier.fillMaxSize()) {
             val error = state.error
             when {
-                state.loading -> LoadingView(modifier = Modifier.align(Alignment.Center))
+                // 加载态走共享容器：与主页/排行榜/卡牌统计同为整屏居中（图鉴页无 PullToRefreshBox，
+                // 换容器不改变下拉行为，纯为视觉一致）
+                state.loading -> CenteredScrollableContainer {
+                    LoadingView(label = WIKI_LOADING_LABEL)
+                }
                 error != null -> ErrorState(
                     modifier = Modifier.align(Alignment.Center),
                     message = error,
