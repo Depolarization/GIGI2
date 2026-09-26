@@ -91,7 +91,7 @@ def board2():
     W, H = 1320, 940
     c = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(c)
-    d.text((28, 20), "GIGI 应用图标 V22 —— 与原版等比套合 / 居中自检 / 真机验证",
+    d.text((28, 20), "GIGI 应用图标 V23 —— 与原版等比套合 / 居中自检 / 真机验证",
            font=F_TITLE, fill=INK)
     d.text((28, 56), "参考徽章按「母题外缘半径 = 图标母题半径」等比缩放后对齐："
                      "三片叶、中央金点、整体剪影均重合", font=F_LBL, fill=SUB)
@@ -117,10 +117,10 @@ def board2():
     # 居中自检
     cen = Image.open(os.path.join(DOCS, "icon-centering.png")).convert("RGB").resize((300, 300))
     c.paste(cen, (28 + 3 * (S + 22), y))
-    tile_label(d, (28 + 3 * (S + 22), y + S + 8), "居中自检（质心=画布中心）")
+    tile_label(d, (28 + 3 * (S + 22), y + S + 8), "居中自检（外接矩形=画布中心）")
 
     # 真机截图
-    dev = os.path.join(DOCS, "device-icon-v22.png")
+    dev = os.path.join(DOCS, "device-icon-v23.png")
     if os.path.exists(dev):
         shot = Image.open(dev).convert("RGB")
         shot = shot.resize((int(shot.width * 300 / shot.height), 300), Image.LANCZOS)
@@ -137,8 +137,9 @@ def board2():
         "　褐色 IoU 0.719　面积比 1.011",
         "　金/褐 面积比　参考 1.000　我们 1.004",
         "",
-        "居中：面积质心残偏 0.00 dp（= 三重旋转中心）",
-        "母题外缘半径 33.0 dp（= 自适应图标保证区 ⌀66dp）",
+        "居中：外接矩形中心残偏 %.2f dp（视觉居中）" % (G._BBOX_RES * G._K),
+        "母题外缘半径 %.1f dp（可见区半径 36dp，留白 %.0f%%）"
+        % (G.MOTIF_R_DP, (1.0 - G.MOTIF_R_DP / (G.VISIBLE_DP / 2.0)) * 100),
         "金越出剪影 0.00 dp（描边不会破底）",
         "",
         "本轮同时修掉：硬边锯齿（预览曾只有 64 色）、",
