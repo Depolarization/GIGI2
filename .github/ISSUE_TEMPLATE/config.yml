@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 功能建议
+    url: https://github.com/Depolarization/GIGI2/issues/new?title=%5BFeature%5D%20&labels=enhancement
+    about: 想要的新功能或现有功能的改进，在这里开一条 Issue。
+  - name: 使用提问
+    url: https://github.com/Depolarization/GIGI2/issues/new?title=%5BQuestion%5D%20&labels=question
+    about: 不知道怎么用、数据为什么有延迟等使用类问题。
+  - name: 更新检查 / 公告数据异常
+    url: https://github.com/Depolarization/GIGI2/issues/new?title=%5BData%5D%20&labels=bug
+    about: update.json / announcement.json 内容有误（版本号、下载链接、区间投放不生效等）。

@@ -1,0 +1,14 @@
+GIGI2
+Copyright 2026 Depolarization
+
+本产品依据 Apache License 2.0 发布。
+本软件为学习交流目的编写，不用于任何商业用途，与米哈游及其关联公司无关。
+卡牌相关数据版权归米哈游所有，本项目仅通过公开接口读取，不存储、不再分发原始数据资源。
+
+第三方开源组件（各自遵循其原始许可证，随 APK 一并分发）：
+  - JetBrains Kotlin / kotlinx.coroutines / kotlinx-serialization  —— Apache License 2.0
+  - Square OkHttp                                                   —— Apache License 2.0
+  - Google AndroidX / Jetpack Compose / Material Components         —— Apache License 2.0
+  - Google Gson-free 图标集 Material Icons                          —— Apache License 2.0
+  - Coil                                                            —— Apache License 2.0
+  - ZXing core                                                      —— Apache License 2.0

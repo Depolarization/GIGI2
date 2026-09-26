@@ -4,6 +4,7 @@ package com.gigi.tcg.di
 
 import android.content.Context
 import androidx.annotation.VisibleForTesting
+import com.gigi.tcg.BuildConfig
 import com.gigi.tcg.data.ServerId
 import com.gigi.tcg.data.api.CredentialSource
 import com.gigi.tcg.data.api.MihoyoClient
@@ -12,6 +13,9 @@ import com.gigi.tcg.data.auth.AuthManager
 import com.gigi.tcg.data.auth.CredentialStore
 import com.gigi.tcg.data.auth.StoredAccount
 import com.gigi.tcg.data.cache.WikiDiskCache
+import com.gigi.tcg.data.github.BugReporter
+import com.gigi.tcg.data.github.GitHubApi
+import com.gigi.tcg.data.github.UpdateChecker
 import com.gigi.tcg.data.repo.GigiApiTransport
 import com.gigi.tcg.data.repo.GigiRepository
 import com.gigi.tcg.data.repo.MihoyoClientEnvelopeTransport
@@ -140,6 +144,28 @@ class AppContainer(private val appContext: Context) {
     /** 接线自检：暴露注入 repository 的同一实例，供单测验证真身链（AuthManager）可达 */
     @VisibleForTesting
     internal val sessionRefresherForTest: SessionRefresher get() = sessionRefresher
+
+    // ===== GitHub 基础设施（V9-D 预留：更新检查 / 公告 / Bug 上报数据层）=====
+    // 🔴 三者全部 by lazy：UI 接线由后续棒做，本棒不接入任何调用点，急切求值等于凭空多一条启动路径。
+    // GitHubApi 复用全局 okHttp（内部只 newBuilder 换超时）：公开仓库读取不需要凭据，
+    // 也绝不能把米游社 Cookie 通道带到 GitHub 域名。
+
+    val gitHubApi: GitHubApi by lazy { GitHubApi(okHttp, json) }
+
+    val updateChecker: UpdateChecker by lazy {
+        UpdateChecker(
+            api = gitHubApi,
+            currentVersionName = BuildConfig.VERSION_NAME,
+            currentVersionCode = BuildConfig.VERSION_CODE,
+        )
+    }
+
+    val bugReporter: BugReporter by lazy {
+        BugReporter(
+            appVersionName = BuildConfig.VERSION_NAME,
+            appVersionCode = BuildConfig.VERSION_CODE,
+        )
+    }
 }
 
 /** 续命端口真身：激活账户不出索引/无激活态时不动网络，直接 false；

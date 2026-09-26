@@ -1,0 +1,97 @@
+name: Bug 反馈
+description: 报告一个可复现的问题（崩溃、数据不对、界面异常）
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 一句话说明发生了什么，涉及哪个页面（首页 / 排行榜 / 卡牌统计 / 卡牌图鉴 / 登录）。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 从打开应用开始，逐步写清操作路径。
+      value: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你认为正确的结果是什么（可对照米游社 / 游戏内界面）。
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么，有无报错文案、闪退、卡在加载、数据为空。
+    validations:
+      required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: 应用版本
+      description: 「说明」弹窗底部可见，形如 1.0.0。
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: server
+    attributes:
+      label: 所用服务器
+      description: 顶栏账户菜单旁的服务器切换项。
+      options:
+        - 官服（天空岛）
+        - 渠道服（世界树）
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: 设备型号
+      placeholder: "Xiaomi 23049RAD8C"
+    validations:
+      required: true
+
+  - type: input
+    id: android-version
+    attributes:
+      label: Android 版本
+      description: 含厂商 ROM 名称更佳（MIUI / HarmonyOS / ColorOS …）。
+      placeholder: "Android 14 / MIUI 14"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 截图
+      description: >-
+        可选。logcat 过滤 "GIGI" 相关标签（如 GIGI.UpdateChecker）后粘贴；
+        界面问题直接拖截图进来即可。
+      render: shell
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 确认
+      options:
+        - label: 我已搜索过已有 Issue，没有重复问题
+          required: true
+        - label: 我提交的内容不含他人的 UID、昵称、登录凭据等隐私信息
+          required: true
