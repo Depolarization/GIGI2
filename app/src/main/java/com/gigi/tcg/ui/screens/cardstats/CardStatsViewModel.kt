@@ -1,6 +1,10 @@
 // 卡牌使用详情状态：移植 web/src/pages/CardStatsPage.tsx（§5.6）。
 // - load 取 fetchGcgCardListCached（统计主体，5min 缓存），头像随 summary 一起取 fetchMyHomePageCached
 //   （与主页共用 45s 缓存，通常直接命中；失败不影响统计主流程）；
+// - 分母（角色牌/行动牌总手牌数）首选 gcg/basicInfo 官方总数（需登录 Cookie，失败静默降级），
+//   取不到才退回公开图鉴计数——图鉴会去重手牌（行动牌只数出 568 / 真实 941），单用会把未收集画成全收集；
+//   服务端 cardList 的 *_card_num_total 恒缺失不可依赖；
+//   导出图签名框用的真实签名（米游社 `introduce`）同样并发取，社区 UID 不可得时为 null ⇒ 下游回落占位；
 // - retcode 业务失败 → "卡牌信息获取失败: {message}"（对齐原 game.lua，不跳登录），
 //   其余归因 → "请检查网络重试"（可重试）；归因只经 ApiError.kind，页面不判 retcode 值。
 
@@ -14,6 +18,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gigi.tcg.GigiApp
 import com.gigi.tcg.R
+import com.gigi.tcg.data.ServerId
 import com.gigi.tcg.data.api.API_ERROR_KIND_RETCODE
 import com.gigi.tcg.data.api.ApiError
 import com.gigi.tcg.data.model.GcgCard as ApiGcgCard
@@ -25,12 +30,16 @@ import com.gigi.tcg.domain.CARD_TYPE_EVENT
 import com.gigi.tcg.domain.CARD_TYPE_MODIFY
 import com.gigi.tcg.domain.GcgCard
 import com.gigi.tcg.domain.GcgSummary
+import com.gigi.tcg.domain.WikiCardTotals
 import com.gigi.tcg.domain.calcPercent
 import com.gigi.tcg.domain.computeGcgSummary
+import com.gigi.tcg.domain.officialCardTotals
 import com.gigi.tcg.domain.percentSortKey
 import com.gigi.tcg.domain.prepareCardLists
+import com.gigi.tcg.domain.wikiCardTotals
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -70,6 +79,12 @@ data class StatsUiState(
     val charList: List<GcgCard> = emptyList(),
     val actionList: List<GcgCard> = emptyList(),
     val avatarUrl: String? = null,
+    /**
+     * 玩家真实签名（米游社社区资料 `introduce`），导出图签名框用；null = 没拿到 ⇒ 导出回落「暂无签名」占位。
+     * 🔴 只能来自**米游社社区 UID**，见 CardStatsViewModel.resolveCommunityUid：本工程登录链路只有 game_uid，
+     * 因此当前恒 null（接口/模型/仓库方法已就绪，社区 UID 一通即自动生效）。
+     */
+    val signature: String? = null,
 ) {
     val isEmpty: Boolean
         get() = !loading && error == null && summary == null
@@ -156,9 +171,15 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
             val server = container.currentServer.value
             if (uid.isNullOrBlank()) {
                 _refreshing.value = false
-                _uiState.update { it.copy(loading = false, error = null, summary = null, charList = emptyList(), actionList = emptyList()) }
+                _uiState.update { it.copy(loading = false, error = null, summary = null, charList = emptyList(), actionList = emptyList(), signature = null) }
                 return@launch
             }
+            // 分母的两路来源互不依赖、并发取（都不串在统计主链路后面，第三级 cardList total 随主链路免费拿到）：
+            // basicInfo 官方总数（首选）/ 图鉴频道计数（兜底）。是本 job 的子协程，下拉 cancel 时一起收掉。
+            val officialTotalsDeferred = async { fetchOfficialCardTotals(uid, server, force) }
+            val totalsDeferred = async { fetchWikiCardTotals() }
+            // 签名（导出图签名框）同样与统计主链路互不依赖，并发取；社区 UID 不可得时立刻返回 null，不占 RTT
+            val signatureDeferred = async { fetchCommunitySignature() }
             try {
                 val data = container.repository.fetchGcgCardListCached(uid, server, force)
                 if (gen != generation) return@launch
@@ -166,18 +187,29 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
                 if (cardList.isEmpty()) {
                     _refreshing.value = false
                     _uiState.update {
-                        it.copy(loading = false, error = null, summary = null, charList = emptyList(), actionList = emptyList())
+                        it.copy(loading = false, error = null, summary = null, charList = emptyList(), actionList = emptyList(), signature = null)
                     }
                 } else {
                     val lists = prepareCardLists(cardList)
+                    // 挂起函数不能在 update{} 的非挂起 lambda 里调 ⇒ 先 await 再落状态。
+                    // 两路分母与统计并发发起，这里等的只是三者中较慢的那个，首屏不多花一趟串行 RTT。
+                    val officialTotals = officialTotalsDeferred.await()
+                    val totals = totalsDeferred.await()
+                    val signature = signatureDeferred.await()
                     _refreshing.value = false
                     _uiState.update {
                         it.copy(
                             loading = false,
                             error = null,
-                            summary = computeGcgSummary(data.stats.toDomainStats(), lists),
+                            summary = computeGcgSummary(
+                                data.stats.toDomainStats(),
+                                lists,
+                                wikiTotals = totals,
+                                officialTotals = officialTotals,
+                            ),
                             charList = lists.charCards,
                             actionList = lists.actionCards,
+                            signature = signature,
                         )
                     }
                 }
@@ -205,6 +237,77 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * 导出图胶囊分母（`角色牌 143/147`）的三级降级链，全在 domain.computeGcgSummary 里判优先级：
+     * 1. **basicInfo 官方总数**（本方法）：唯一权威口径，实测 147 / 941；
+     * 2. **图鉴频道计数**（[fetchWikiCardTotals]）：🔴 图鉴会去重手牌（行动牌只数出 568），
+     *    单独用会把「没收集全」画成「全收集」⇒ 只在 basicInfo 取不到时（未登录 retcode=10001、
+     *    字段缺失、解析失败）退居兜底，聊胜于无；
+     * 3. cardList 的 `*_card_num_total`（实测恒 null）→ 最后兜底已得数（宁可显示全收集也不出 x/0）。
+     *
+     * 与统计主链路互不依赖、只影响分母 ⇒ 失败一律静默折算成空 totals（让链路自然降级到第 2 级），
+     * 绝不冒泡成统计页错误态：导出必须照常能出图。
+     * 随下拉 force 刷新：分母要与分子（cardList 被 force 重取）出自同一时刻附近，否则新卡池开放瞬间
+     * 可能画出 148/147 这种分子大于分母的怪值。
+     */
+    private suspend fun fetchOfficialCardTotals(
+        uid: String,
+        server: ServerId,
+        force: Boolean,
+    ): WikiCardTotals = try {
+        officialCardTotals(container.repository.fetchGcgBasicInfo(uid, server, force))
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        WikiCardTotals()
+    }
+
+    /**
+     * 图鉴频道计数（分母第 2 级兜底，口径不可靠，见 [fetchOfficialCardTotals] 的三级链说明）：
+     * 复用图鉴页同一份缓存（内存 1h + 磁盘），不额外发请求。只影响分母，失败/未就绪时退回已得数，
+     * 绝不拖垮统计主流程。不随下拉 force 刷新：图鉴按日更新，1h TTL 已够新，换取一次 580KB 重下载不值得。
+     */
+    private suspend fun fetchWikiCardTotals(): WikiCardTotals = try {
+        wikiCardTotals(container.repository.fetchCardWikiListCached().list)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        WikiCardTotals()
+    }
+
+    /**
+     * 导出图签名框用的真实签名（米游社社区资料 `introduce`）。
+     * 与统计主链路互不依赖、只影响一张导出图的文案 ⇒ 失败静默吞掉返回 null，
+     * 下游 CardStatsExport 的 exportSignatureText 会回落「暂无签名」占位（不崩、不留空白框）。
+     * 不随下拉 force 刷新：签名变化极慢，仓库侧已有 24h 内存缓存。
+     */
+    private suspend fun fetchCommunitySignature(): String? {
+        val communityUid = resolveCommunityUid() ?: return null
+        return try {
+            container.repository.fetchCommunitySignature(communityUid)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * 「游戏 UID → 米游社社区 UID」解析点（**当前恒 null**，诚实降级，不造假）。
+     *
+     * 为什么不能直接返回 [AppContainer.sessionUid]：sessionUid 是原神**游戏 UID**（9 位），
+     * 而 `/user/api/getUserFullInfo?uid=` 要的是**米游社社区 UID**——两者命名空间不同。
+     * 拿游戏 UID 去打，服务端照样返回 `retcode=0`，但 nickname 退化成 `用户 <uid>`、
+     * introduce 退化成占位「暂无签名」：看起来成功，其实把占位当成了玩家签名。
+     *
+     * 打通条件（任一成立即可把下面的 `null` 换成真实来源，导出图会自动显示真实签名）：
+     * 1. 登录链路能拿到社区 UID：`common/badge/v1/login/info` 目前只解析 game_uid/nickname
+     *    （见 data.model.LoginInfoData），扫码流程里的 `account_id`（passport）与社区 UID
+     *    是否同源**未实测确认**，确认后可由 CredentialStore.StoredAccount 落一个 communityUid；
+     * 2. 或设置页让用户自己填米游社 UID。
+     */
+    private fun resolveCommunityUid(): String? = null
+
     private fun fetchAvatar() {
         val uid = container.sessionUid.value ?: return
         val server = container.currentServer.value
@@ -231,6 +334,9 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
                 level = it.level,
                 avatarCardNumGained = it.avatarCardNumGained,
                 actionCardNumGained = it.actionCardNumGained,
+                // 服务端 total 字段实测恒 null，透传只为图鉴也拿不到时多一层兜底
+                avatarCardNumTotal = it.avatarCardNumTotal,
+                actionCardNumTotal = it.actionCardNumTotal,
             )
         }
 

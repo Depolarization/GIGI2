@@ -66,12 +66,17 @@ private val USAGE_TIP_IDS = listOf(
     R.string.about_tip_restart,
     R.string.about_tip_recent,
     R.string.about_tip_uid_query,
+    // V28-D：多账户共存说明从登录页撤到这里——它是「怎么用」的行为说明，不是权限声明
+    R.string.about_tip_multi_account,
     R.string.about_tip_sunset,
 )
 
 private val DATA_SOURCE_BULLET_IDS = listOf(
     R.string.about_data_bullet_source,
     R.string.about_data_bullet_credential,
+    // V28-D：补首登页撤下的「二维码由米哈游通行证签发 + 按所选服务器换凭据」，
+    // 「仅本机保存、不上传」这半句已由上一条 credential 覆盖，此处不重复
+    R.string.about_data_bullet_qr,
     R.string.about_bullet_update_check,
 )
 

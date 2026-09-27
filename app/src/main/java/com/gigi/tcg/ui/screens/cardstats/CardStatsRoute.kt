@@ -2,8 +2,10 @@
 // 两 Tab（角色牌/行动牌，TabRow 指示器 + HorizontalPager 左右滑动，交互照抄 RankRoute）
 // + 角色牌三键排序 + 行动牌类型筛选 + 玩家信息卡可展开详情
 // （默认折叠，分组对齐 web 的"行动牌详情 / 足迹"）。搜索框本版未含（派单范围外）。
-// V27：一页只呈现一张表 ⇒ 个人信息卡下方那对导出按钮删除，顶栏行只留一个「导出当前图表」
-// 图标按钮（语义=导出当前 tab 对应的表）；导出流程本身抽到 CardStatsExportAction.kt。
+// V28-C：① 顶部信息卡 + tab 行 + 列表收进同一个 verticalScroll 容器，整页一起滚
+// （原先只有列表滚，头部钉死，观感割裂）；② 删除页面顶部那个只放导出按钮的空行，
+// 按钮并入 tab 行右缘；③ 点击不再直接导「当前 tab 那一张」，而是弹多选对话框
+// （角色牌/行动牌，默认全选，positive=保存），只导勾选项。导出流程本身在 CardStatsExportAction.kt。
 
 package com.gigi.tcg.ui.screens.cardstats
 
@@ -14,6 +16,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.horizontalScroll
@@ -27,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -34,7 +38,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
@@ -48,10 +54,14 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier as ComposeModifier
 import androidx.compose.ui.platform.LocalContext
@@ -84,6 +94,16 @@ private data class StatColumn(@StringRes val labelRes: Int, val width: Dp)
 private val StatCountWidth: Dp = 48.dp
 private val StatPercentWidth: Dp = 60.dp
 private val ListRowVerticalPadding = 8.dp
+
+/** 整页滚到底时的留白（列表行本身不带底部留白，避免最后一行贴导航栏） */
+private val ContentBottomPadding = 16.dp
+
+/** 导出按钮与 tab 区的间距：叠加 IconButton 自带 12dp 内缩后视觉间距约 20dp */
+private val TabExportGap = 8.dp
+
+/** IconButton 右外边距：自带 12dp 内缩 + 4dp = 16dp，与页面内容水平边距对齐 */
+private val ExportButtonEndPadding = 4.dp
+
 private val CHAR_STAT_COLUMNS = listOf(
     StatColumn(R.string.stat_appear, StatCountWidth),
     StatColumn(R.string.stat_appear_rate, StatPercentWidth),
@@ -139,47 +159,111 @@ private fun CardStatsContent(
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
 
     val pagerState = rememberPagerState(pageCount = { STATS_TAB_COUNT })
-    // tab 点击 → 翻页：与 RankRoute / CardWikiRoute 同一写法（rememberCoroutineScope + launch）
-    val scope = rememberCoroutineScope()
-    // 一页一张表 ⇒ 顶栏单按钮恒导出当前页对应的表
-    val charTable = isCharTable(pagerState.currentPage)
+    // V28-C：导出口径与「当前 tab」解耦——点按钮先选要导的表（默认两项全选），勾谁导谁
     val exportAction = rememberStatsExporter(
         context = context,
         uid = uid,
-        charTable = charTable,
-        cards = if (charTable) state.charList else state.actionList,
+        charCards = state.charList,
+        actionCards = state.actionList,
         summary = state.summary,
+        signature = state.signature,
         onResult = onShowToast,
     )
+    var exportDialogOpen by remember { mutableStateOf(false) }
+    // 默认全选（产品确认）：主用途是「把两张图都存下来分享」，取消勾选才是少数情况
+    var exportCharChecked by remember { mutableStateOf(true) }
+    var exportActionChecked by remember { mutableStateOf(true) }
+    // 提示语在组合期取好：onSave 是普通 lambda，里面不能调 stringResource
+    val pickAtLeastOneToast = stringResource(R.string.stats_export_pick_at_least_one)
 
-    Column(modifier = modifier.fillMaxSize()) {
-        // 顶栏行（页内）：宿主 Scaffold 的 TopAppBar 由 GigiNavHost 统一持有且不在本棒
-        // 可改文件内，故导出入口按「顶栏右缘动作」样式落在页内右上角；三页顶栏一致性的
-        // 真正合并（把按钮上移到共享 TopAppBar）留给集成方，见 A2.md 遗留项。
-        Row(
-            modifier = ComposeModifier
+    // 顶部信息卡 + tab 行 + 列表共用同一个滚动容器（V28-C「一体共同滚动」）：
+    // PullToRefreshBox 的 content 里只放这一个 verticalScroll Column，
+    // 下拉手势由外层统一接收、滚动源就是这个 Column（两页列表自身不再挂 verticalScroll）。
+    // 边距沿用工程惯例：status bar / TopAppBar 遮挡由宿主 Scaffold 的 innerPadding
+    // （GigiNavHost 已 padding 到 NavHost 上）处理，本页不再额外吃顶部 inset。
+    PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = viewModel::refresh,
+        modifier = modifier.fillMaxSize(),
+    ) {
+        Column(
+            ComposeModifier
                 .fillMaxWidth()
-                .padding(end = 4.dp, top = 4.dp),
-            horizontalArrangement = Arrangement.End,
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = ContentBottomPadding),
         ) {
-            IconButton(
-                onClick = exportAction.run,
-                enabled = exportAction.enabled && !exportAction.exporting,
-            ) {
-                Icon(
-                    Icons.Outlined.Download,
-                    contentDescription = stringResource(R.string.stats_export_current),
-                )
+            state.summary?.let { summary ->
+                // 顶部 8dp 让信息卡不贴 tab 行/刷新圈；padding 不能混用 horizontal+top（无该重载）
+                Column(ComposeModifier.padding(top = 8.dp).padding(horizontal = 16.dp)) {
+                    PlayerInfoCard(summary, state.avatarUrl, detailOpen = state.detailOpen, onToggle = viewModel::toggleDetail)
+                }
+            }
+
+            StatsTabRowWithExport(
+                pagerState = pagerState,
+                exportEnabled = exportAction.enabled && !exportAction.exporting,
+                onExportClick = { exportDialogOpen = true },
+            )
+
+            // 🔴 pager 不能 fillMaxSize：它在 verticalScroll 里拿到的是无限高约束，
+            // 「撑满父高」既算不出确定高度、也会把上面的头部顶出可视区。
+            // 按内容高 ⇒ 整页高 = 头部 + 页高；两页都会参与 pager 测量
+            // （pageCount=2、默认离屏页限制 1 ⇒ 两页同时在组合中），取最大页高 ⇒ 翻页时整页高不跳。
+            HorizontalPager(state = pagerState, modifier = ComposeModifier.fillMaxWidth()) { page ->
+                if (isCharTable(page)) {
+                    CharStatsPage(state, viewModel)
+                } else {
+                    ActionStatsPage(state, viewModel)
+                }
             }
         }
+    }
 
-        state.summary?.let { summary ->
-            Column(ComposeModifier.padding(horizontal = 16.dp)) {
-                PlayerInfoCard(summary, state.avatarUrl, detailOpen = state.detailOpen, onToggle = viewModel::toggleDetail)
-            }
-        }
+    if (exportDialogOpen) {
+        StatsExportDialog(
+            charChecked = exportCharChecked,
+            actionChecked = exportActionChecked,
+            onCharCheckedChange = { exportCharChecked = it },
+            onActionCheckedChange = { exportActionChecked = it },
+            onSave = {
+                val selection = StatsExportSelection(exportCharChecked, exportActionChecked)
+                if (selection.isEmpty) {
+                    // 全不勾：给提示且**不关窗**。静默关窗会被当成「已经导出成功」，
+                    // 而留在原地补勾再点保存比重新打开对话框少一步。
+                    onShowToast(pickAtLeastOneToast)
+                } else {
+                    exportAction.run(selection)
+                    // 🔴 M3 AlertDialog 的 confirmButton 不会自动收起（PlayerDetailDialog
+                    // 「复制UID」同样踩过），导出触发后必须显式关窗；两张表的结果各回一条 Toast。
+                    exportDialogOpen = false
+                }
+            },
+            onDismiss = { exportDialogOpen = false },
+        )
+    }
+}
 
+/**
+ * tab 行 + 右缘导出入口（V28-C）：导出按钮原先独占一行（页面顶部只有一个按钮的空行，用户点名删除），
+ * 现挂在 TabRow 同一行右侧。TabRow 吃 weight(1f) 的剩余宽度 ⇒ 按钮不压住最后一个 tab；
+ * 代价是指示器/分割线只覆盖 tab 区（不再横贯整行），换取「按钮属于 tab 行」的明确归属。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StatsTabRowWithExport(
+    pagerState: PagerState,
+    exportEnabled: Boolean,
+    onExportClick: () -> Unit,
+) {
+    // tab 点击 → 翻页：与 RankRoute / CardWikiRoute 同一写法（rememberCoroutineScope + launch）
+    val scope = rememberCoroutineScope()
+    Row(
+        modifier = ComposeModifier.fillMaxWidth(),
+        // 行高由 48dp 的 TabRow 决定，按钮同高 ⇒ 垂直居中即与 tab 文字中线对齐
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         TabRow(
+            modifier = ComposeModifier.weight(1f),
             selectedTabIndex = pagerState.currentPage.coerceIn(0, STATS_TAB_COUNT - 1),
             indicator = { tabPositions ->
                 val lastIndex = STATS_TAB_COUNT - 1
@@ -218,29 +302,72 @@ private fun CardStatsContent(
                 )
             }
         }
-
-        PullToRefreshBox(
-            isRefreshing = refreshing,
-            onRefresh = viewModel::refresh,
-            modifier = ComposeModifier.fillMaxSize(),
+        Spacer(ComposeModifier.width(TabExportGap))
+        IconButton(
+            onClick = onExportClick,
+            enabled = exportEnabled,
+            modifier = ComposeModifier.padding(end = ExportButtonEndPadding),
         ) {
-            HorizontalPager(state = pagerState, modifier = ComposeModifier.fillMaxSize()) { page ->
-                if (isCharTable(page)) {
-                    CharStatsPage(state, viewModel)
-                } else {
-                    ActionStatsPage(state, viewModel)
-                }
-            }
+            Icon(
+                Icons.Outlined.Download,
+                contentDescription = stringResource(R.string.stats_export_current),
+            )
         }
+    }
+}
+
+/**
+ * 多选导出对话框：两项（角色牌 / 行动牌）默认全选，positive=保存 只导勾选项。
+ * 选项文案直接复用 tab 名 stats_tab_char / stats_tab_action，不另造同义文案（三语只需维护一份词）。
+ */
+@Composable
+private fun StatsExportDialog(
+    charChecked: Boolean,
+    actionChecked: Boolean,
+    onCharCheckedChange: (Boolean) -> Unit,
+    onActionCheckedChange: (Boolean) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.stats_export_dialog_title)) },
+        text = {
+            Column {
+                ExportOptionRow(R.string.stats_tab_char, charChecked, onCharCheckedChange)
+                ExportOptionRow(R.string.stats_tab_action, actionChecked, onActionCheckedChange)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSave) { Text(stringResource(R.string.action_save)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
+    )
+}
+
+/** 多选项一行：整行可点（勾选框热区只有 48dp，点文字也该能切换） */
+@Composable
+private fun ExportOptionRow(@StringRes labelRes: Int, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = ComposeModifier
+            .fillMaxWidth()
+            .clickable(onClick = { onCheckedChange(!checked) }),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked = checked, onCheckedChange = onCheckedChange)
+        Text(stringResource(labelRes), style = MaterialTheme.typography.bodyLarge)
     }
 }
 
 @Composable
 private fun CharStatsPage(state: StatsUiState, viewModel: CardStatsViewModel) {
+    // 整页滚动已上移到 CardStatsContent 的那个唯一 verticalScroll 容器 ⇒ 页内**不得**再挂
+    // verticalScroll / fillMaxSize：无限高约束下 fillMaxSize 会塌成 0 高，嵌套滚动还会和外层抢手势。
     Column(
         ComposeModifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -268,10 +395,10 @@ private fun CharStatsPage(state: StatsUiState, viewModel: CardStatsViewModel) {
 
 @Composable
 private fun ActionStatsPage(state: StatsUiState, viewModel: CardStatsViewModel) {
+    // 同 CharStatsPage：只出内容，滚动交给外层统一容器
     Column(
         ComposeModifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

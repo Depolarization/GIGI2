@@ -14,6 +14,7 @@
     <string name="action_copy_uid">Copy UID</string>
     <string name="action_query">Query</string>
     <string name="action_download">Download</string>
+    <string name="action_save">Save</string>
     <string name="action_regenerate_qr">Regenerate QR Code</string>
 
     <!-- Navigation &amp; icon descriptions -->
@@ -92,8 +93,6 @@
     <string name="login_title">GIGI · Genius Invokation TCG Companion</string>
     <string name="login_title_add">GIGI · Add Account</string>
     <string name="login_expired_notice">Session expired, please sign in again with the QR code</string>
-    <string name="login_add_account_hint">The newly scanned account will be added to the local account list; existing accounts will not be lost.</string>
-    <string name="login_qr_hint">The QR code is issued by the HoYoverse Pass. After confirmation, credentials are exchanged automatically for the selected server. Credentials stay encrypted on this device and are never uploaded.</string>
     <string name="login_no_role_notice">This HoYoLAB account has no Genshin character on %1$s. Switch the server and try again.</string>
     <string name="login_status_generating">Generating QR code…</string>
     <string name="login_status_waiting">Scan with HoYoLAB or Cloud·Genshin and confirm sign-in</string>
@@ -238,6 +237,9 @@
 
     <!-- Card stats / wiki pages -->
     <string name="stats_export_current">Export current chart</string>
+    <!-- V28-C multi-select export dialog -->
+    <string name="stats_export_dialog_title">Select what to export</string>
+    <string name="stats_export_pick_at_least_one">Select at least one item</string>
     <string name="stats_tab_char">Character Cards</string>
     <string name="stats_tab_action">Action Cards</string>
     <string name="wiki_tab_char">Character Cards</string>
@@ -256,11 +258,13 @@
     <string name="about_tip_restart">In a hurry to refresh, exit to the main menu (the door screen) and re-enter to speed up data updates.</string>
     <string name="about_tip_recent">Match lookup on Home shows details for up to the last 10 matches; tap any row to see the opponent.</string>
     <string name="about_tip_uid_query">The player lookup in the top bar takes a UID and shows the TCG info of that player.</string>
+    <string name="about_tip_multi_account">A newly scanned account is added to the local account list; the accounts already stored on this device are not lost.</string>
     <string name="about_tip_sunset">The tournament has shut down, so the tournament section may not stay valid long.</string>
     <string name="about_section_data">Data Sources &amp; Permissions</string>
     <string name="about_data_statement">Card image downloads come from public APIs and contain no personal match records; card usage details require login credentials.</string>
     <string name="about_data_bullet_source">All info comes from Genius Invokation tournaments and HoYoLAB; card data and images come from the HoYoLAB TCG Wiki.</string>
     <string name="about_data_bullet_credential">Credentials are stored only in the encrypted keystore on this device and are never uploaded to any server.</string>
+    <string name="about_data_bullet_qr">The QR code is issued by the HoYoverse Pass; once you confirm, the credential exchange runs automatically on the server you selected.</string>
     <string name="about_section_thanks">How It Works &amp; Credits</string>
     <string name="about_thanks_intro">The original idea of looking up opponents via the official tournament site: </string>
     <string name="about_thanks_link">Bilibili explainer video</string>

@@ -22,7 +22,10 @@ data class GcgStats(
     val level: Int? = null,
     val avatarCardNumGained: Int? = null,
     val actionCardNumGained: Int? = null,
-    /** 图鉴总数（导出图胶囊的分母）；服务端/映射层缺失时为 null ⇒ 兜底用已得数 */
+    /**
+     * 服务端"图鉴总数"字段（导出图胶囊的分母）。官方 cardList 实测从不返回这两项 ⇒ 恒 null，
+     * 真实分母首选 gcg/basicInfo（见 [officialCardTotals]），本字段只是第三级兜底。
+     */
     val avatarCardNumTotal: Int? = null,
     val actionCardNumTotal: Int? = null,
 )
@@ -69,9 +72,9 @@ data class GcgSummary(
     val level: Int,
     val avatarCardNum: Int,
     val actionCardNum: Int,
-    /** 角色牌图鉴总数（接口缺失或 ≤0 时 == avatarCardNum，绝不给 0 分母） */
+    /** 角色牌总数（首选 basicInfo 官方值；缺失时按图鉴→服务端→已得数降级，绝不给 0 分母） */
     val avatarCardTotal: Int,
-    /** 行动牌图鉴总数（接口缺失或 ≤0 时 == actionCardNum） */
+    /** 行动牌总数（同上口径） */
     val actionCardTotal: Int,
     /** 总对局数 = floor(Σ角色牌 use_count / 3) */
     val totalGames: Long,
@@ -91,7 +94,14 @@ data class GcgSummary(
     val eventPercent: String,
 )
 
-fun computeGcgSummary(stats: GcgStats?, lists: PreparedCardLists): GcgSummary {
+fun computeGcgSummary(
+    stats: GcgStats?,
+    lists: PreparedCardLists,
+    /** 图鉴接口数出来的总手牌数（次级来源）；默认空 ⇒ 旧调用点与单测不必改 */
+    wikiTotals: WikiCardTotals = WikiCardTotals(),
+    /** gcg/basicInfo 的官方真实总手牌数（首选来源，见 [officialCardTotals]）；默认空 ⇒ 走原三级链 */
+    officialTotals: WikiCardTotals = WikiCardTotals(),
+): GcgSummary {
     fun actionUseByType(type: String): Int =
         lists.actionCards
             .filter { it.cardType == type }
@@ -106,14 +116,30 @@ fun computeGcgSummary(stats: GcgStats?, lists: PreparedCardLists): GcgSummary {
     val assistUse = actionUseByType(CARD_TYPE_ASSIST)
     val eventUse = actionUseByType(CARD_TYPE_EVENT)
 
+    // 分母优先级：basicInfo 官方总数 → 图鉴接口总数 → 服务端 total 字段（实测恒缺失）→ 已得数。
+    //
+    // 🔴 为什么图鉴口径不可靠：公开图鉴接口**会去重手牌**（同名/同卡面的多份手牌只算一条），
+    // 数出来的行动牌 568 远小于官方真实的 941 ⇒ 拿它当分母会把「941 张里收集了 500 张」
+    // 显示成 568/568 全收集。真实总数唯一来源是 gcg/basicInfo 的 *_card_num_total（与官方口径一致）。
+    // 图鉴数只保留为次级兜底：basicInfo 需登录 Cookie，未登录/字段缺失时至少还有一个接近真实的分母。
+    // 最后一级是历史兜底：宁可显示"全收集"，也不能让胶囊出现 x/0。
+    fun resolveTotal(officialTotal: Int, wikiTotal: Int, serverTotal: Int?, gained: Int?): Int =
+        officialTotal.takeIf { it > 0 }
+            ?: wikiTotal.takeIf { it > 0 }
+            ?: serverTotal?.takeIf { it > 0 }
+            ?: (gained ?: 0)
+
     return GcgSummary(
         nickname = stats?.nickname ?: LocaleStrings.getOrDefault(R.string.common_unknown, "未知"),
         level = stats?.level ?: 0,
         avatarCardNum = stats?.avatarCardNumGained ?: 0,
         actionCardNum = stats?.actionCardNumGained ?: 0,
-        // 总数缺失/为 0 时兜底成已得数 ⇒ 胶囊显示 147/147，绝不出现 147/0
-        avatarCardTotal = stats?.avatarCardNumTotal?.takeIf { it > 0 } ?: (stats?.avatarCardNumGained ?: 0),
-        actionCardTotal = stats?.actionCardNumTotal?.takeIf { it > 0 } ?: (stats?.actionCardNumGained ?: 0),
+        avatarCardTotal = resolveTotal(
+            officialTotals.avatarTotal, wikiTotals.avatarTotal, stats?.avatarCardNumTotal, stats?.avatarCardNumGained,
+        ),
+        actionCardTotal = resolveTotal(
+            officialTotals.actionTotal, wikiTotals.actionTotal, stats?.actionCardNumTotal, stats?.actionCardNumGained,
+        ),
         totalGames = totalGames,
         winGames = winGames,
         winRate = formatPercent(winRateValue),

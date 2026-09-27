@@ -63,7 +63,7 @@ data class TableSpec(
     val columns: List<TableColumn>,
     /** 每行的单元格文本，每行长度必须 == columns.size */
     val rows: List<List<String>>,
-    /** 日期行（右对齐）；null 不画、也不占高 */
+    /** 导出日期；画在右上角 logo 正下方、右对齐到 logo 右缘（自成视觉组，不占页眉竖向流）；null 不画 */
     val exportDateText: String?,
 )
 
@@ -125,18 +125,23 @@ private const val DIVIDER_OFFSET_PX = 14
 private const val DIVIDER_HEIGHT_PX = 4
 /** 分隔虚线左右缩进（参考图 `left/right: 28px`） */
 private const val DIVIDER_INSET_PX = 28
-private const val LOGO_WIDTH_PX = 225
-private const val LOGO_HEIGHT_PX = 75
-private const val LOGO_TOP_PX = 72
-private const val LOGO_RIGHT_INSET_PX = 40
+internal const val LOGO_WIDTH_PX = 225
+internal const val LOGO_HEIGHT_PX = 75
+internal const val LOGO_TOP_PX = 72
+internal const val LOGO_RIGHT_INSET_PX = 40
+/**
+ * 日期顶 → logo 底 的间距。页眉流的间距档位是 5/10/13/25/28，日期要和 logo 成一组
+ * （同组必须明显小于组间），故取次小档 8：小于 8 会蹭到 logo 下缘，大于 13 就散成两行独立信息。
+ */
+internal const val DATE_BELOW_LOGO_GAP_PX = 8
 
-// ---- 分区标题带 / 日期行 / 页脚 ----
+// ---- 分区标题带 / 日期 / 页脚 ----
 private const val BANNER_HEIGHT_PX = 80
 private const val BANNER_BOTTOM_MARGIN_PX = 30
 private const val BANNER_TEXT_SIZE_PX = 31f
 private const val BANNER_LETTER_SPACING_PX = 8f
-private const val DATE_ROW_HEIGHT_PX = 34
-private const val DATE_TEXT_SIZE_PX = 25f
+/** 日期沿用页眉档字号（×1.25 后的 25px）：从独立行挪到 logo 下方后仍是弱化信息，不喧宾夺主 */
+internal const val DATE_TEXT_SIZE_PX = 25f
 private const val FOOTER_TOP_MARGIN_PX = 67
 private const val FOOTER_LINE_HEIGHT_PX = 22
 private const val FOOTER_BOTTOM_MARGIN_PX = 22
@@ -210,11 +215,11 @@ fun computeTableLayout(
         (if (twoColumn) BAND_GAP_PX else 0) +
         2 * (PAGE_MARGIN_PX + TABLE_BORDER_PX)
 
-    val dateRowHeight = if (spec.exportDateText.isNullOrEmpty()) 0 else DATE_ROW_HEIGHT_PX
+    // 日期画在 logo 下方（绝对定位，与页眉左侧文字行、虚线都不重叠），不参与竖向流 ⇒ 不占高
     // 两栏各自成盒，行数可能差 1（奇数行）；高度按最高的那栏算 ⇒ 页脚位置与画布高都取 rowsPerBand
     val bandRows = minOf(rowsPerBand, spec.rows.size)
-    // 竖向堆叠：页眉块 → 标题带 80 + mb 30 → 日期行 → 上边框 2 → 表头 50 → 数据行 → 下边框 2 → 页脚 111（67+22+22）
-    val heightPx = computeHeaderBlockHeight(spec) + BANNER_HEIGHT_PX + BANNER_BOTTOM_MARGIN_PX + dateRowHeight +
+    // 竖向堆叠：页眉块 → 标题带 80 + mb 30 → 上边框 2 → 表头 50 → 数据行 → 下边框 2 → 页脚 111（67+22+22）
+    val heightPx = computeHeaderBlockHeight(spec) + BANNER_HEIGHT_PX + BANNER_BOTTOM_MARGIN_PX +
         TABLE_BORDER_PX + HEADER_HEIGHT_PX + bandRows * ROW_HEIGHT_PX + TABLE_BORDER_PX +
         FOOTER_TOP_MARGIN_PX + FOOTER_LINE_HEIGHT_PX + FOOTER_BOTTOM_MARGIN_PX
 
@@ -367,28 +372,28 @@ fun renderTableBitmap(spec: TableSpec, layout: TableLayout, assets: ExportAssets
         left = DIVIDER_INSET_PX, right = width - DIVIDER_INSET_PX, height = DIVIDER_HEIGHT_PX,
         srcRect = srcRect, dstRect = dstRect,
     )
+    val logoRight = width - LOGO_RIGHT_INSET_PX
     drawStretch(
         assets.logo, canvas, top = LOGO_TOP_PX,
-        left = width - LOGO_RIGHT_INSET_PX - LOGO_WIDTH_PX, right = width - LOGO_RIGHT_INSET_PX,
+        left = logoRight - LOGO_WIDTH_PX, right = logoRight,
         height = LOGO_HEIGHT_PX, srcRect = srcRect, dstRect = dstRect,
     )
+    // 日期贴 logo 下方、右对齐到 logo 右缘：与 logo 竖排成同一视觉列（原来贴画布右缘会多出 40px 悬空）
+    if (!spec.exportDateText.isNullOrEmpty()) {
+        val dateTop = LOGO_TOP_PX + LOGO_HEIGHT_PX + DATE_BELOW_LOGO_GAP_PX
+        datePaint.textAlign = Paint.Align.RIGHT
+        canvas.drawText(
+            spec.exportDateText, logoRight.toFloat(),
+            dateTop + baselineInBox(datePaint, DATE_TEXT_SIZE_PX), datePaint,
+        )
+    }
 
     // 4. 分区标题带
     var y = headerBottom
     drawBanner(canvas, spec.title, bannerPaint, assets.sectionBg, y, srcRect, dstRect)
     y += BANNER_HEIGHT_PX + BANNER_BOTTOM_MARGIN_PX
 
-    // 5. 日期行：右对齐到画布右缘 − 24；null 时整行不占高
-    if (!spec.exportDateText.isNullOrEmpty()) {
-        datePaint.textAlign = Paint.Align.RIGHT
-        canvas.drawText(
-            spec.exportDateText, (width - PAGE_MARGIN_PX).toFloat(),
-            y + baselineInBox(datePaint, DATE_ROW_HEIGHT_PX.toFloat()), datePaint,
-        )
-        y += DATE_ROW_HEIGHT_PX
-    }
-
-    // 6. 表格：每栏一个白盒（2px 边框 + radius 6），各栏自带表头行 + 行段。
+    // 5. 表格：每栏一个白盒（2px 边框 + radius 6），各栏自带表头行 + 行段。
     //    上边框占掉 banner 下方 30px 留白的前 2px ⇒ 内容顶 = y + 2。
     val contentTop = y + TABLE_BORDER_PX
     repeat(layout.columnsPerBand) { band ->
@@ -405,7 +410,7 @@ fun renderTableBitmap(spec: TableSpec, layout: TableLayout, assets: ExportAssets
     val tallestBoxBottom = contentTop + HEADER_HEIGHT_PX +
         minOf(layout.rowsPerBand, spec.rows.size) * ROW_HEIGHT_PX + TABLE_BORDER_PX
 
-    // 7. 页脚：距最高的表格盒底 67，行高 22，其后留 22
+    // 6. 页脚：距最高的表格盒底 67，行高 22，其后留 22
     footerPaint.textAlign = Paint.Align.CENTER
     canvas.drawText(
         LocaleStrings.getOrDefault(R.string.export_footer, "七圣召唤"), width / 2f,

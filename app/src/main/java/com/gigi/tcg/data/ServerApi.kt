@@ -44,6 +44,12 @@ object ServerApi {
     /** 兜底：米游社静态内容主机（卡牌图鉴列表/详情共用）。 */
     const val CONTENT_ORIGIN: String = "https://act-api-takumi-static.mihoyo.com"
 
+    /**
+     * 米游社社区接口主机（社区用户资料 = 玩家个性签名来源）。
+     * 与 takumi/mihoyo 系不同主机，BuildConfig 暂无对应字段 ⇒ 只有 const（不参与构建期覆盖）。
+     */
+    const val BBS_API_ORIGIN: String = "https://bbs-api.miyoushe.com"
+
     /** 默认头像的静态资源路径（主机随 [loginPageUrl] 的 origin 收敛，两者同属 webstatic 静态资源域）。 */
     private const val DEFAULT_AVATAR_PATH: String =
         "/upload/event/2023-05-16/7c0b9ec9dac9c3b75204bdebef3cb794_9053060040416908582.png"

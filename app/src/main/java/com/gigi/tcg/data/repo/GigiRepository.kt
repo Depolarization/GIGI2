@@ -1,6 +1,6 @@
 // GigiRepository：对齐 Web 版 api/mihoyo.ts（接口方法）+ api/pageCache.ts（TTL 缓存策略），
 // 落地设计文档 §2.4 双层缓存：
-// - 内存层：domain.TtlCache 实例（卡统 5min / 资料卡+最近对局 45s / 排行榜 3min），
+// - 内存层：domain.TtlCache 实例（卡统 5min / 资料卡+最近对局 45s / 排行榜 3min / 社区资料 24h），
 //   私有数据只存内存；键一律 gigi:private:<server>:<uid>:<suffix>，换服绝不误读。
 // - 磁盘层：仅公开图鉴列表走 WikiDiskCache（先读盘再请求并回写）。
 // - 卡面详情：android.util.LruCache(200)（对齐 CardCoverDialog DETAIL_CACHE_MAX），
@@ -23,17 +23,21 @@ import com.gigi.tcg.data.api.MihoyoClient
 import com.gigi.tcg.data.api.RETRYABLE_RETCODES
 import com.gigi.tcg.data.api.cardDetailUrl
 import com.gigi.tcg.data.api.cardListUrl
+import com.gigi.tcg.data.api.gcgBasicInfoUrl
 import com.gigi.tcg.i18n.LocaleStrings
 import com.gigi.tcg.i18n.apiLangParam
 import com.gigi.tcg.data.api.competitionRankUrl
 import com.gigi.tcg.data.api.gameRecordsUrl
+import com.gigi.tcg.data.api.getUserFullInfoUrl
 import com.gigi.tcg.data.api.isAuthFailureError
 import com.gigi.tcg.data.api.myHomePageUrl
 import com.gigi.tcg.data.api.otherHomePageUrl
 import com.gigi.tcg.data.api.peakRankUrl
 import com.gigi.tcg.data.api.userInfoUrl
+import com.gigi.tcg.data.model.CommunityUserFullInfoData
 import com.gigi.tcg.data.model.EntryPageData
 import com.gigi.tcg.data.model.GameRecordsData
+import com.gigi.tcg.data.model.GcgBasicInfoData
 import com.gigi.tcg.data.model.GcgCardListData
 import com.gigi.tcg.data.model.LoginInfoData
 import com.gigi.tcg.data.model.MyHomePageData
@@ -168,6 +172,42 @@ class GigiRepository(
         return fresh
     }
 
+    /**
+     * 米游社社区用户资料（导出图签名的来源）：`data.user_info.introduce` 才是玩家个性签名。
+     *
+     * 公开通路：与 [fetchCardWikiList] 同款——GET + 空 tag，不参与 DS 签名（实测该路由根本不校验 DS，
+     * 硬塞反而多余）。Cookie 注入在 MihoyoClient 拦截器里是全局行为、本层无法按主机收敛，见进度文件风险项。
+     *
+     * 🔴 入参必须是**米游社社区 UID**，不是游戏 UID（详见 api.getUserFullInfoUrl 注释）；
+     * 传错命名空间的 UID 会拿到 retcode=0 + introduce="暂无签名" 的占位数据，故本方法额外把
+     * 与占位文案同名的 introduce 视为「没拿到签名」（[COMMUNITY_INTRODUCE_PLACEHOLDER]）。
+     *
+     * 缓存：签名变化极慢（玩家几个月改一次），社区 UID 又是登录态级常量 ⇒ 内存长缓存 24h 足够；
+     * 属私有数据，按 §2.4 只进内存、不落盘，键含社区 UID，登出随 [clearPrivateCache] 一起收掉。
+     * 失败（网络/retcode/解析）一律吞掉返回 null：导出图不能因为取不到签名而失败。
+     */
+    suspend fun fetchCommunityUserFullInfo(communityUid: String): CommunityUserFullInfoData? {
+        val uid = communityUid.trim()
+        if (uid.isEmpty()) return null
+        val key = privateKey(uid, ServerId.DEFAULT, COMMUNITY_INFO_SUFFIX)
+        (memoryCache.cacheGet(key) as? CommunityUserFullInfoData)?.let { return it }
+        val fresh = try {
+            get(getUserFullInfoUrl(uid), CommunityUserFullInfoData.serializer(), "")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return null
+        }
+        memoryCache.cacheSet(key, fresh, COMMUNITY_INFO_CACHE_TTL_MS)
+        return fresh
+    }
+
+    /** 便捷取值：社区 UID → 真实签名字符串；取不到 / 空白 / 占位 ⇒ null（由调用方回落「暂无签名」） */
+    suspend fun fetchCommunitySignature(communityUid: String): String? =
+        fetchCommunityUserFullInfo(communityUid)?.userInfo?.introduce
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && it != COMMUNITY_INTRODUCE_PLACEHOLDER }
+
     // ---- pageCache.ts 缓存策略 ----
 
     /** 图鉴列表：内存 → 磁盘（§2.4 唯一落盘项）→ 请求并双层回写；force 绕过 */
@@ -193,6 +233,33 @@ class GigiRepository(
         cachedPrivate(uid, server, "card-stats:v1", CARD_STATS_CACHE_TTL_MS, force) {
             fetchGcgCardList(uid, server)
         }
+
+    /**
+     * 官方总手牌数（gcg/basicInfo）：导出图分母的唯一可信来源（详见 [gcgBasicInfoUrl] /
+     * model.GcgBasicInfoData 的口径说明）。与 cardList 同主机同鉴权口径，Cookie 由 MihoyoClient 注入。
+     *
+     * 缓存 5 分钟：与 card-stats 同一 TTL——卡池总数只随版本更新变化（月级），本不需要 5min 这么勤，
+     * 但同一次统计页加载里两者是同一份「手牌规模」快照，节奏对齐可避免胶囊分子/分母来自相隔很久的
+     * 两次采集（例如新卡池开放瞬间显示 148/147）。私有数据，只进内存、不落盘，键含服务器+UID。
+     *
+     * 🔴 失败（未登录 retcode=10001 / 网络 / 解析）一律吞掉返回 null，且**不写缓存**：
+     * 分母只是统计页的一层兜底来源，绝不能因为它取不到而让统计/导出进入错误态。
+     */
+    suspend fun fetchGcgBasicInfo(uid: String, server: ServerId, force: Boolean = false): GcgBasicInfoData? {
+        val key = privateKey(uid, server, BASIC_INFO_SUFFIX)
+        if (!force) {
+            (memoryCache.cacheGet(key) as? GcgBasicInfoData)?.let { return it }
+        }
+        val fresh = try {
+            get(gcgBasicInfoUrl(uid, server), GcgBasicInfoData.serializer(), "")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return null
+        }
+        memoryCache.cacheSet(key, fresh, BASIC_INFO_CACHE_TTL_MS)
+        return fresh
+    }
 
     /** 对局主页 · 资料卡（45 秒） */
     suspend fun fetchMyHomePageCached(uid: String, server: ServerId, force: Boolean = false): MyHomePageData =
@@ -346,6 +413,20 @@ class GigiRepository(
         const val CARD_STATS_CACHE_TTL_MS: Long = 5 * 60 * 1000L
         const val HOME_CACHE_TTL_MS: Long = 45 * 1000L
         const val RANK_CACHE_TTL_MS: Long = 3 * 60 * 1000L
+
+        /** 社区资料缓存键后缀（内存缓存 24h：签名变化极慢，见 fetchCommunityUserFullInfo） */
+        const val COMMUNITY_INFO_SUFFIX: String = "community-info:v1"
+        const val COMMUNITY_INFO_CACHE_TTL_MS: Long = 24 * 60 * 60 * 1000L
+
+        /** 官方总手牌数缓存键后缀（TTL 与 card-stats 对齐，见 fetchGcgBasicInfo） */
+        const val BASIC_INFO_SUFFIX: String = "gcg-basic-info:v1"
+        const val BASIC_INFO_CACHE_TTL_MS: Long = CARD_STATS_CACHE_TTL_MS
+
+        /**
+         * 服务端在「查无此人/UID 命名空间用错」时返回的占位 introduce（实测中文常量，与界面语言无关）。
+         * 与占位文案同名 ⇒ 画出来也一样，判它为空只为不把占位当真实签名往下传。
+         */
+        const val COMMUNITY_INTRODUCE_PLACEHOLDER: String = "暂无签名"
 
         /** 对齐 CardCoverDialog 的 DETAIL_CACHE_MAX */
         const val DETAIL_CACHE_MAX: Int = 200

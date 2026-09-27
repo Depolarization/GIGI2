@@ -152,12 +152,12 @@ class TableLayoutTest {
         assertEquals(band2Left + layout.bandWidthPx + TABLE_BORDER_PX, layout.widthPx - PAGE_MARGIN_PX)
     }
 
-    // 7. 高度 == 页眉块高 + 110(banner+mb) + 34(日期行) + 2 + 50 + 行数×50 + 2 + 111(页脚)
+    // 7. 高度 == 页眉块高 + 110(banner+mb) + 2 + 50 + 行数×50 + 2 + 111(页脚)；日期已挪到 logo 下方，不占竖向流
     @Test
     fun heightFollowsTheMeasuredVerticalStack() {
         val s = spec(rowCount = 5)
         val layout = layoutOf(s)
-        val expected = computeHeaderBlockHeight(s) + 110 + 34 + 2 + 50 + 5 * ROW_HEIGHT_PX + 2 + 111
+        val expected = computeHeaderBlockHeight(s) + 110 + 2 + 50 + 5 * ROW_HEIGHT_PX + 2 + 111
         assertEquals(expected, layout.heightPx)
     }
 
@@ -170,13 +170,13 @@ class TableLayoutTest {
         assertEquals(50, layoutOf(withLevel).heightPx - layoutOf(withoutLevel).heightPx)
     }
 
-    // 7c. 日期为 null ⇒ 日期行不占高（34）
+    // 7c. 🔴 旧版日期是 banner 下方一条独立行（行高 34，有/无日期差 34px 留白）。
+    //     现在日期绝对定位在 logo 正下方 ⇒ 有无日期都必须同高，别把占位漏回来。
     @Test
-    fun nullExportDateRemovesDateRow() {
+    fun dateTextNeverReservesVerticalSpace() {
         val withDate = spec(rowCount = 2)
         val withoutDate = withDate.copy(exportDateText = null)
-        // 34 = SPEC-export 的日期行行高
-        assertEquals(34, layoutOf(withDate).heightPx - layoutOf(withoutDate).heightPx)
+        assertEquals(layoutOf(withDate).heightPx, layoutOf(withoutDate).heightPx)
     }
 
     // ---- 双栏阈值口径（沿用旧行为：>阈值才双栏，ceil(n/2) 分栏）----
@@ -203,7 +203,7 @@ class TableLayoutTest {
         assertEquals(1, layout.columnsPerBand)
         // 无行时列宽全部由表头/minWidthPx 决定，画布仍有合法正尺寸
         assertTrue(layout.widthPx > 0 && layout.heightPx > 0)
-        assertEquals(computeHeaderBlockHeight(spec(rowCount = 0)) + 110 + 34 + 2 + 50 + 2 + 111, layout.heightPx)
+        assertEquals(computeHeaderBlockHeight(spec(rowCount = 0)) + 110 + 2 + 50 + 2 + 111, layout.heightPx)
     }
 
     // ---- 入参校验 ----
@@ -285,6 +285,22 @@ class TableLayoutTest {
         // 表格本体 1:1 照抄参考图：正文与表头都是 20px（旧 22px 表头是拉伸时代的产物）
         assertEquals(20f, TEXT_SIZE_BODY_PX, 0f)
         assertEquals(20f, TEXT_SIZE_HEADER_PX, 0f)
+    }
+
+    // ---- 日期锚点：logo 正下方、右缘与 logo 对齐（回归锁）----
+
+    // 日期与 logo 右缘共用同一锚点（画布宽 − 40），不再贴着画布右缘 − 24 悬空
+    @Test
+    fun dateAnchorsToLogoBottomRightNotCanvasEdge() {
+        // 竖向：logo 底 147 + 组内间距 8 ⇒ 日期顶 155，仍远在分隔虚线（页眉块底附近）之上
+        assertEquals(147, LOGO_TOP_PX + LOGO_HEIGHT_PX)
+        assertTrue("logo 底 + 间距必须落在页眉块内，否则压到分隔线", DATE_BELOW_LOGO_GAP_PX in 1..13)
+        // 横向：logo 右缘距画布 40 ⇒ 日期右缘同理，比旧版（距右缘 24）更靠内，与 logo 成一列
+        assertEquals(40, LOGO_RIGHT_INSET_PX)
+        assertTrue(
+            "日期宽度 + 间距不该超过 logo 宽（否则左溢出到 logo 之外）",
+            fakeMeasure("2026-09-27", DATE_TEXT_SIZE_PX) + DATE_BELOW_LOGO_GAP_PX < LOGO_WIDTH_PX,
+        )
     }
 
     // ---- ellipsize：表格本体已不用（nowrap），但最近对局卡片渲染器仍在用，行为必须保持 ----

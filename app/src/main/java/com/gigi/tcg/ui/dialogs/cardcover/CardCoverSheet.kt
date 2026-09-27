@@ -37,12 +37,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -106,6 +110,37 @@ fun CardCoverSheet(
     val content = state as? CoverUiState.Content
     val title = content?.info?.name?.takeIf { it.isNotBlank() }
         ?: stringResource(R.string.cover_title_fallback)
+
+    // 「卡面加载完成」判定依据（读自 CardCoverViewModel 的 CoverUiState 状态机）：
+    // 仅 `state is CoverUiState.Content` 代表数据就绪——Loading=详情请求中、Error=请求/解析失败，均未就绪；
+    // 再看 `content.imageUrl != null`（它取自 info.commonImg/goldImg 且过滤空串）：非空即预览位从
+    // LoadingView 切到 CoverPreview、AppImage 开始渲染卡面，等价于「卡面可展示」。
+    // 说明：Coil 的图片解码 Success 由 AppImage 内部 painter 私有持有、未对外回调，故以「数据就绪且卡面地址可用」为准，
+    // 这也是本文件能与 ViewModel 契约对齐、不新增依赖的最小信号（ViewModel 无需改动）。
+    val coverReady = content?.imageUrl != null
+
+    // 一次性闩：按 contentId remember ⇒ 本次打开只自动展开一次；重开新卡（或退出重进）自动复位。
+    var autoExpanded by remember(contentId) { mutableStateOf(false) }
+
+    // key 用就绪信号（非 Unit）：coverReady 由 false→true 才触发一次展开。
+    // 为什么只展开一次、不与手势打架：
+    //  ① 切格式 PNG↔GIF 只改 imageUrl、不改本布尔，key 不变 ⇒ 不会反复弹开；
+    //  ② 展开后用户手动下拖到半屏/关闭时，重组不会改 key ⇒ 本 effect 不重跑，不会再抢动画；
+    //  ③ autoExpanded 兜住「就绪信号因重试等原因再次翻回 true」的重复触发。
+    // 对话框刚 show 的一瞬通常还是 Loading（网络异步），就绪往往晚于入场动画 ⇒ 不与入场滑入抢；
+    // 再加以 currentValue!=Expanded 为条件，用户已抢先上拖到全展开时直接跳过，避免无谓动画。
+    LaunchedEffect(coverReady) {
+        if (coverReady && !autoExpanded) {
+            autoExpanded = true
+            if (sheetState.currentValue != SheetValue.Expanded) {
+                // 用 SheetState.expand()：本工程实际解析到的 material3 是 1.3.2，
+                // 该版本的 animateTo/snapTo 都是 internal（名字被编译器加了 $material3_release 后缀），
+                // 对外的公开入口就是成员函数 expand()/partialExpand()/show()/hide()，无需 import。
+                // 保持 skipPartiallyExpanded=false ⇒ 半屏档仍在，展开到最大后用户仍可向下拖到半屏或关闭。
+                sheetState.expand()
+            }
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,

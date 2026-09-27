@@ -17,7 +17,11 @@ data class MihoyoResponse<T>(
     @SerialName("data") val data: T? = null,
 )
 
-/** 登录态接口 common/badge/v1/login/info 的 data（原 App 仅消费 game_uid） */
+/**
+ * 登录态接口 common/badge/v1/login/info 的 data（原 App 仅消费 game_uid）。
+ * 🔴 这里**没有**米游社社区 UID ⇒ 「个性签名」接口（[CommunityUserInfo]）目前无 UID 可打，
+ * 需要社区 UID 时得另找来源（登录流程/用户提供），不能拿 gameUid 顶替。
+ */
 @Serializable
 data class LoginInfoData(
     @SerialName("game_uid") val gameUid: String? = null,
@@ -66,6 +70,26 @@ data class MyHomePageData(
 @Serializable
 data class OtherHomePageData(
     @SerialName("page_info") val pageInfo: PageInfo? = null,
+)
+
+/**
+ * 米游社社区用户资料（bbs-api `/user/api/getUserFullInfo` 的 data.user_info）。
+ * 🔴 玩家「个性签名」的字段名是 **`introduce`**（米游社把签名存成 introduce），
+ * 响应里**没有** `signature` 字段；七圣活动接口 my_home_page 的 PageInfo 同样不返回签名。
+ * 只声明导出需要的三个字段，其余（avatar/achieve/level_exps…）由 Json.ignoreUnknownKeys 丢弃。
+ */
+@Serializable
+data class CommunityUserInfo(
+    @SerialName("uid") val uid: String? = null,
+    @SerialName("nickname") val nickname: String? = null,
+    /** 个性签名本体；未设置签名时服务端返回空串（不是 null） */
+    @SerialName("introduce") val introduce: String? = null,
+)
+
+/** getUserFullInfo 的 data（外层 retcode/message 由 Repository 统一判定，写法同 [RankData] 那一类） */
+@Serializable
+data class CommunityUserFullInfoData(
+    @SerialName("user_info") val userInfo: CommunityUserInfo? = null,
 )
 
 /** 最近对局记录（get_game_records） */
@@ -138,6 +162,26 @@ data class GcgCard(
 data class GcgCardListData(
     @SerialName("stats") val stats: GcgStats? = null,
     @SerialName("card_list") val cardList: List<GcgCard>? = null,
+)
+
+/**
+ * 七圣召唤总手牌数（game_record gcg/basicInfo）：`*_card_num_total` 是**官方真实总手牌数**，
+ * 导出图胶囊 `角色牌 143/147` 的分母以此为准。
+ *
+ * 为什么不用 cardList 的同名字段：cardList 实测从不返回 total（恒 null），且它的口径来自**会去重手牌**的
+ * 图鉴数据（行动牌只数出 568 张，真实 941）⇒ 分母只能取本接口。
+ * 全字段可空：服务端可能缺字段，解析不能因此崩。
+ */
+@Serializable
+data class GcgBasicInfoData(
+    @SerialName("nickname") val nickname: String? = null,
+    @SerialName("level") val level: Int? = null,
+    @SerialName("avatar_card_num_gained") val avatarCardNumGained: Int? = null,
+    @SerialName("action_card_num_gained") val actionCardNumGained: Int? = null,
+    /** 官方角色牌总数（实测 147） */
+    @SerialName("avatar_card_num_total") val avatarCardNumTotal: Int? = null,
+    /** 官方行动牌总数（实测 941） */
+    @SerialName("action_card_num_total") val actionCardNumTotal: Int? = null,
 )
 
 /** 卡牌图鉴（米游社 Wiki，公开接口）：频道树节点 */

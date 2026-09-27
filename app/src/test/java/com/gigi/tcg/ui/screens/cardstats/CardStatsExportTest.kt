@@ -8,7 +8,11 @@ import com.gigi.tcg.domain.CARD_TYPE_ASSIST
 import com.gigi.tcg.domain.CARD_TYPE_EVENT
 import com.gigi.tcg.domain.CARD_TYPE_MODIFY
 import com.gigi.tcg.domain.GcgCard
+import com.gigi.tcg.domain.GcgStats
 import com.gigi.tcg.domain.GcgSummary
+import com.gigi.tcg.domain.WikiCardTotals
+import com.gigi.tcg.domain.computeGcgSummary
+import com.gigi.tcg.domain.prepareCardLists
 import com.gigi.tcg.ui.export.CELL_PADDING_PX
 import com.gigi.tcg.ui.export.CellAlign
 import com.gigi.tcg.ui.export.FIRST_CELL_LEFT_PADDING_PX
@@ -128,6 +132,71 @@ class CardStatsExportTest {
         }
     }
 
+    // ---- 签名框：真实签名（米游社 introduce）优先，取不到回落「暂无签名」占位 ----
+
+    @Test
+    fun `有真实签名时两张表都用真实签名`() {
+        val introduce = "万壑千岩沉玉间"
+        val charSpec = buildCharTableSpec(summary(), "u", listOf(char(10, 5)), signature = introduce)
+        val actionSpec = buildActionTableSpec(summary(), "u", emptyList(), signature = introduce)
+        assertEquals(introduce, charSpec.signature)
+        assertEquals(introduce, actionSpec.signature)
+    }
+
+    @Test
+    fun `签名缺失或空白回落暂无签名占位不留空白框`() {
+        // null = 社区 UID 不可得 / 接口失败；"" 与全空白 = 用户没设置签名（实测服务端返回空串）
+        listOf(null, "", "   ", "\n\t ").forEach { raw ->
+            val spec = buildCharTableSpec(summary(), "u", emptyList(), signature = raw)
+            assertEquals("占位不能是空串（空串渲染层会整框不画）：raw=$raw", "暂无签名", spec.signature)
+            assertEquals("暂无签名", buildActionTableSpec(summary(), "u", emptyList(), signature = raw).signature)
+        }
+    }
+
+    @Test
+    fun `未传签名的旧调用点仍走占位不崩`() {
+        // 默认参数路径：导出动作接线前的调用形态（CardStatsExportAction 传 3 个实参）
+        assertEquals("暂无签名", buildCharTableSpec(summary(), "u", emptyList()).signature)
+    }
+
+    @Test
+    fun `超长签名截断加省略号且不撑破白框`() {
+        // 真实样本里见过 40+ 字的长签名（V28-S 报告 B.3），白框宽 = 文字实测宽 + 内边距，
+        // 渲染层不截断 ⇒ 必须在组装层收尾，否则框被画出画布右缘。
+        val long = "呱～文明的建成。能量不是榨取，是调谐；引力不是操控，是在与时空的对话。" +
+            "万壑千岩沉玉间，海祇的旧梦依旧；珊瑚宫的心事谁来听，只余潮声与晚风。"
+        val signature = exportSignatureText(long)
+        assertTrue("超长签名必须以省略号收尾：$signature", signature.endsWith("…"))
+        assertTrue("截短了才有意义", signature.length < long.length)
+        val width = textWidth(signature, EXPORT_SIGNATURE_TEXT_SIZE_PX)
+        assertTrue("签名宽 $width 仍超过预算 ${EXPORT_SIGNATURE_MAX_WIDTH_PX}", width <= EXPORT_SIGNATURE_MAX_WIDTH_PX)
+
+        // 端到端核对最窄画布：空行的单栏角色牌表 bandWidth 最小，白框（文字宽 + 左右内边距 20×2）
+        // 必须留在画布内容区里，右缘最多到 bandWidth + 4（画布宽 = bandWidth + 2×(24+2)，两侧页边距 24）
+        val bandWidth = layoutFor(buildCharTableSpec(summary(), "u", emptyList(), signature = long), charTable = true)
+            .bandWidthPx
+        assertTrue("白框 ${width + 40} 超出画布内容宽 $bandWidth", width + 2 * 20 <= bandWidth + 4)
+    }
+
+    @Test
+    fun `签名压掉换行且截断不劈开代理对`() {
+        // 白框只有一行高 ⇒ 换行/连续空白压成单个空格
+        assertEquals("🌊签名 第二行", exportSignatureText("  🌊签名 \n 第二行  "))
+
+        // 签名里常带 emoji（代理对）：按 char 截断会留下孤立代理对 ⇒ 画出豆腐块
+        val longEmoji = "🌊".repeat(200)
+        val clipped = exportSignatureText(longEmoji)
+        assertTrue("应截断：${clipped.length}", clipped.length < longEmoji.length)
+        assertTrue("应以省略号收尾：$clipped", clipped.endsWith("…"))
+        val body = clipped.dropLast(1)
+        assertTrue("截断后不能是空串", body.isNotEmpty())
+        assertEquals(
+            "截断点必须落在码点边界（代理对成对）",
+            body.length / 2,
+            Character.codePointCount(body, 0, body.length),
+        )
+    }
+
     @Test
     fun `胶囊按参考图顺序且为已得斜杠总数`() {
         val badges = buildCharTableSpec(summary(), "u", emptyList()).badges
@@ -139,6 +208,29 @@ class CardStatsExportTest {
         val fallback = buildCharTableSpec(summary(avatarCardTotal = 132, actionCardTotal = 800), "u", emptyList()).badges
         assertEquals("角色牌 132/132", fallback[0])
         assertFalse(fallback.any { it.endsWith("/0") })
+    }
+
+    @Test
+    fun `图鉴总数经 summary 落到胶囊分母`() {
+        // 端到端口径：已得 143 / 图鉴 147 ⇒ 胶囊显示"未收集满"，不再出现 143/143 的假全收集
+        val stats = GcgStats(
+            nickname = "Clin",
+            level = 45,
+            avatarCardNumGained = 143,
+            actionCardNumGained = 800,
+        )
+        val lists = prepareCardLists(listOf(char(useCount = 3, proficiency = 3)))
+        val badges = buildCharTableSpec(
+            computeGcgSummary(stats, lists, WikiCardTotals(avatarTotal = 147, actionTotal = 941)),
+            "u", emptyList(),
+        ).badges
+        assertEquals("角色牌 143/147", badges[0])
+        assertEquals("行动牌 800/941", badges[1])
+
+        // 图鉴接口失败（总数 0）⇒ 退回已得数，分母仍不为 0
+        val offline = buildCharTableSpec(computeGcgSummary(stats, lists), "u", emptyList()).badges
+        assertEquals("角色牌 143/143", offline[0])
+        assertFalse(offline.any { it.endsWith("/0") })
     }
 
     @Test

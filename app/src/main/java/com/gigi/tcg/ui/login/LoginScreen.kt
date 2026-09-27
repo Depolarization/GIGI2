@@ -1,10 +1,14 @@
 // 登录/添加账户页（设计 §4.5：全屏 Scaffold，非弹窗）—— V27-E 按 M3 重构：
 // CenterAlignedTopAppBar（标题按分支：首登「扫码登录」/ 添加账户「添加账户」，
 // navigationIcon 返回箭头仅添加账户分支）+ 可滚动单列，区块间距走 M3 阶梯 24dp、
-// 卡内 12/16dp、按钮与说明文字 8dp；「重新生成二维码」为二维码卡内次要 TextButton
+// 卡内 12/16dp、按钮与说明文字 8dp；「重新生成二维码」为二维码卡下方次要 TextButton
 // （失败态才升级为主按钮重试），「保存」是唯一主动作按钮（保存中转进度），
 // 其下紧贴自动删除灰色小字说明。落盘编排（PNG、Pictures/GIGI/二维码/、换码后自动删图）
 // 收敛在 LoginViewModel.saveQrToAlbum，页面只做展示与 Snackbar 反馈。
+// V28-D：① 页底两段说明文本（首登凭据去向 / 添加账户多账户共存）撤出本页——与「关于」
+// 对话框重复，正文归 about 段；② 服务器二选一从 FilterChip 换成撑满的 SegmentedButton
+// （与保存卡面弹窗的普通/动态切换同款控件，chip 居中悬浮不像一个「开关」）；
+// ③ 二维码卡内只放码本身（换码按钮移出卡外），保证码相对卡片四边等距、几何居中。
 
 package com.gigi.tcg.ui.login
 
@@ -14,8 +18,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -32,12 +36,14 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -144,35 +150,52 @@ fun LoginScreen(
                 )
             }
 
-            // ③ 服务器二选一（切服即重开二维码，8dp 为 M3 同行控件间距）
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ServerId.ALL.forEach { option ->
-                    FilterChip(
+            // ③ 服务器二选一（切服即重开二维码）。用 SegmentedButton 而非 chip：整行撑满、
+            //    两段等宽拼接，视觉上就是一个「二选一」开关；chip 悬浮居中不像互斥选择。
+            //    itemShape 必须带 index/count，否则两段都是全圆角、拼不起来。
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                ServerId.ALL.forEachIndexed { index, option ->
+                    SegmentedButton(
                         selected = option == server,
                         onClick = { viewModel.selectServer(option) },
+                        shape = SegmentedButtonDefaults.itemShape(
+                            index = index,
+                            count = ServerId.ALL.size,
+                        ),
                         label = { Text(option.displayName()) },
                     )
                 }
             }
 
-            // ④ 二维码卡：图 / 生成中占位 / 已扫描蒙层 + 卡内次要换码入口
-            Card(Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    QrBox(state)
+            // ④ 二维码区块：卡内只放码（图 / 生成中占位 / 已扫描蒙层），「重新生成」移出卡外。
+            //    卡内套一层 padding(16dp) + aspectRatio(1f) 的方形 Box，码 fillMaxSize 贴满方形内容区：
+            //    码是正方形位图，Fit 缩放后正好等于内容区，四边留白恒等于 16dp、几何居中。
+            //    换码按钮留在卡内会把码往上挤（上下不对称），故拆成两个区块。
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Card(Modifier.fillMaxWidth()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        QrBox(state)
+                    }
+                }
 
-                    // 「重新生成二维码」放卡内、待扫状态下的次要 TextButton：
-                    // 与「保存」层级分离（保存才是本页唯一主动作）；失败态另有主按钮兜底。
-                    val qr = state as? LoginUiState.Qr
-                    if (qr != null && qr.phase == QrPhase.Waiting) {
-                        TextButton(onClick = { viewModel.retry() }) {
-                            Text(stringResource(R.string.action_regenerate_qr))
-                        }
+                // 「重新生成二维码」紧贴卡下的次要 TextButton：与「保存」层级分离
+                // （保存才是本页唯一主动作）；失败态另有主按钮兜底。
+                val qr = state as? LoginUiState.Qr
+                if (qr != null && qr.phase == QrPhase.Waiting) {
+                    TextButton(
+                        onClick = { viewModel.retry() },
+                        modifier = Modifier.padding(top = 4.dp),
+                    ) {
+                        Text(stringResource(R.string.action_regenerate_qr))
                     }
                 }
             }
@@ -232,37 +255,30 @@ fun LoginScreen(
                     Text(stringResource(R.string.action_regenerate_qr))
                 }
             }
-
-            // ⑦ 底部说明（首登解释凭据去向 / 添加账户解释多账户共存）
-            Text(
-                stringResource(
-                    if (addAccount) R.string.login_add_account_hint else R.string.login_qr_hint
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
+            // 原 ⑦「底部说明」（首登凭据去向 / 添加账户多账户共存）撤出本页：
+            // 与主页右上角「关于」对话框重复，V28-D 起归 about 段（数据来源 / 使用要点）。
         }
     }
 }
 
-/** 二维码展示框：有码画码（已扫描叠蒙层徽标）；无码画占位——失败留空、其余显示 loading */
+/** 二维码展示框：有码画码（已扫描叠蒙层徽标）；无码画占位——失败留空、其余显示 loading。
+ *  尺寸由父级方形 Box 决定（fillMaxSize），本组件不再自持固定边长——四边等距由父级 padding 保证 */
 @Composable
 private fun QrBox(state: LoginUiState) {
-    Box(contentAlignment = Alignment.Center) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val qr = state as? LoginUiState.Qr
         if (qr != null) {
             Image(
                 bitmap = qr.payload,
                 contentDescription = stringResource(R.string.login_qr_image_desc),
-                modifier = Modifier.size(260.dp),
+                modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit,
             )
             if (qr.phase == QrPhase.Scanned) {
                 // M3 scrim：半透明黑遮罩 + 白色对勾徽标，明示「已扫、等手机确认」
                 Box(
                     modifier = Modifier
-                        .size(260.dp)
+                        .fillMaxSize()
                         .background(Color.Black.copy(alpha = 0.7f)),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -286,7 +302,7 @@ private fun QrBox(state: LoginUiState) {
         } else {
             Box(
                 modifier = Modifier
-                    .size(260.dp)
+                    .fillMaxSize()
                     .background(Color.White, RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center,
             ) {

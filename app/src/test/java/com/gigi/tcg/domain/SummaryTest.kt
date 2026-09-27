@@ -87,7 +87,35 @@ class SummaryTest {
         assertEquals("0%", empty.modifyPercent)
     }
 
-    // ---- 图鉴总数（导出图胶囊 `角色牌 147/147` 的分母）----
+    // ---- 图鉴总数（导出图胶囊 `角色牌 143/147` 的分母）----
+
+    @Test
+    fun `分母优先取图鉴真实总数`() {
+        // 已得 30/120，图鉴 147/941 ⇒ 胶囊必须是 30/147，不能因为服务端字段缺失就显示"全收集"
+        val s = computeGcgSummary(stats, lists, WikiCardTotals(avatarTotal = 147, actionTotal = 941))
+        assertEquals(147, s.avatarCardTotal)
+        assertEquals(941, s.actionCardTotal)
+        assertEquals(30, s.avatarCardNum)
+        assertEquals(120, s.actionCardNum)
+        // 三级优先级：图鉴 > 服务端 total（若哪天真返回）> 已得数
+        val priority = computeGcgSummary(
+            stats.copy(avatarCardNumTotal = 999, actionCardNumTotal = 999),
+            lists,
+            WikiCardTotals(avatarTotal = 147, actionTotal = 941),
+        )
+        assertEquals(147, priority.avatarCardTotal)
+        assertEquals(941, priority.actionCardTotal)
+    }
+
+    @Test
+    fun `图鉴总数拿不到时回退已得数（分母不为0）`() {
+        val s = computeGcgSummary(stats, lists, WikiCardTotals())
+        assertEquals(30, s.avatarCardTotal)
+        assertEquals(120, s.actionCardTotal)
+        val zeroed = computeGcgSummary(stats, lists, WikiCardTotals(0, 0))
+        assertEquals(30, zeroed.avatarCardTotal)
+        assertEquals(120, zeroed.actionCardTotal)
+    }
 
     @Test
     fun `总数缺失时兜底为已得数`() {
@@ -112,6 +140,7 @@ class SummaryTest {
 
     @Test
     fun `总数正常时直接采用服务端值`() {
+        // 图鉴总数缺省（未传参）时，服务端 total 字段仍是次级来源
         val s = computeGcgSummary(
             stats.copy(avatarCardNumTotal = 147, actionCardNumTotal = 941),
             lists,
@@ -126,5 +155,69 @@ class SummaryTest {
     @Test
     fun `字段名以 action_card_num_gained 为准`() {
         assertEquals(120, s.actionCardNum)
+    }
+
+    // ---- basicInfo 官方总数（分母首选来源）：图鉴会去重手牌，口径不可靠 ----
+
+    @Test
+    fun `分母优先取 basicInfo 官方总数（图鉴去重数次之）`() {
+        // 图鉴去重后只有 149/568（把未收集画成全收集的根源），basicInfo 给 147/941 ⇒ 必须用 147/941
+        val s = computeGcgSummary(
+            stats,
+            lists,
+            wikiTotals = WikiCardTotals(avatarTotal = 149, actionTotal = 568),
+            officialTotals = WikiCardTotals(avatarTotal = 147, actionTotal = 941),
+        )
+        assertEquals(147, s.avatarCardTotal)
+        assertEquals(941, s.actionCardTotal)
+        // 分子仍走 cardList 的已得数，与分母各走各的口径
+        assertEquals(30, s.avatarCardNum)
+        assertEquals(120, s.actionCardNum)
+    }
+
+    @Test
+    fun `basicInfo 为空时回退图鉴数`() {
+        val s = computeGcgSummary(
+            stats,
+            lists,
+            wikiTotals = WikiCardTotals(avatarTotal = 149, actionTotal = 568),
+            officialTotals = WikiCardTotals(),
+        )
+        assertEquals(149, s.avatarCardTotal)
+        assertEquals(568, s.actionCardTotal)
+    }
+
+    @Test
+    fun `basicInfo 只回一半字段时按级降级不互相污染`() {
+        // avatar 有官方值 ⇒ 用官方；action 缺字段（0）⇒ 该级跳过，落到图鉴那一级
+        val s = computeGcgSummary(
+            stats,
+            lists,
+            wikiTotals = WikiCardTotals(avatarTotal = 149, actionTotal = 568),
+            officialTotals = WikiCardTotals(avatarTotal = 147, actionTotal = 0),
+        )
+        assertEquals(147, s.avatarCardTotal)
+        assertEquals(568, s.actionCardTotal)
+    }
+
+    @Test
+    fun `basicInfo 与图鉴都缺失时回退服务端 total 再回退已得数`() {
+        val withServerTotal = computeGcgSummary(
+            stats.copy(avatarCardNumTotal = 150, actionCardNumTotal = 950),
+            lists,
+            wikiTotals = WikiCardTotals(),
+            officialTotals = WikiCardTotals(),
+        )
+        assertEquals(150, withServerTotal.avatarCardTotal)
+        assertEquals(950, withServerTotal.actionCardTotal)
+
+        val lastResort = computeGcgSummary(
+            stats,
+            lists,
+            wikiTotals = WikiCardTotals(),
+            officialTotals = WikiCardTotals(),
+        )
+        assertEquals(30, lastResort.avatarCardTotal)
+        assertEquals(120, lastResort.actionCardTotal)
     }
 }
