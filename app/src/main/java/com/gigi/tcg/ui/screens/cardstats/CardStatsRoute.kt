@@ -1,22 +1,19 @@
 // 卡牌使用详情页面：移植 web/src/pages/CardStatsPage.tsx 的版式与文案（§5.6）。
-// 两 Tab（角色牌/行动牌）+ 角色牌三键排序 + 行动牌类型筛选 + 玩家信息卡可展开详情
+// 两 Tab（角色牌/行动牌，TabRow 指示器 + HorizontalPager 左右滑动，交互照抄 RankRoute）
+// + 角色牌三键排序 + 行动牌类型筛选 + 玩家信息卡可展开详情
 // （默认折叠，分组对齐 web 的"行动牌详情 / 足迹"）。搜索框本版未含（派单范围外）。
+// V27：一页只呈现一张表 ⇒ 个人信息卡下方那对导出按钮删除，顶栏行只留一个「导出当前图表」
+// 图标按钮（语义=导出当前 tab 对应的表）；导出流程本身抽到 CardStatsExportAction.kt。
 
 package com.gigi.tcg.ui.screens.cardstats
 
 import android.app.Application
-import android.graphics.Bitmap
-import android.os.Environment
 import androidx.annotation.StringRes
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.horizontalScroll
@@ -25,35 +22,36 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier as ComposeModifier
 import androidx.compose.ui.platform.LocalContext
@@ -73,28 +71,12 @@ import com.gigi.tcg.di.AppContainer
 import com.gigi.tcg.domain.GcgCard
 import com.gigi.tcg.domain.GcgSummary
 import com.gigi.tcg.domain.calcPercent
-import com.gigi.tcg.i18n.LocaleStrings
 import com.gigi.tcg.ui.components.Avatar
 import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
-import com.gigi.tcg.ui.dialogs.cardcover.CardImageSaver
-import com.gigi.tcg.ui.dialogs.cardcover.EXPORT_DIR_ACTION
-import com.gigi.tcg.ui.dialogs.cardcover.EXPORT_DIR_CHAR
-import com.gigi.tcg.ui.dialogs.cardcover.GIGI_ALBUM_NAME
-import com.gigi.tcg.ui.dialogs.cardcover.buildAlbumRelativePath
-import com.gigi.tcg.ui.dialogs.cardcover.exportDateText
-import com.gigi.tcg.ui.export.computeTableLayout
-import com.gigi.tcg.ui.export.renderTableBitmap
 import com.gigi.tcg.ui.theme.Motion
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-
-private val TAB_LABEL_IDS = listOf(R.string.card_type_character, R.string.card_type_action)
 
 /** 统计数值列定义：固定列宽 + 右对齐 + 等宽数字，保证四列纵向对齐。 */
 private data class StatColumn(@StringRes val labelRes: Int, val width: Dp)
@@ -151,183 +133,102 @@ private fun CardStatsContent(
     onShowToast: (String) -> Unit,
     modifier: ComposeModifier,
 ) {
-    var tabIndex by rememberSaveable { mutableIntStateOf(0) }
+    val context = LocalContext.current
     // 指示器只由下拉手势（refresh()）驱动；不能用 state.loading——
     // 其默认值为 true，冷启动首屏会与居中 LoadingView 叠成两个圈。
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
 
-    val appContext = LocalContext.current.applicationContext
-    val coroutineScope = rememberCoroutineScope()
-    // 两个导出按钮各自独立的 loading 态（点哪个转哪个，另一个仍可点）；
-    // 底层渲染用互斥锁串行：行动牌 1200px 双栏长图降级 RGB_565 后仍约 54.5MB，
-    // 两张巨图同时分配在低端机上仍可能 OOM。
-    var exportingChar by remember { mutableStateOf(false) }
-    var exportingAction by remember { mutableStateOf(false) }
-    val exportMutex = remember { Mutex() }
+    val pagerState = rememberPagerState(pageCount = { STATS_TAB_COUNT })
+    // tab 点击 → 翻页：与 RankRoute / CardWikiRoute 同一写法（rememberCoroutineScope + launch）
+    val scope = rememberCoroutineScope()
+    // 一页一张表 ⇒ 顶栏单按钮恒导出当前页对应的表
+    val charTable = isCharTable(pagerState.currentPage)
+    val exportAction = rememberStatsExporter(
+        context = context,
+        uid = uid,
+        charTable = charTable,
+        cards = if (charTable) state.charList else state.actionList,
+        summary = state.summary,
+        onResult = onShowToast,
+    )
 
-    // 角色牌/行动牌各出一张长图（DESIGN-V8 决策 4）。导出的是全量列表，
-    // 不跟随本页的排序按钮与类型筛选（产品决策：分享出去的图要完整可比对）。
-    val startExport: (Boolean) -> Unit = { charTable ->
-        val summary = state.summary
-        val busy = if (charTable) exportingChar else exportingAction
-        if (summary != null && !busy) {
-            if (charTable) exportingChar = true else exportingAction = true
-            // 文件名带导出日期、按表类型落子目录（Toast 与落盘同源：同一个三参构造器）
-            val subDir = if (charTable) EXPORT_DIR_CHAR else EXPORT_DIR_ACTION
-            coroutineScope.launch {
-                try {
-                    withContext(Dispatchers.Default) {
-                        exportMutex.withLock {
-                            val cards = if (charTable) state.charList else state.actionList
-                            val spec = if (charTable) {
-                                buildCharTableSpec(summary, uid, cards)
-                            } else {
-                                buildActionTableSpec(summary, uid, cards)
-                            }
-                            val layout = computeTableLayout(
-                                spec, exportImageWidth(charTable), exportTwoColumnThreshold(charTable),
-                            )
-                            val bitmap = renderTableBitmap(spec, layout)
-                            try {
-                                // quality 走 CardImageSaver 默认 q72：1200px 新规格比旧 1600px 长图体积更小
-                                CardImageSaver(appContext).saveBitmap(
-                                    bitmap,
-                                    baseName = "${spec.title}_${exportDateText()}",
-                                    format = Bitmap.CompressFormat.JPEG,
-                                    subDir = subDir,
-                                )
-                            } finally {
-                                // 回收放 finally：saveBitmap 抛异常也不能漏大图（长图可达数百 KB×行数像素）
-                                bitmap.recycle()
-                            }
-                        }
-                    }
-                    // 路径与 CardImageSaver 落盘同源（relativePathFor(subDir) 用的就是这个三参构造器）
-                    onShowToast(
-                        LocaleStrings.get(
-                            R.string.toast_saved_to_album_path,
-                            buildAlbumRelativePath(Environment.DIRECTORY_PICTURES, GIGI_ALBUM_NAME, subDir),
-                        ),
-                    )
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    // CardImageSaver 抛的 IOException message 已是中文可读文案（含缺存储权限提示）
-                    onShowToast(e.message ?: LocaleStrings.get(R.string.error_export_failed))
-                } finally {
-                    // 各自复位：只影响自己按钮的可用性/文案
-                    if (charTable) exportingChar = false else exportingAction = false
-                }
+    Column(modifier = modifier.fillMaxSize()) {
+        // 顶栏行（页内）：宿主 Scaffold 的 TopAppBar 由 GigiNavHost 统一持有且不在本棒
+        // 可改文件内，故导出入口按「顶栏右缘动作」样式落在页内右上角；三页顶栏一致性的
+        // 真正合并（把按钮上移到共享 TopAppBar）留给集成方，见 A2.md 遗留项。
+        Row(
+            modifier = ComposeModifier
+                .fillMaxWidth()
+                .padding(end = 4.dp, top = 4.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            IconButton(
+                onClick = exportAction.run,
+                enabled = exportAction.enabled && !exportAction.exporting,
+            ) {
+                Icon(
+                    Icons.Outlined.Download,
+                    contentDescription = stringResource(R.string.stats_export_current),
+                )
             }
         }
-    }
 
-    PullToRefreshBox(
-        isRefreshing = refreshing,
-        onRefresh = viewModel::refresh,
-        modifier = modifier.fillMaxSize(),
-    ) {
-        Column(
-            ComposeModifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-        ) {
-            state.summary?.let { summary ->
+        state.summary?.let { summary ->
+            Column(ComposeModifier.padding(horizontal = 16.dp)) {
                 PlayerInfoCard(summary, state.avatarUrl, detailOpen = state.detailOpen, onToggle = viewModel::toggleDetail)
             }
+        }
 
-            // 按钮行上下间距显式取 14/10（原先随 spacedBy 各 12）：按钮高 40dp、TabRow 高 48dp，
-            // 文字都在各自容器内垂直居中 ⇒ 等值外边距时，下方"按钮文字↔Tab 文字"视觉间距
-            // 比上方"Card 边缘↔按钮文字"大 (48-40)/2 = 4dp。上+2/下-2 后两侧相等：
-            // 上 = 14+(40-文字高)/2，下 = 10+(48-文字高)/2，差值恰好抵消。
-            Row(
-                modifier = ComposeModifier
-                    .fillMaxWidth()
-                    .padding(top = 14.dp, bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ExportButton(
-                    exporting = exportingChar,
-                    labelRes = R.string.stats_export_char,
-                    enabled = state.summary != null,
-                    onClick = { startExport(true) },
-                    modifier = ComposeModifier.weight(1f),
+        TabRow(
+            selectedTabIndex = pagerState.currentPage.coerceIn(0, STATS_TAB_COUNT - 1),
+            indicator = { tabPositions ->
+                val lastIndex = STATS_TAB_COUNT - 1
+                // 连续页码 = 最近页 + 相对偏移（currentPageOffsetFraction ∈ [-0.5, 0.5]），
+                // 用连续量插值 ⇒ 正向/反向滑动都跟手（V7G 修反向跳变：旧代码把负 fraction
+                // coerceIn(0f, 1f) 夹成 0，反向拖动时 indicator 停在原 tab 直到翻页才跳）。
+                val continuous = (pagerState.currentPage + pagerState.currentPageOffsetFraction)
+                    .coerceIn(0f, lastIndex.toFloat())
+                val lo = continuous.toInt().coerceIn(0, lastIndex) // 非负 ⇒ toInt() 即 floor
+                val hi = (lo + 1).coerceAtMost(lastIndex)
+                val t = (continuous - lo).coerceIn(0f, 1f)
+                val from = tabPositions[lo]
+                val to = tabPositions[hi]
+                val leftDp: Dp = from.left + (to.left - from.left) * t
+                val rightDp: Dp = from.right + (to.right - from.right) * t
+                // 必须与官方 tabIndicatorOffset 同构：先 fillMaxWidth + wrapContentSize(BottomStart)
+                // 解开 TabRow 传给 indicator 的固定宽度约束（整行宽），否则显式宽度修饰符
+                // 默认 enforceIncoming=true，被 constrainWidth 夹到整行宽
+                // ⇒ indicator 横贯整个 TabRow（V7G 修的正是 V7A 的这个回归）。
+                TabRowDefaults.SecondaryIndicator(
+                    ComposeModifier
+                        .fillMaxWidth()
+                        .wrapContentSize(Alignment.BottomStart)
+                        .offset { IntOffset(leftDp.roundToPx(), 0) }
+                        .width(rightDp - leftDp),
                 )
-                ExportButton(
-                    exporting = exportingAction,
-                    labelRes = R.string.stats_export_action,
-                    enabled = state.summary != null,
-                    onClick = { startExport(false) },
-                    modifier = ComposeModifier.weight(1f),
+            },
+        ) {
+            // 本页数据首屏一次性全量加载、tab 只切展示 ⇒ 不需要 RankRoute 那套「落定页」的数据加载回调；
+            // indicator 实时跟随用 currentPage（勿改成落定页，否则滑动时指示器会滞后一整段动画）。
+            STATS_TAB_LABEL_RES.forEachIndexed { index, labelRes ->
+                Tab(
+                    selected = pagerState.currentPage == index,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
+                    text = { Text(stringResource(labelRes)) },
                 )
             }
+        }
 
-            TabRow(selectedTabIndex = tabIndex) {
-                TAB_LABEL_IDS.forEachIndexed { index, labelRes ->
-                    Tab(
-                        selected = tabIndex == index,
-                        onClick = { tabIndex = index },
-                        text = { Text(stringResource(labelRes)) },
-                    )
-                }
-            }
-
-            AnimatedContent(
-                targetState = tabIndex,
-                transitionSpec = {
-                    (slideInHorizontally(Motion.emphasizedSpring<IntOffset>()) { it / 6 } +
-                        fadeIn(Motion.emphasized<Float>())) togetherWith
-                        (slideOutHorizontally(Motion.emphasizedSpring<IntOffset>()) { -it / 6 } +
-                            fadeOut(Motion.emphasized<Float>()))
-                },
-                modifier = ComposeModifier.padding(top = 12.dp),
-                label = "cardStatsTab",
-            ) { tab ->
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (tab == 0) {
-                        SingleChoiceSegmentedButtonRow(modifier = ComposeModifier.fillMaxWidth()) {
-                            CharSortKey.entries.forEachIndexed { index, key ->
-                                SegmentedButton(
-                                    selected = state.charSort == key,
-                                    onClick = { viewModel.setCharSort(key) },
-                                    shape = SegmentedButtonDefaults.itemShape(index = index, count = CharSortKey.entries.size),
-                                ) {
-                                    Text(stringResource(key.labelRes))
-                                }
-                            }
-                        }
-                        if (state.sortedCharList.isEmpty()) {
-                            NoMatchHint(R.string.stats_no_match_char)
-                        } else {
-                            CharTableHeader()
-                            state.sortedCharList.forEach { card ->
-                                CharCardRow(card, charTotalUse = state.charTotalUse)
-                            }
-                        }
-                    } else {
-                        Row(
-                            modifier = ComposeModifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            ActionTypeFilter.entries.forEach { filter ->
-                                FilterChip(
-                                    selected = state.actionType == filter,
-                                    onClick = { viewModel.setActionType(filter) },
-                                    label = { Text(stringResource(filter.labelRes)) },
-                                )
-                            }
-                        }
-                        if (state.filteredActionList.isEmpty()) {
-                            NoMatchHint(R.string.stats_no_match_action)
-                        } else {
-                            state.filteredActionList.forEach { card ->
-                                ActionCardRow(card)
-                            }
-                        }
-                    }
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = viewModel::refresh,
+            modifier = ComposeModifier.fillMaxSize(),
+        ) {
+            HorizontalPager(state = pagerState, modifier = ComposeModifier.fillMaxSize()) { page ->
+                if (isCharTable(page)) {
+                    CharStatsPage(state, viewModel)
+                } else {
+                    ActionStatsPage(state, viewModel)
                 }
             }
         }
@@ -335,22 +236,66 @@ private fun CardStatsContent(
 }
 
 @Composable
-private fun ExportButton(
-    exporting: Boolean,
-    @StringRes labelRes: Int,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    modifier: ComposeModifier,
-) {
-    OutlinedButton(
-        onClick = onClick,
-        enabled = enabled && !exporting,
-        modifier = modifier,
+private fun CharStatsPage(state: StatsUiState, viewModel: CardStatsViewModel) {
+    Column(
+        ComposeModifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            stringResource(if (exporting) R.string.stats_exporting else labelRes),
-            maxLines = 1,
-        )
+        SingleChoiceSegmentedButtonRow(modifier = ComposeModifier.fillMaxWidth()) {
+            CharSortKey.entries.forEachIndexed { index, key ->
+                SegmentedButton(
+                    selected = state.charSort == key,
+                    onClick = { viewModel.setCharSort(key) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = CharSortKey.entries.size),
+                ) {
+                    Text(stringResource(key.labelRes))
+                }
+            }
+        }
+        if (state.sortedCharList.isEmpty()) {
+            NoMatchHint(R.string.stats_no_match_char)
+        } else {
+            CharTableHeader()
+            state.sortedCharList.forEach { card ->
+                CharCardRow(card, charTotalUse = state.charTotalUse)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionStatsPage(state: StatsUiState, viewModel: CardStatsViewModel) {
+    Column(
+        ComposeModifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = ComposeModifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ActionTypeFilter.entries.forEach { filter ->
+                FilterChip(
+                    selected = state.actionType == filter,
+                    onClick = { viewModel.setActionType(filter) },
+                    label = { Text(stringResource(filter.labelRes)) },
+                )
+            }
+        }
+        if (state.filteredActionList.isEmpty()) {
+            NoMatchHint(R.string.stats_no_match_action)
+        } else {
+            state.filteredActionList.forEach { card ->
+                ActionCardRow(card)
+            }
+        }
     }
 }
 

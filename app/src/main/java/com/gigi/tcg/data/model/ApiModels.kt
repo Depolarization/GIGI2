@@ -113,6 +113,9 @@ data class GcgStats(
     @SerialName("level") val level: Int? = null,
     @SerialName("avatar_card_num_gained") val avatarCardNumGained: Int? = null,
     @SerialName("action_card_num_gained") val actionCardNumGained: Int? = null,
+    /** 图鉴总数（导出图胶囊 `角色牌 147/147` 的分母）；老接口无此字段 ⇒ null */
+    @SerialName("avatar_card_num_total") val avatarCardNumTotal: Int? = null,
+    @SerialName("action_card_num_total") val actionCardNumTotal: Int? = null,
 )
 
 @Serializable

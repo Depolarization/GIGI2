@@ -18,34 +18,29 @@ import com.gigi.tcg.ui.export.TableColumn
 import com.gigi.tcg.ui.export.TableSpec
 import java.util.Locale
 
-/**
- * 长图固定宽度（px，与屏幕密度无关，保证分享出去的图规格统一）。
- * 按表区分（照抄参考图的表宽）：角色牌单栏 6 列 822px；行动牌 1444px（>60 行双栏，每栏槽位 722）。
- * 表格本身还要减去 TableImageRenderer.PAGE_MARGIN_PX×2 的页边距：770 / 670。
- * 行动牌取 1444 是参考图 B 的原宽：1200 时「使用率%」表头被省略号截断、9 字卡名折成 8+1（单字残行看起来像缩进）。
- */
-internal const val EXPORT_CHAR_IMAGE_WIDTH_PX = 822
-internal const val EXPORT_ACTION_IMAGE_WIDTH_PX = 1444
-
 /** 行动牌行数超过它就分双栏（对齐参考图） */
 internal const val EXPORT_TWO_COLUMN_THRESHOLD = 60
 
 /**
- * 角色牌恒单栏。147 行上限 ⇒ 单栏高 7604px / ARGB 约 23.8MB，可控；
- * 若套 60 行阈值折成双栏，每栏槽位仅 411px（表宽 359px）装 6 列在约束下无解
- * （5 列 ×40px 保底就吃掉 200px，名称列只剩 159px / avail 135，单行不足 7 个汉字）。
+ * 角色牌恒单栏：参考图的角色牌表就是单栏（147 行），
+ * 折成双栏只会让每栏再吃掉 15px 栏间距 + 4px 边框，长牌名换来的宽度反而被浪费。
  */
 internal const val EXPORT_CHAR_TWO_COLUMN_THRESHOLD = Int.MAX_VALUE
-
-/** 按表选择画布宽：角色牌 822（单栏 6 列），行动牌 1444（双栏每栏 722） */
-internal fun exportImageWidth(charTable: Boolean): Int =
-    if (charTable) EXPORT_CHAR_IMAGE_WIDTH_PX else EXPORT_ACTION_IMAGE_WIDTH_PX
 
 /** 按表选择双栏阈值：角色牌恒单栏，行动牌超 60 行双栏 */
 internal fun exportTwoColumnThreshold(charTable: Boolean): Int =
     if (charTable) EXPORT_CHAR_TWO_COLUMN_THRESHOLD else EXPORT_TWO_COLUMN_THRESHOLD
 
 private const val UNKNOWN_CARD_NAME = "未知"
+
+/**
+ * 数值列宽度下限 = 表头宽 + 20（表头 4 个全角字 = 80px ⇒ 100；含半角 `%` 的表头 ≈91 ⇒ 111）。
+ * 为什么还要下限：列宽按内容实测，但「出场数」这一列可能整列都是 `1`/`0.000` 之类的短值，
+ * 实测只给到 60px 就把表头挤折行 —— 参考图靠 nowrap 表头天然撑开，我们必须在 minWidthPx 里补回来。
+ * 20 = 左右内边距，使下限本身就把 padding 算进去。
+ */
+private const val HEADER_MIN_WIDTH_PX = 100
+private const val HEADER_PERCENT_MIN_WIDTH_PX = 111
 
 /**
  * 文案通道：本文件是**纯函数层**（JVM 单测直接调 buildCharTableSpec，见 CardStatsExportTest），
@@ -67,18 +62,15 @@ internal fun buildCharTableSpec(summary: GcgSummary, uid: String, cards: List<Gc
     // 使用次数为 0（含 null）的牌不进表（用户要求减少绘制压力）；被滤掉的牌对 totalUse 贡献为 0，
     // 分母口径不受影响。序号按过滤后的下标重新连续，排序沿用服务端返回顺序。
     val visible = cards.filter { (it.useCount ?: 0) > 0 }
-    // 权重 = 目标列宽 − MIN_COLUMN_WIDTH_PX(40)，且 Σ目标列宽精确 == 表宽 770 ⇒ slack = 770 − 6×40 = 530 = Σweight。
-    // 实算列宽 [60, 200, 130, 130, 130, 120]（Node 按 IEEE-754 复刻 distributeColumnWidths 逐位核对）：
-    // # avail 36 放得下 3 位序号（147 行）；名称 avail 176 ⇒ 单行 8 个汉字（角色名普遍 2~4 字，
-    // 232px 时右侧大片留白，按用户反馈收窄）；四个数值列全部满足「表头 + 8% 余量」（见 CardStatsExportTest）。
-    // # 列左对齐（表头也随列 START），其余列（含名称）居中 —— 照抄参考图。
+    // 列宽由渲染层按「该列 max(表头, 各单元格) + 内边距」实测（nowrap ⇒ 长牌名如
+    // 「阿佩普的绿洲守望者」永不折行）；# 列左对齐（表头也居中，照抄参考图），其余列居中。
     val columns = listOf(
-        TableColumn("#", 20f, CellAlign.START),
-        TableColumn(exportText(R.string.export_col_name, "名称"), 160f, CellAlign.CENTER),
-        TableColumn(exportText(R.string.export_col_appear_count, "出场数"), 90f, CellAlign.CENTER),
-        TableColumn(exportText(R.string.export_col_appear_rate, "出场率%"), 90f, CellAlign.CENTER),
-        TableColumn(exportText(R.string.export_col_win_rate, "胜率%"), 90f, CellAlign.CENTER),
-        TableColumn(exportText(R.string.export_col_win_count, "胜局数"), 80f, CellAlign.CENTER),
+        TableColumn("#", CellAlign.START),
+        TableColumn(exportText(R.string.export_col_name, "名称"), CellAlign.CENTER),
+        TableColumn(exportText(R.string.export_col_appear_count, "出场数"), CellAlign.CENTER, HEADER_MIN_WIDTH_PX),
+        TableColumn(exportText(R.string.export_col_appear_rate, "出场率%"), CellAlign.CENTER, HEADER_PERCENT_MIN_WIDTH_PX),
+        TableColumn(exportText(R.string.export_col_win_rate, "胜率%"), CellAlign.CENTER, HEADER_PERCENT_MIN_WIDTH_PX),
+        TableColumn(exportText(R.string.export_col_win_count, "胜局数"), CellAlign.CENTER, HEADER_MIN_WIDTH_PX),
     )
     val rows = visible.mapIndexed { index, card ->
         val useCount = card.useCount ?: 0
@@ -94,29 +86,27 @@ internal fun buildCharTableSpec(summary: GcgSummary, uid: String, cards: List<Gc
     }
     return TableSpec(
         title = exportText(R.string.export_char_title, "角色牌数据"),
-        subtitle = buildSubtitle(summary, uid),
+        nickname = buildNicknameLine(summary, uid),
+        levelText = exportText(R.string.export_level, "牌手等级 %1\$d", summary.level),
         badges = buildBadges(summary),
+        signature = exportText(R.string.export_signature_placeholder, "暂无签名"),
         columns = columns,
         rows = rows,
-        exportDate = exportDateText(),
+        exportDateText = exportDateText(),
     )
 }
 
 internal fun buildActionTableSpec(summary: GcgSummary, uid: String, cards: List<GcgCard>): TableSpec {
     // 使用率分母 = GcgSummary.actionTotalUse（= Σ行动牌 use_count），与下面的过滤无关，不随行数变化
     val totalUse = summary.actionTotalUse
-    // 权重 = 目标列宽 − MIN_COLUMN_WIDTH_PX(40)，且 Σ目标列宽精确 == 每栏表宽 670 ⇒ slack = 670 − 5×40 = 470 = Σweight。
-    // 实算列宽 [60, 86, 284, 120, 120]（Node 按 IEEE-754 复刻 distributeColumnWidths 逐位核对）：
-    // # avail 36 放得下 3 位序号（941 行）；类别 avail 62 放得下「装备牌」；
-    // 名称 avail 260 ⇒ 单行 13 个汉字，「元素共鸣：交织之火」这类 9 字卡名单行完整（两行合计 26 字）；
-    // 两个数值列 avail 96：表头 4 字 88 / 「使用率%」≈78 都放得下且留 8% 余量，数据放得下 6 位数字与「100.000」。
-    // 1200px 栏宽（表宽 548）下「名称 ≥8 字」与 4 字表头 8% 余量不可兼得 ⇒ 画布回到参考图原宽 1444，二者兼得。
+    // 「类别」列下限 90 = 3 个全角类别名（装备牌/支援牌/事件牌 60）+ 左右内边距 20 + 10 余量，
+    // 其余数值列同角色牌口径（见 HEADER_MIN_WIDTH_PX 注释）。
     val columns = listOf(
-        TableColumn("#", 20f, CellAlign.START),
-        TableColumn(exportText(R.string.export_col_type, "类别"), 46f, CellAlign.CENTER),
-        TableColumn(exportText(R.string.export_col_name, "名称"), 244f, CellAlign.CENTER),
-        TableColumn(exportText(R.string.export_col_use_count, "使用次数"), 80f, CellAlign.CENTER),
-        TableColumn(exportText(R.string.export_col_use_rate, "使用率%"), 80f, CellAlign.CENTER),
+        TableColumn("#", CellAlign.START),
+        TableColumn(exportText(R.string.export_col_type, "类别"), CellAlign.CENTER, 90),
+        TableColumn(exportText(R.string.export_col_name, "名称"), CellAlign.CENTER),
+        TableColumn(exportText(R.string.export_col_use_count, "使用次数"), CellAlign.CENTER, HEADER_MIN_WIDTH_PX),
+        TableColumn(exportText(R.string.export_col_use_rate, "使用率%"), CellAlign.CENTER, HEADER_PERCENT_MIN_WIDTH_PX),
     )
     // 使用次数为 0（含 null）的牌不进表（用户要求减少绘制压力）；序号按过滤后的下标重新连续，
     // 排序沿用服务端返回顺序。
@@ -133,11 +123,13 @@ internal fun buildActionTableSpec(summary: GcgSummary, uid: String, cards: List<
     }
     return TableSpec(
         title = exportText(R.string.export_action_title, "行动牌数据"),
-        subtitle = buildSubtitle(summary, uid),
+        nickname = buildNicknameLine(summary, uid),
+        levelText = exportText(R.string.export_level, "牌手等级 %1\$d", summary.level),
         badges = buildBadges(summary),
+        signature = exportText(R.string.export_signature_placeholder, "暂无签名"),
         columns = columns,
         rows = rows,
-        exportDate = exportDateText(),
+        exportDateText = exportDateText(),
     )
 }
 
@@ -154,13 +146,13 @@ private fun formatExportPercent(part: Int, total: Int): String =
     if (total > 0) String.format(Locale.US, "%.3f", part.toDouble() / total * 100) else "0.000"
 
 /** uid 缺失时只显昵称，不留 " - " 悬空分隔符 */
-private fun buildSubtitle(summary: GcgSummary, uid: String): String =
+private fun buildNicknameLine(summary: GcgSummary, uid: String): String =
     if (uid.isBlank()) summary.nickname else "${summary.nickname} - $uid"
 
-/** 图鉴总数（147 / 941）接口拿不到 ⇒ 按设计文档只显分子 */
+/** 胶囊顺序照参考图：角色牌 已得/总数 → 行动牌 已得/总数 → 场次 → 胜率 */
 private fun buildBadges(summary: GcgSummary): List<String> = listOf(
-    exportText(R.string.export_badge_char, "角色牌 %1\$d", summary.avatarCardNum),
-    exportText(R.string.export_badge_action, "行动牌 %1\$d", summary.actionCardNum),
+    exportText(R.string.export_badge_char_total, "角色牌 %1\$d/%2\$d", summary.avatarCardNum, summary.avatarCardTotal),
+    exportText(R.string.export_badge_action_total, "行动牌 %1\$d/%2\$d", summary.actionCardNum, summary.actionCardTotal),
     exportText(R.string.export_badge_total_games, "共进行 %1\$d 场游戏", summary.totalGames),
     exportText(R.string.export_badge_win_rate, "胜率 %1\$s", summary.winRate),
 )

@@ -1,5 +1,6 @@
-// 长图内容组装的纯 JVM 单测（DESIGN-V8 §7）：列结构、序号、3 位小数、除零口径、类别映射、副标题退化。
-// 不碰 android.graphics——渲染层另由 TableLayoutTest 覆盖。
+// 长图内容组装的纯 JVM 单测（DESIGN-V8 §7）：列结构、序号、3 位小数、除零口径、类别映射、
+// 页眉文案（昵称/等级/胶囊/签名/日期）与 nowrap 列宽口径（🔴 永不折行、永不省略号）。
+// 不碰 android.graphics——渲染层与布局模型另由 TableLayoutTest 覆盖。
 
 package com.gigi.tcg.ui.screens.cardstats
 
@@ -10,30 +11,42 @@ import com.gigi.tcg.domain.GcgCard
 import com.gigi.tcg.domain.GcgSummary
 import com.gigi.tcg.ui.export.CELL_PADDING_PX
 import com.gigi.tcg.ui.export.CellAlign
-import com.gigi.tcg.ui.export.MAX_CELL_LINES
+import com.gigi.tcg.ui.export.FIRST_CELL_LEFT_PADDING_PX
 import com.gigi.tcg.ui.export.PAGE_MARGIN_PX
-import com.gigi.tcg.ui.export.ROW_HEIGHT_PX
+import com.gigi.tcg.ui.export.TABLE_BORDER_PX
 import com.gigi.tcg.ui.export.TEXT_SIZE_BODY_PX
-import com.gigi.tcg.ui.export.TEXT_SIZE_HEADER_PX
 import com.gigi.tcg.ui.export.TableSpec
+import com.gigi.tcg.ui.export.TextMeasurer
 import com.gigi.tcg.ui.export.computeTableLayout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import kotlin.math.ceil
 import org.junit.Test
-import kotlin.math.floor
 
 class CardStatsExportTest {
+
+    // 假 measurer：CJK/全角（code ≥ 0x2E80）= 1.0×字号，其余 = 0.55×字号（与 TableLayoutTest 同口径）
+    private fun textWidth(text: String, textSizePx: Float): Float =
+        text.sumOf { c ->
+            if (c.code >= 0x2E80) textSizePx.toDouble() else textSizePx * 0.55
+        }.toFloat()
+
+    private val measurer = TextMeasurer { text, textSizePx -> textWidth(text, textSizePx) }
 
     private fun summary(
         nickname: String = "Clin",
         actionTotalUse: Int = 0,
+        avatarCardTotal: Int = 147,
+        actionCardTotal: Int = 941,
     ) = GcgSummary(
         nickname = nickname,
         level = 45,
         avatarCardNum = 132,
         actionCardNum = 800,
+        avatarCardTotal = avatarCardTotal,
+        actionCardTotal = actionCardTotal,
         totalGames = 3493L,
         winGames = 2058L,
         winRate = "58.9%",
@@ -49,6 +62,14 @@ class CardStatsExportTest {
 
     private fun char(useCount: Int?, proficiency: Int?, name: String? = "行秋") =
         GcgCard(name = name, cardType = "CardTypeCharacter", useCount = useCount, proficiency = proficiency)
+
+    private fun actionSpec(rowCount: Int) = buildActionTableSpec(
+        summary(actionTotalUse = rowCount), "u",
+        List(rowCount) { GcgCard(name = "卡", cardType = CARD_TYPE_EVENT, useCount = 1) },
+    )
+
+    private fun layoutFor(spec: TableSpec, charTable: Boolean) =
+        computeTableLayout(spec, measurer, exportTwoColumnThreshold(charTable))
 
     @Test
     fun `角色牌表列结构与表头`() {
@@ -87,20 +108,37 @@ class CardStatsExportTest {
         assertEquals("行动牌数据", spec.title)
     }
 
-    // 新增：exportDate 填充后不影响 title（title 有 3 条断言钉着，exportDate 是独立字段）
     @Test
-    fun `导出日期填充后不影响标题`() {
-        val charSpec = buildCharTableSpec(summary(), "u", emptyList())
-        val actionSpec = buildActionTableSpec(summary(), "u", emptyList())
-        assertEquals("角色牌数据", charSpec.title)
-        assertEquals("行动牌数据", actionSpec.title)
-        listOf(charSpec, actionSpec).forEach { spec ->
-            val date = spec.exportDate
-            assertNotNull("exportDate 必须填充（右上角日期）", date)
-            assertTrue("exportDate 应为 yyyy-MM-dd，实际 $date", Regex("\\d{4}-\\d{2}-\\d{2}").matches(date!!))
+    fun `页眉文案齐备`() {
+        val spec = buildCharTableSpec(summary(), "110526730", listOf(char(10, 5)))
+        assertEquals("Clin - 110526730", spec.nickname)
+        assertTrue("levelText 必须带等级数字：${spec.levelText}", spec.levelText?.contains("45") == true)
+        assertEquals("暂无签名", spec.signature)
+        val date = spec.exportDateText
+        assertNotNull("exportDateText 必须填充（日期行右对齐）", date)
+        assertTrue("exportDateText 应为 yyyy-MM-dd，实际 $date", Regex("\\d{4}-\\d{2}-\\d{2}").matches(date!!))
+    }
+
+    @Test
+    fun `uid空白时昵称行退化为只显昵称`() {
+        listOf("", "   ").forEach { uid ->
+            val blank = buildCharTableSpec(summary(), uid, emptyList())
+            assertEquals("Clin", blank.nickname)
+            assertFalse(blank.nickname.contains(" - "))
         }
-        // 不填时默认 null（渲染层据此决定画不画右上角日期）
-        assertEquals(null, TableSpec("t", null, emptyList(), emptyList(), emptyList()).exportDate)
+    }
+
+    @Test
+    fun `胶囊按参考图顺序且为已得斜杠总数`() {
+        val badges = buildCharTableSpec(summary(), "u", emptyList()).badges
+        assertEquals(4, badges.size)
+        assertEquals(listOf("角色牌 132/147", "行动牌 800/941", "共进行 3493 场游戏", "胜率 58.9%"), badges)
+        assertTrue(badges[0].contains("/"))
+        assertTrue(badges[1].contains("/"))
+        // 兜底口径：总数缺失时两数相同，绝不出现 "/0"
+        val fallback = buildCharTableSpec(summary(avatarCardTotal = 132, actionCardTotal = 800), "u", emptyList()).badges
+        assertEquals("角色牌 132/132", fallback[0])
+        assertFalse(fallback.any { it.endsWith("/0") })
     }
 
     @Test
@@ -203,13 +241,6 @@ class CardStatsExportTest {
     }
 
     @Test
-    fun `徽章行不含数据来源渠道`() {
-        val badges = buildCharTableSpec(summary(), "u", emptyList()).badges
-        assertEquals(4, badges.size)
-        assertTrue(badges.none { it.contains("GIGI", ignoreCase = true) })
-    }
-
-    @Test
     fun `过滤后行数与序号连续`() {
         // 角色牌：0 次、null 次（哪怕 proficiency 非 0）、以及 0/0 的卡都不进表，剩下的重新编号
         val charCards = listOf(char(0, 7), char(null, 9), char(4, 2), char(0, 0), char(6, 3))
@@ -230,190 +261,81 @@ class CardStatsExportTest {
         assertEquals("20.000", actionRows[0][4]) // 分母仍是 summary.actionTotalUse = 10
     }
 
-    @Test
-    fun `副标题在uid空白时退化为只显昵称`() {
-        val withUid = buildCharTableSpec(summary(), "110526730", emptyList())
-        assertEquals("Clin - 110526730", withUid.subtitle)
-
-        listOf("", "   ").forEach { uid ->
-            val blank = buildCharTableSpec(summary(), uid, emptyList())
-            assertEquals("Clin", blank.subtitle)
-            assertFalse(blank.subtitle!!.contains(" - "))
-        }
-    }
+    // ---- nowrap 列宽口径（用户实测的两个缺陷：长牌名折行、表头被省略号截断）----
 
     @Test
-    fun `徽章行含关键统计且不带图鉴分母`() {
-        val badges = buildCharTableSpec(summary(), "u", emptyList()).badges
-        assertTrue(badges.contains("角色牌 132"))
-        assertTrue(badges.contains("行动牌 800"))
-        assertTrue(badges.contains("共进行 3493 场游戏"))
-        assertTrue(badges.contains("胜率 58.9%"))
-        // 图鉴总数（147/941）接口拿不到 ⇒ 只显分子，不出现 "/147" "/941"
-        assertFalse(badges.any { it.contains("/147") || it.contains("/941") })
-    }
-
-    @Test
-    fun `导出规格常量 822与1444双画布宽与60行双栏阈值`() {
-        // 显式钉死：画布宽按表区分（照抄参考图的 822 / 1444），改动须同步设计文档
-        // （两条宽度断言钉着列宽之和 = 画布 − 2×页边距 / 栏数）
-        assertEquals(822, EXPORT_CHAR_IMAGE_WIDTH_PX)
-        assertEquals(1444, EXPORT_ACTION_IMAGE_WIDTH_PX)
-        assertEquals(60, EXPORT_TWO_COLUMN_THRESHOLD)
-        assertTrue(EXPORT_TWO_COLUMN_THRESHOLD > 0)
-        assertEquals(EXPORT_CHAR_IMAGE_WIDTH_PX, exportImageWidth(charTable = true))
-        assertEquals(EXPORT_ACTION_IMAGE_WIDTH_PX, exportImageWidth(charTable = false))
-    }
-
-    // ---- V8H：保守字宽模型下的列宽验收（.task/tmp/verify_v8h.py 固化为测试）----
-    // 中文/全角（code ≥ 0x2E80）= 1.0×字号，其余 = 0.55×字号；真机字宽只小不大，故为保守下界。
-
-    private fun conservativeTextWidth(text: String, textSizePx: Float): Double =
-        text.sumOf { c ->
-            if (c.code >= 0x2E80) textSizePx.toDouble() else textSizePx * 0.55
-        }
-
-    private fun availOf(layoutColumnWidth: Int): Double =
-        layoutColumnWidth - 2.0 * CELL_PADDING_PX
-
-    private fun layoutFor(spec: TableSpec, charTable: Boolean) =
-        computeTableLayout(spec, exportImageWidth(charTable), exportTwoColumnThreshold(charTable))
-
-    /**
-     * 表头必须放得进各自列。margin 是要求的余量系数：
-     * 角色牌单栏 770px / 行动牌双栏每栏 670px 都要求 8% 余量（V8H 口径）。
-     * 行动牌画布从 1200 加宽到 1444 后，「名称 avail ≥ 8×正文字号」与 4 字表头（使用次数 88px）
-     * 的 8% 余量不再互斥 —— 表宽 670 下二者兼得，故两表统一用 margin = 1.08。
-     */
-    private fun assertHeadersFit(spec: TableSpec, charTable: Boolean, margin: Double) {
-        val layout = layoutFor(spec, charTable)
-        spec.columns.forEachIndexed { i, column ->
-            val avail = availOf(layout.columnWidth[i])
-            val need = conservativeTextWidth(column.header, TEXT_SIZE_HEADER_PX)
-            assertTrue(
-                "列「${column.header}」表头放不下或余量不足：width=${layout.columnWidth[i]} " +
-                    "avail=$avail need=$need need×$margin=${need * margin}",
-                avail >= need * margin,
-            )
-        }
-    }
-
-    private fun actionSpec(rowCount: Int) = buildActionTableSpec(
-        summary(actionTotalUse = rowCount), "u",
-        List(rowCount) { GcgCard(name = "卡", cardType = CARD_TYPE_EVENT, useCount = 1) },
-    )
-
-    @Test
-    fun `全部表头在新画布宽下完整放入各自列`() {
-        // 角色牌 147 行单栏 822px（表宽 770） / 行动牌 941 行双栏 1444px（每栏 670）
-        val charSpec = buildCharTableSpec(summary(), "u", List(147) { char(10, 5) })
-        assertHeadersFit(charSpec, charTable = true, margin = 1.08)
-        assertHeadersFit(actionSpec(941), charTable = false, margin = 1.08)
-        // 🔴 角色牌名称列收窄到 200px（用户反馈"留空太大"）⇒ avail 176 单行放 8 个中文字，
-        // 两行（MAX_CELL_LINES）合计 16 字；角色名普遍 2~4 字，不再为 10 字留大片空白。
-        val charLayout = layoutFor(charSpec, charTable = true)
-        val nameIndex = charSpec.columns.indexOfFirst { it.header == "名称" }
-        assertTrue(
-            "角色牌名称列 avail=${availOf(charLayout.columnWidth[nameIndex])} 放不下 8 个中文字",
-            availOf(charLayout.columnWidth[nameIndex]) >= 8 * TEXT_SIZE_BODY_PX,
+    fun `角色牌最长牌名单行放得下`() {
+        val longest = "阿佩普的绿洲守望者"
+        val spec = buildCharTableSpec(
+            summary(), "u",
+            listOf(char(1, 1), char(2, 2, name = longest)),
         )
-        // # 列放得下 3 位序号（角色牌最多 147 行）
+        val layout = layoutFor(spec, charTable = true)
+        val nameWidth = layout.columnWidth[1]
         assertTrue(
-            "# 列放不下 3 位序号（角色牌 147 行）",
-            availOf(charLayout.columnWidth[0]) >= conservativeTextWidth("147", TEXT_SIZE_BODY_PX),
+            "名称列 $nameWidth 放不下「$longest」（${textWidth(longest, TEXT_SIZE_BODY_PX)} + 内边距 20）",
+            nameWidth >= textWidth(longest, TEXT_SIZE_BODY_PX) + 2 * CELL_PADDING_PX,
         )
+        // 恒单栏：147 行也不折栏
+        val full = buildCharTableSpec(summary(), "u", List(147) { char(1, 1, name = longest) })
+        assertEquals(1, layoutFor(full, charTable = true).columnsPerBand)
+        assertEquals(147, layoutFor(full, charTable = true).rowsPerBand)
     }
 
     @Test
-    fun `行动牌使用率表头与9字卡名在670栏宽下兼得`() {
-        // 真机取证（Redmi Note 7，行动牌 1200px 画布）两个缺陷：
-        // ① 表头「使用率%」被省略号截断成「使用率…」；② 9 字卡名「元素共鸣：交织之火」折成 8+1，
-        // 孤立单字看起来像缩进。画布回到参考图原宽 1444（每栏表宽 670）后两者同时消失。
-        val spec = actionSpec(941)
+    fun `行动牌表头与长卡名都不被截断`() {
+        val spec = buildActionTableSpec(
+            summary(actionTotalUse = 2), "u",
+            listOf(
+                GcgCard(name = "元素共鸣：交织之火", cardType = CARD_TYPE_MODIFY, useCount = 1),
+                GcgCard(name = "顺风", cardType = CARD_TYPE_EVENT, useCount = 1),
+            ),
+        )
         val layout = layoutFor(spec, charTable = false)
-        val useRateIndex = spec.columns.indexOfFirst { it.header == "使用率%" }
-        val useRateAvail = availOf(layout.columnWidth[useRateIndex])
+        val rateWidth = layout.columnWidth[spec.columns.indexOfFirst { it.header == "使用率%" }]
         assertTrue(
-            "「使用率%」表头放不下：width=${layout.columnWidth[useRateIndex]} avail=$useRateAvail " +
-                "need=${conservativeTextWidth("使用率%", TEXT_SIZE_HEADER_PX)}",
-            useRateAvail >= conservativeTextWidth("使用率%", TEXT_SIZE_HEADER_PX),
+            "「使用率%」列宽 $rateWidth < 表头宽 ${textWidth("使用率%", TEXT_SIZE_BODY_PX)}",
+            rateWidth >= textWidth("使用率%", TEXT_SIZE_BODY_PX),
         )
-        val nameAvail = availOf(layout.columnWidth[spec.columns.indexOfFirst { it.header == "名称" }])
+        val name = "元素共鸣：交织之火"
+        val nameWidth = layout.columnWidth[spec.columns.indexOfFirst { it.header == "名称" }]
         assertTrue(
-            "行动牌名称列 avail=$nameAvail 放不下 10 个中文字（9~10 字卡名须单行）",
-            nameAvail >= 10 * TEXT_SIZE_BODY_PX,
+            "名称列 $nameWidth 放不下 9 字卡名",
+            nameWidth >= textWidth(name, TEXT_SIZE_BODY_PX) + 2 * CELL_PADDING_PX,
         )
-        // 权重 = 目标列宽 − 40 且 Σ目标 == 表宽 ⇒ 实算列宽必须精确落在设计值上（末列吸收舍入误差）
-        assertEquals(listOf(60, 86, 284, 120, 120), layout.columnWidth)
-        val charLayout = layoutFor(buildCharTableSpec(summary(), "u", List(147) { char(10, 5) }), charTable = true)
-        assertEquals(listOf(60, 200, 130, 130, 130, 120), charLayout.columnWidth)
-    }
-
-    // 参考图不换行（单行 + …）；本应用在双栏 670px 栏宽下靠「两行优先」保住长卡名不被省略
-    @Test
-    fun `行动牌双栏时名称列两行可容至少15个中文字`() {
-        val spec = actionSpec(941)
-        val layout = layoutFor(spec, charTable = false)
-        assertEquals(2, layout.columnsPerBand) // 前提：确为双栏
-        val nameIndex = spec.columns.indexOfFirst { it.header == "名称" }
-        val avail = availOf(layout.columnWidth[nameIndex])
-        // 🔴 不变量：avail ≥ 8 × 正文字号（与 TableLayoutTest.14g 同口径）
-        assertTrue(
-            "行动牌名称列 avail=$avail < 8 × 正文字号 $TEXT_SIZE_BODY_PX：width=${layout.columnWidth[nameIndex]}",
-            avail >= 8 * TEXT_SIZE_BODY_PX,
-        )
-        // 真机 CJK = 1.0 em：每行 13 字 × 两行 = 26 字，15 字卡名两行内完整放下
-        val perLine = floor(avail / TEXT_SIZE_BODY_PX).toInt()
-        assertTrue(
-            "双栏名称列两行容不下 15 个中文字：width=${layout.columnWidth[nameIndex]} avail=$avail " +
-                "每行$perLine 字 ×$MAX_CELL_LINES = ${perLine * MAX_CELL_LINES}",
-            perLine * MAX_CELL_LINES >= 15,
-        )
-        // 行高约束：两行文字块必须仍装得进 50px 数据行，否则相邻行重叠
-        assertTrue(
-            "两行高度 ${TEXT_SIZE_BODY_PX * 1.18 * MAX_CELL_LINES} 超出行高 $ROW_HEIGHT_PX",
-            TEXT_SIZE_BODY_PX * 1.18f * MAX_CELL_LINES <= ROW_HEIGHT_PX,
-        )
+        // 类别列由 minWidthPx 兜底：3 字类别名 + 内边距 = 80 < 90
+        assertEquals(90, layout.columnWidth[1])
     }
 
     @Test
-    fun `类别列放得下装备牌且数值列放得下六位数字`() {
-        val spec = actionSpec(941)
-        val layout = layoutFor(spec, charTable = false)
-        for (i in listOf(3, 4)) { // 使用次数 / 使用率%
-            assertTrue(
-                "数值列 ${spec.columns[i].header} 放不下 6 位数字",
-                availOf(layout.columnWidth[i]) >= conservativeTextWidth("999999", TEXT_SIZE_BODY_PX),
-            )
-        }
-        // 百分比列极端值 100.000（7 字符）
-        assertTrue(
-            availOf(layout.columnWidth[4]) >= conservativeTextWidth("100.000", TEXT_SIZE_BODY_PX),
-        )
-        val catIndex = spec.columns.indexOfFirst { it.header == "类别" }
-        assertTrue(
-            "类别列放不下「装备牌」",
-            availOf(layout.columnWidth[catIndex]) >= conservativeTextWidth("装备牌", TEXT_SIZE_BODY_PX),
-        )
-        val hashIndex = 0
-        assertTrue(
-            "# 列放不下 3 位数字（941 行）",
-            availOf(layout.columnWidth[hashIndex]) >= conservativeTextWidth("941", TEXT_SIZE_BODY_PX),
-        )
-    }
+    fun `画布宽由表格内容推出`() {
+        val spec = buildCharTableSpec(summary(), "u", List(147) { char(10, 5) })
+        val layout = layoutFor(spec, charTable = true)
+        assertEquals(layout.bandWidthPx, layout.columnWidth.sum())
+        assertEquals(layout.bandWidthPx + 2 * (PAGE_MARGIN_PX + TABLE_BORDER_PX), layout.widthPx)
+        // 首列 = max(表头 11, 序号 147 的 33) + 15 + 10
+        assertEquals(ceil(textWidth("147", TEXT_SIZE_BODY_PX)).toInt() + FIRST_CELL_LEFT_PADDING_PX + CELL_PADDING_PX, layout.columnWidth[0])
+        // 数值列下限生效（单元格只有 1~2 位数字，表头撑开）
+        assertEquals(100, layout.columnWidth[2])
+        assertEquals(111, layout.columnWidth[3])
 
-    @Test
-    fun `列宽之和精确等于栏宽画布减两侧页边距`() {
-        val charSpec = buildCharTableSpec(summary(), "u", List(147) { char(10, 5) })
-        val charLayout = layoutFor(charSpec, charTable = true)
-        assertEquals("角色牌恒单栏", 1, charLayout.columnsPerBand)
-        // 单栏：822 − 2×26 = 770
-        assertEquals(EXPORT_CHAR_IMAGE_WIDTH_PX - 2 * PAGE_MARGIN_PX, charLayout.columnWidth.sum())
-        assertEquals(charLayout.bandWidthPx, charLayout.columnWidth.sum())
         val actionLayout = layoutFor(actionSpec(941), charTable = false)
         assertEquals(2, actionLayout.columnsPerBand)
-        // 双栏：每栏 = 1444/2 − 2×26 = 670（两栏列宽和相同，columnX 只描述第一栏）
-        assertEquals(EXPORT_ACTION_IMAGE_WIDTH_PX / 2 - 2 * PAGE_MARGIN_PX, actionLayout.columnWidth.sum())
-        assertEquals(actionLayout.bandWidthPx, actionLayout.columnWidth.sum())
+        assertEquals(471, actionLayout.rowsPerBand)
+        assertEquals(2 * actionLayout.bandWidthPx + 15 + 2 * (PAGE_MARGIN_PX + TABLE_BORDER_PX), actionLayout.widthPx)
+    }
+
+    @Test
+    fun `双栏阈值常量保持60与恒单栏`() {
+        assertEquals(60, EXPORT_TWO_COLUMN_THRESHOLD)
+        assertEquals(Int.MAX_VALUE, EXPORT_CHAR_TWO_COLUMN_THRESHOLD)
+        assertEquals(EXPORT_CHAR_TWO_COLUMN_THRESHOLD, exportTwoColumnThreshold(charTable = true))
+        assertEquals(EXPORT_TWO_COLUMN_THRESHOLD, exportTwoColumnThreshold(charTable = false))
+    }
+
+    @Test
+    fun `徽章行不含数据来源渠道`() {
+        val badges = buildCharTableSpec(summary(), "u", emptyList()).badges
+        assertTrue(badges.none { it.contains("GIGI", ignoreCase = true) })
     }
 }

@@ -1,10 +1,13 @@
-// 登录页（设计 §4.5：全屏 Scaffold，非弹窗）。布局/文案对齐 web LoginPage.tsx：
-// 顶栏（首登「扫码登录」/ 添加账户「添加账户」）→ 标题 → 失效横幅/换服提示 → 服务器二选一 →
-// 二维码（已扫描蒙层）→ 保存到相册按钮 + 自动删除说明 → 状态文案 → 重试按钮 → 底部说明。
+// 登录/添加账户页（设计 §4.5：全屏 Scaffold，非弹窗）—— V27-E 按 M3 重构：
+// CenterAlignedTopAppBar（标题按分支：首登「扫码登录」/ 添加账户「添加账户」，
+// navigationIcon 返回箭头仅添加账户分支）+ 可滚动单列，区块间距走 M3 阶梯 24dp、
+// 卡内 12/16dp、按钮与说明文字 8dp；「重新生成二维码」为二维码卡内次要 TextButton
+// （失败态才升级为主按钮重试），「保存」是唯一主动作按钮（保存中转进度），
+// 其下紧贴自动删除灰色小字说明。落盘编排（PNG、Pictures/GIGI/二维码/、换码后自动删图）
+// 收敛在 LoginViewModel.saveQrToAlbum，页面只做展示与 Snackbar 反馈。
 
 package com.gigi.tcg.ui.login
 
-import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -15,11 +18,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -28,6 +34,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -37,27 +44,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gigi.tcg.R
 import com.gigi.tcg.data.ServerId
+import com.gigi.tcg.i18n.LocaleStrings
 import com.gigi.tcg.i18n.displayName
-import com.gigi.tcg.ui.dialogs.cardcover.CardImageSaver
-import com.gigi.tcg.ui.dialogs.cardcover.albumRelativePath
-import com.gigi.tcg.ui.dialogs.cardcover.exportDateText
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,17 +70,14 @@ fun LoginScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val server by viewModel.serverFlow.collectAsStateWithLifecycle()
+    val saving by viewModel.qrSaving.collectAsStateWithLifecycle()
 
     // 保存二维码的反馈走本页 Scaffold 的 Snackbar：本页挂在 AppGate 状态机上，
     // 拿不到 NavHost 内 provide 的 LocalToast（首登时 NavHost 根本不在组合里）。
-    val appContext = LocalContext.current.applicationContext
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    var savingQr by remember { mutableStateOf(false) }
-    val savedToAlbumText = stringResource(R.string.toast_saved_to_album_path, albumRelativePath())
-    val saveFailedText = stringResource(R.string.toast_save_failed)
 
-    // 添加账户页存在上一级（当前账户主界面）：系统返回键等价"返回"按钮；
+    // 添加账户页存在上一级（当前账户主界面）：系统返回键等价顶栏返回；
     // 首登页无上一级，不接管，保持系统默认（退出应用）。
     BackHandler(enabled = addAccount && onCancelAddAccount != null) {
         onCancelAddAccount?.invoke()
@@ -88,16 +85,20 @@ fun LoginScreen(
 
     Scaffold(
         topBar = {
-            // 两种入口共用本页，都给标题标明当前步骤：首登无上一级（无返回键），
-            // 添加账户是 Main 上的叠加层、有返回键。
+            // 两种入口共用本页，标题按分支取文案：首登无上一级（无返回键），
+            // 添加账户是 Main 上的叠加层。M3 规范：返回走 navigationIcon 的 IconButton + 箭头，
+            // 配色/高度用 TopAppBar 默认值，与 GigiNavHost 主顶栏同源。
             CenterAlignedTopAppBar(
                 title = {
                     Text(stringResource(if (addAccount) R.string.account_add else R.string.login_qr_title))
                 },
                 navigationIcon = {
                     if (addAccount) {
-                        TextButton(onClick = { onCancelAddAccount?.invoke() }) {
-                            Text(stringResource(R.string.action_back))
+                        IconButton(onClick = { onCancelAddAccount?.invoke() }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.action_back),
+                            )
                         }
                     }
                 },
@@ -105,121 +106,147 @@ fun LoginScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
+        // 单列可滚动：内容在窄屏/横屏不裁剪；区块间 24dp（M3 大区块阶梯），
+        // 顶栏下方不再叠居中大标题——页面靠顶栏定锚，正文直接铺开避免「飘在页面中间」。
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 24.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            Spacer(Modifier.height(24.dp))
-            Card(Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    Text(
-                        stringResource(if (addAccount) R.string.login_title_add else R.string.login_title),
-                        style = MaterialTheme.typography.titleLarge,
-                        textAlign = TextAlign.Center,
-                    )
+            // ① 品牌标题（首登 = 工具名 / 添加账户分支明示动作），titleLarge 居中
+            Text(
+                stringResource(if (addAccount) R.string.login_title_add else R.string.login_title),
+                style = MaterialTheme.typography.titleLarge,
+                textAlign = TextAlign.Center,
+            )
 
-                    if (expiredNotice) {
-                        Text(
-                            stringResource(R.string.login_expired_notice),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
+            // ② 服务器级横幅：登录失效 / NoRole 引导换服（error 色，切服前一直保留）
+            if (expiredNotice) {
+                Text(
+                    stringResource(R.string.login_expired_notice),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            state.notice?.let { notice ->
+                Text(
+                    notice,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
-                    state.notice?.let { notice ->
-                        Text(
-                            notice,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ServerId.ALL.forEach { option ->
-                            FilterChip(
-                                selected = option == server,
-                                onClick = { viewModel.selectServer(option) },
-                                label = { Text(option.displayName()) },
-                            )
-                        }
-                    }
-
-                    QrBox(state)
-
-                    val qrState = state as? LoginUiState.Qr
-                    if (qrState != null) {
-                        OutlinedButton(
-                            enabled = !savingQr,
-                            onClick = {
-                                savingQr = true
-                                scope.launch {
-                                    val failure = try {
-                                        // PNG：黑白码走 JPEG 会被压出噪点、影响扫码。
-                                        // 位图与界面共用同一实例，不 recycle（回收会砸掉正在显示的二维码）。
-                                        val uri = CardImageSaver(appContext).saveBitmap(
-                                            bitmap = qrState.payload.asAndroidBitmap(),
-                                            baseName = "扫码登录_${exportDateText()}",
-                                            format = Bitmap.CompressFormat.PNG,
-                                            subDir = null,
-                                        )
-                                        viewModel.onQrSaved(uri)
-                                        null
-                                    } catch (cancel: CancellationException) {
-                                        throw cancel
-                                    } catch (e: Exception) {
-                                        e.message ?: saveFailedText
-                                    }
-                                    savingQr = false
-                                    snackbarHostState.showSnackbar(failure ?: savedToAlbumText)
-                                }
-                            },
-                        ) {
-                            Text(stringResource(R.string.login_qr_save))
-                        }
-
-                        Text(
-                            stringResource(R.string.login_qr_autodelete_hint),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-
-                    Text(
-                        statusText(state),
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                    )
-
-                    if (state is LoginUiState.Failed) {
-                        Button(onClick = { viewModel.retry() }) {
-                            Text(stringResource(R.string.action_regenerate_qr))
-                        }
-                    }
-
-                    Text(
-                        stringResource(
-                            if (addAccount) R.string.login_add_account_hint else R.string.login_qr_hint
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
+            // ③ 服务器二选一（切服即重开二维码，8dp 为 M3 同行控件间距）
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ServerId.ALL.forEach { option ->
+                    FilterChip(
+                        selected = option == server,
+                        onClick = { viewModel.selectServer(option) },
+                        label = { Text(option.displayName()) },
                     )
                 }
             }
+
+            // ④ 二维码卡：图 / 生成中占位 / 已扫描蒙层 + 卡内次要换码入口
+            Card(Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    QrBox(state)
+
+                    // 「重新生成二维码」放卡内、待扫状态下的次要 TextButton：
+                    // 与「保存」层级分离（保存才是本页唯一主动作）；失败态另有主按钮兜底。
+                    val qr = state as? LoginUiState.Qr
+                    if (qr != null && qr.phase == QrPhase.Waiting) {
+                        TextButton(onClick = { viewModel.retry() }) {
+                            Text(stringResource(R.string.action_regenerate_qr))
+                        }
+                    }
+                }
+            }
+
+            // ⑤ 保存组：按钮 + 说明文字以 8dp 紧贴成一体，跟随二维码而非飘散。
+            //    二维码未就绪（生成中/失败/收尾）禁用；保存中转小进度环。
+            val qrReady = state is LoginUiState.Qr
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    enabled = qrReady && !saving,
+                    onClick = {
+                        scope.launch {
+                            // 协程上下文拿不了 stringResource，走 VM 同源的 LocaleStrings
+                            val message = when (val outcome = viewModel.saveQrToAlbum()) {
+                                is QrSaveOutcome.Success ->
+                                    LocaleStrings.get(R.string.toast_saved_to_album_path, outcome.albumPath)
+                                is QrSaveOutcome.Failure -> outcome.message
+                            }
+                            snackbarHostState.showSnackbar(message)
+                        }
+                    },
+                ) {
+                    if (saving) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(stringResource(R.string.login_qr_save))
+                }
+                Text(
+                    stringResource(R.string.login_qr_autodelete_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
+
+            // ⑥ 登录状态文案（失败原因透出为 error 色）；Failed 态换码是主出路，
+            //    此时才以主按钮形态出现（与 ④ 的次要入口二选一，不会并列）。
+            Text(
+                statusText(state),
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (state is LoginUiState.Failed) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                textAlign = TextAlign.Center,
+            )
+            if (state is LoginUiState.Failed) {
+                Button(onClick = { viewModel.retry() }) {
+                    Text(stringResource(R.string.action_regenerate_qr))
+                }
+            }
+
+            // ⑦ 底部说明（首登解释凭据去向 / 添加账户解释多账户共存）
+            Text(
+                stringResource(
+                    if (addAccount) R.string.login_add_account_hint else R.string.login_qr_hint
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }
 
+/** 二维码展示框：有码画码（已扫描叠蒙层徽标）；无码画占位——失败留空、其余显示 loading */
 @Composable
 private fun QrBox(state: LoginUiState) {
     Box(contentAlignment = Alignment.Center) {
@@ -232,6 +259,7 @@ private fun QrBox(state: LoginUiState) {
                 contentScale = ContentScale.Fit,
             )
             if (qr.phase == QrPhase.Scanned) {
+                // M3 scrim：半透明黑遮罩 + 白色对勾徽标，明示「已扫、等手机确认」
                 Box(
                     modifier = Modifier
                         .size(260.dp)

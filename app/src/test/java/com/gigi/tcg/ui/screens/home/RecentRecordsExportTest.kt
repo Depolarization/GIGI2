@@ -7,6 +7,7 @@ package com.gigi.tcg.ui.screens.home
 
 import com.gigi.tcg.R
 import com.gigi.tcg.data.model.GameRecord
+import com.gigi.tcg.data.model.PageInfo
 import com.gigi.tcg.data.model.ScoreChange
 import com.gigi.tcg.domain.formatRecordTime
 import org.junit.Assert.assertEquals
@@ -117,6 +118,61 @@ class RecentRecordsExportTest {
         assertEquals(RECENT_RECORDS_MAX_CARDS, cards.size)
         assertEquals(RECENT_RECORDS_MAX_CARDS, 10)
         assertTrue(buildRecentRecordsCards(emptyList(), SELF_UID).isEmpty())
+    }
+
+    // ---- V27：个人信息卡规格（ProfileCard 的导出镜像）----
+
+    @Test
+    fun `个人信息规格：uid 存在时昵称 UID 段位分数逐字段对齐首页口径`() {
+        val spec = buildProfileCardSpec(
+            PageInfo(
+                nickname = "行云不与",
+                avatarUrl = "https://x/avatar.png",
+                ladderScore = 2760,
+                peakScore = 2310,
+            ),
+            sessionUid = SELF_UID,
+            tierColorArgb = 0xFF112233.toInt(),
+        )
+        assertEquals("https://x/avatar.png", spec.avatarUrl)
+        assertEquals("行云不与", spec.nickname)
+        assertEquals(SELF_UID, spec.uid)
+        assertEquals("赤金★★★", spec.tierText)
+        assertEquals(0xFF112233.toInt(), spec.tierColorArgb)
+        assertEquals(2760, spec.ladderScore)
+        assertEquals(2310, spec.peakScore)
+    }
+
+    @Test
+    fun `个人信息规格：uid 为空串照画空值（口径同首页 sessionUid orEmpty）`() {
+        val spec = buildProfileCardSpec(
+            PageInfo(nickname = "N", ladderScore = 100, peakScore = null),
+            sessionUid = "",
+            tierColorArgb = 0,
+        )
+        assertEquals("", spec.uid)
+        assertEquals(0, spec.peakScore)
+    }
+
+    @Test
+    fun `个人信息规格：昵称缺失回落未知（common_unknown）`() {
+        val spec = buildProfileCardSpec(
+            PageInfo(nickname = null, ladderScore = 500),
+            sessionUid = SELF_UID,
+            tierColorArgb = 0,
+        )
+        assertEquals("未知", spec.nickname)
+    }
+
+    @Test
+    fun `个人信息规格：天梯 0 分无段位文本走 home_tier_none`() {
+        val spec = buildProfileCardSpec(
+            PageInfo(nickname = "N", ladderScore = 0),
+            sessionUid = SELF_UID,
+            tierColorArgb = 0,
+        )
+        assertEquals("无段位", spec.tierText)
+        assertEquals(0, spec.ladderScore)
     }
 
     /** 与渲染器 drawScoreLine 相同的拼接口径：前缀 + 空格 + 分数 + 空格 + (变化量) */

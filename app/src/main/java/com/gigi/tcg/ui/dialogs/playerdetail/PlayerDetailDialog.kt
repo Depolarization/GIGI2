@@ -1,6 +1,9 @@
 // 玩家信息弹窗：移植 web/src/components/PlayerDetailDialog.tsx 的内容与布局，适配 M3 居中 Dialog。
 // 四入口共用，参数 (uid, onClose)；弹窗开关由调用页持有，本组件不持全局 controller。
 // 版式：头部（头像/昵称+段位/UID）+ 天梯/巅峰积分 + 展示角色 + 参赛经历；
+// 头部与主页 ProfileCard 同一套口径：昵称 titleMedium(16sp) 粗体 + 同行段位
+// titleSmall(14sp) 基线对齐，其下 UID bodyMedium(14sp)；UID 不带 "UID:" 前缀（位置即语义）；
+// 段位色按档位取 ui/theme/TierColors.kt（不再一律染金），无段位不占位；
 // is_shield / 无 pageInfo 走独立分支；胜负语义色来自 LocalSemanticColors。
 // 头像兜底（V26）：列表接口（排行榜 rank_infos / 对局 game_records）必定带回头像，
 // 而 other_home_page 在 is_shield 时 page_info.avatar_url 为空 ⇒ 弹窗只剩灰底占位图标。
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -46,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gigi.tcg.R
+import com.gigi.tcg.domain.TierStars
 import com.gigi.tcg.domain.getTierStars
 import com.gigi.tcg.ui.components.Avatar
 import com.gigi.tcg.ui.components.EmptyState
@@ -55,6 +60,7 @@ import com.gigi.tcg.ui.components.LoadingView
 import com.gigi.tcg.ui.components.tierLabel
 import com.gigi.tcg.ui.theme.LocalSemanticColors
 import com.gigi.tcg.ui.theme.SemanticColors
+import com.gigi.tcg.ui.theme.tierColor
 
 /**
  * 打开玩家详情的请求：目标 uid + 可选的「入口头像」。
@@ -162,7 +168,9 @@ private fun PlayerDetailBody(
                 uid = content.uid,
                 nickname = pageInfo.nickname,
                 avatarUrl = pageInfo.avatarUrl,
-                tier = tierLabel(getTierStars(pageInfo.ladderScore ?: 0)),
+                // 传 TierStars 而非 tierLabel 的结果：无段位时 tierLabel 会返回本地化的
+                //「无段位」文案，按字符串判空判不掉，只能在上游用结构化数据表达「没有段位」
+                tier = getTierStars(pageInfo.ladderScore ?: 0).takeIf { it.tier.isNotEmpty() },
                 fallbackAvatarUrl = fallbackAvatarUrl,
             )
             Spacer(Modifier.height(8.dp))
@@ -190,19 +198,27 @@ private fun HeaderRow(
     uid: String,
     nickname: String?,
     avatarUrl: String?,
-    tier: String = "",
+    tier: TierStars? = null,
     fallbackAvatarUrl: String? = null,
 ) {
-    val gold = LocalSemanticColors.current.gold
+    // 昵称与段位为何不照抄主页那套 weight(1f, fill=false)：主页文本列有 weight(1f) 且外层
+    // Card 撑满屏宽，剩余宽度 ≈「屏宽 − 头像」，昵称吃不满、段位必然留在可视区内；
+    // 弹窗 Column 只有「文本区 − 头像」≈156dp，fill=false 的 weight 会按昵称内在宽度把
+    // 昵称块撑到最宽，段位起点跟着昵称长度漂移、昵称稍长即被顶到省略号之后甚至出框
+    // ——这就是用户看到的「段位与玩家名不齐」。现在两个 Text 同处一个 Row、都挂
+    // alignByBaseline()，按内在宽度紧挨着排，昵称的单行省略交给 widthIn(max)：
+    // 段位最宽形态「黄铜★★★★★」≈63dp（14sp 汉字×2 + ★ 7.7sp×5 + 8dp 间距），
+    // 156 − 63 取 88dp（≈5.5 个汉字），保证段位永远完整可见；
+    // 无段位时（屏蔽分支即如此）不必让位，上限放宽到 148dp，避免无故截短昵称。
+    val nicknameMaxWidth = if (tier == null) 148.dp else 88.dp
     Row(verticalAlignment = Alignment.CenterVertically) {
         Avatar(
             url = resolveAvatarUrl(avatarUrl, fallbackAvatarUrl),
             size = 64.dp,
             contentDescription = nickname,
         )
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(12.dp))
         Column {
-            // 昵称与段位字号不同，基线对齐避免视觉不齐；Bottom 兜底无基线的子项
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
                     text = nickname ?: stringResource(R.string.common_unknown),
@@ -210,24 +226,31 @@ private fun HeaderRow(
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false).alignByBaseline(),
+                    modifier = Modifier.widthIn(max = nicknameMaxWidth).alignByBaseline(),
                 )
-                if (tier.isNotEmpty()) {
+                // tier == null（天梯分不足 1 分）时整段不渲染：不留占位、不留多余间距。
+                // 不能用「tierLabel 结果为空串」判无段位——无段位会被本地化成「无段位」字样。
+                if (tier != null) {
+                    val tierText = tierLabel(tier)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = tier,
+                        text = tierText,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Medium,
-                        color = gold,
+                        color = tierColor(tierText),
                         maxLines = 1,
                         modifier = Modifier.alignByBaseline(),
                     )
                 }
             }
+            // 不加 "UID:" 前缀：与主页 ProfileCard 同一套设计语言——昵称在上、数字在下，
+            // 位置本身即语义，前缀只会与昵称争宽度。
             Text(
-                text = stringResource(R.string.player_uid, uid),
+                text = uid,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

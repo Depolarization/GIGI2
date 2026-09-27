@@ -1,6 +1,6 @@
 // 卡面下载：设计文档 §4.4 —— web 版 download.ts 的 fallback（新标签打开原图）分支整体删除，
 // 因为原生侧 OkHttp 直连不受 CORS 约束。失败即失败，由调用方 toast 归因，不做任何回退。
-// 落相册两条路径：Q+ 走 MediaStore(RELATIVE_PATH=相册相对路径（可带类型子目录）, IS_PENDING)；
+// 落相册两条路径：Q+ 走 MediaStore(RELATIVE_PATH=相册相对路径（可带类型子目录/UID 层级）, IS_PENDING)；
 // API 24-28 走公共目录 File + MediaScanner（需 WRITE_EXTERNAL_STORAGE，见 hasWriteExternalPermission），
 // 该路径没有 MediaStore uri 可返回，故 saveBitmap 在旧机上返回 null。
 
@@ -16,6 +16,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.annotation.StringRes
 import com.gigi.tcg.R
 import com.gigi.tcg.i18n.LocaleStrings
 import java.io.ByteArrayOutputStream
@@ -38,20 +39,49 @@ private const val DOWNLOAD_READ_TIMEOUT_S = 30L
 const val GIGI_ALBUM_NAME: String = "GIGI"
 
 /**
- * 导出落盘的类型子目录名（角色牌 / 行动牌 / 最近对局）：与 GIGI_ALBUM_NAME 同一惯例 ——
- * 应用自有命名（非系统目录），不入 xml、三语不翻译。
+ * 导出落盘的类型子目录名资源（角色牌 / 行动牌 / 最近对局 / 二维码）：文件夹名一律走 i18n，
+ * 英文用官方译名 Character Cards / Action Cards / Recent Matches / QR Code，禁止中文硬编码常量。
+ * 调用方经 [exportDirName] 取当前语言文案。最终目录结构：
+ * - `Pictures/GIGI/<类型>/<UID>/<类型数据_yyyy-MM-dd>.jpg`（角色牌 / 行动牌 / 最近对局，按账号 UID 分文件夹）
+ * - `Pictures/GIGI/<二维码>/扫码登录_yyyy-MM-dd.png`（二维码不分账号）
  */
-const val EXPORT_DIR_CHAR: String = "角色牌"
-const val EXPORT_DIR_ACTION: String = "行动牌"
-const val EXPORT_DIR_RECORDS: String = "最近对局"
+@StringRes val EXPORT_DIR_CHAR: Int = R.string.export_dir_char
+@StringRes val EXPORT_DIR_ACTION: Int = R.string.export_dir_action
+@StringRes val EXPORT_DIR_RECORDS: Int = R.string.export_dir_records
+@StringRes val EXPORT_DIR_QR: Int = R.string.export_dir_qr
+
+/** 取已本地化的导出子目录名（i18n） */
+fun exportDirName(@StringRes dirRes: Int): String = LocaleStrings.get(dirRes)
 
 /** 纯算术：相册相对路径 = 父目录 + 子目录。parent 由调用方传系统常量，便于 JVM 单测 */
 internal fun buildAlbumRelativePath(systemPicturesDir: String, albumName: String): String =
     "$systemPicturesDir/$albumName"
 
-/** 三参重载：相册根下再挂一层类型子目录，如 "Pictures/GIGI/行动牌" */
+/** 三参重载：相册根下再挂一层类型子目录，如 "Pictures/GIGI/行动牌"（纯拼接，保留旧语义） */
 internal fun buildAlbumRelativePath(systemPicturesDir: String, albumName: String, subDir: String): String =
     "$systemPicturesDir/$albumName/$subDir"
+
+/**
+ * 多级相对路径拼接：如 "Pictures/GIGI/最近对局/12345"。
+ * 空段（null/blank）逐级跳过 —— UID 取不到时调用方会传 null，不能拼出 "//" 或尾斜杠，
+ * 否则 MediaStore 的 RELATIVE_PATH 与 <Q 的 mkdirs 目录都会错位。
+ */
+internal fun buildAlbumRelativePath(
+    systemPicturesDir: String,
+    albumName: String,
+    vararg segments: String,
+): String {
+    // 声明是 String，但测试/上游可能经 spread 混入 null，按可空过滤兜底
+    @Suppress("UNCHECKED_CAST")
+    val tail = (segments as Array<String?>)
+        .filter { !it.isNullOrBlank() }
+        .joinToString("/")
+    return if (tail.isEmpty()) {
+        "$systemPicturesDir/$albumName"
+    } else {
+        "$systemPicturesDir/$albumName/$tail"
+    }
+}
 
 /**
  * 导出文件名用的日期后缀：yyyy-MM-dd（本地时区，如 2026-09-27）。
@@ -65,17 +95,17 @@ internal fun exportDateText(nowMillis: Long = System.currentTimeMillis()): Strin
 /**
  * 相册相对路径：父目录走系统 API（Environment.DIRECTORY_PICTURES，不写字面量），子目录是应用自有命名。
  * Q+ 的 RELATIVE_PATH、<Q 的 File 目录、导出 Toast 文案三处必须同源。
- * 本函数返回值固定为相册根（Pictures/GIGI）；带类型子目录的落盘走三参 buildAlbumRelativePath。
+ * 本函数返回值固定为相册根（Pictures/GIGI）；带类型子目录 / UID 层级的落盘走多级 vararg buildAlbumRelativePath。
  */
 fun albumRelativePath(): String = buildAlbumRelativePath(Environment.DIRECTORY_PICTURES, GIGI_ALBUM_NAME)
 
-/** 落盘相对路径：subDir 为 null 时与 albumRelativePath() 逐字相同；非 null 时追加类型子目录 */
-private fun relativePathFor(subDir: String?): String =
-    if (subDir == null) {
-        albumRelativePath()
-    } else {
-        buildAlbumRelativePath(Environment.DIRECTORY_PICTURES, GIGI_ALBUM_NAME, subDir)
-    }
+/**
+ * 落盘相对路径：subDir / accountUid 逐级省略，两者为 null 时与 albumRelativePath() 逐字相同（落相册根）。
+ */
+private fun relativePathFor(subDir: String?, accountUid: String?): String {
+    val segments = listOfNotNull(subDir, accountUid).filter { it.isNotBlank() }
+    return buildAlbumRelativePath(Environment.DIRECTORY_PICTURES, GIGI_ALBUM_NAME, *segments.toTypedArray())
+}
 
 /** 卡名可能很长且含非法字符：清洗后截断，避免 MediaStore insert / File 创建失败 */
 private const val MAX_BASE_NAME_CHARS = 60
@@ -146,7 +176,9 @@ class CardImageSaver(private val context: Context) {
      * JPEG 渐进解码快、体积小，文字为主的图在 1600px 宽度下 q72 仍清晰可辨。
      * 不 recycle —— 位图生命周期归调用方（它在 finally 里回收，避免异常路径泄漏）。
      *
-     * @param subDir 类型子目录（EXPORT_DIR_* 常量），null 时落相册根 Pictures/GIGI，行为与旧版一致
+     * @param subDir 类型子目录（exportDirName(EXPORT_DIR_*) 的本地化文案），null 时落相册根 Pictures/GIGI
+     * @param accountUid 账号 UID，再挂一级目录（Pictures/GIGI/<类型>/<UID>）；null/空串时逐级省略，
+     *   与 subDir 同为 null 时行为与旧版逐字相同（落相册根）
      * @return Q+ 为 MediaStore 条目 uri（二维码临时图靠它删）；API 24-28 没有 uri，恒返回 null
      */
     suspend fun saveBitmap(
@@ -155,6 +187,7 @@ class CardImageSaver(private val context: Context) {
         format: Bitmap.CompressFormat = Bitmap.CompressFormat.JPEG,
         quality: Int = DEFAULT_EXPORT_JPEG_QUALITY,
         subDir: String? = null,
+        accountUid: String? = null,
     ): Uri? = withContext(Dispatchers.IO) {
         val bytes = ByteArrayOutputStream().use { out ->
             if (!bitmap.compress(format, quality, out)) {
@@ -162,15 +195,21 @@ class CardImageSaver(private val context: Context) {
             }
             out.toByteArray()
         }
-        persist(bytes, coverFileName(baseName, format.fileExtension()), format.mime(), subDir)
+        persist(bytes, coverFileName(baseName, format.fileExtension()), format.mime(), subDir, accountUid)
     }
 
     /** 两条落盘路径共用：Q+ 走 MediaStore 代理写入，API 24-28 走公共目录 + MediaScanner */
-    private fun persist(bytes: ByteArray, fileName: String, mimeType: String, subDir: String? = null): Uri? =
+    private fun persist(
+        bytes: ByteArray,
+        fileName: String,
+        mimeType: String,
+        subDir: String? = null,
+        accountUid: String? = null,
+    ): Uri? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            saveScoped(bytes, fileName, mimeType, subDir)
+            saveScoped(bytes, fileName, mimeType, subDir, accountUid)
         } else {
-            savePublicDirectory(bytes, fileName, mimeType, subDir)
+            savePublicDirectory(bytes, fileName, mimeType, subDir, accountUid)
         }
 
     private fun downloadBytes(url: String): ByteArray {
@@ -187,12 +226,12 @@ class CardImageSaver(private val context: Context) {
      * Q+：IS_PENDING 建条目 → 写流 → 转正；任何异常回滚，不留半张图。
      * 返回条目 uri —— 二维码临时图落盘后要靠它 delete（API 24-28 分支无此能力，只能返回 null）。
      */
-    private fun saveScoped(bytes: ByteArray, fileName: String, mimeType: String, subDir: String?): Uri? {
+    private fun saveScoped(bytes: ByteArray, fileName: String, mimeType: String, subDir: String?, accountUid: String?): Uri? {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
             put(MediaStore.Images.Media.MIME_TYPE, mimeType)
-            put(MediaStore.Images.Media.RELATIVE_PATH, relativePathFor(subDir))
+            put(MediaStore.Images.Media.RELATIVE_PATH, relativePathFor(subDir, accountUid))
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
@@ -213,15 +252,18 @@ class CardImageSaver(private val context: Context) {
 
     /**
      * API 24-28：File + MediaScanner 落盘，没有可返回的 MediaStore uri（scanFile 只是事后异步建条目），
-     * 故恒返回 null；类型子目录靠 mkdirs 的多层创建能力。
+     * 故恒返回 null；类型子目录 / UID 目录靠 mkdirs 的多层创建能力，空段逐段跳过（与 RELATIVE_PATH 同源语义）。
      */
-    private fun savePublicDirectory(bytes: ByteArray, fileName: String, mimeType: String, subDir: String?): Uri? {
+    private fun savePublicDirectory(bytes: ByteArray, fileName: String, mimeType: String, subDir: String?, accountUid: String?): Uri? {
         if (!hasWriteExternalPermission(context)) {
             throw IOException(LocaleStrings.get(R.string.error_storage_permission))
         }
         @Suppress("DEPRECATION")
         val pictures = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
-        val dir = if (subDir == null) File(pictures, GIGI_ALBUM_NAME) else File(pictures, "$GIGI_ALBUM_NAME/$subDir")
+        val relativeDir = listOf(GIGI_ALBUM_NAME, subDir, accountUid)
+            .filter { !it.isNullOrBlank() }
+            .joinToString("/")
+        val dir = File(pictures, relativeDir)
         if (!dir.exists() && !dir.mkdirs()) {
             throw IOException(LocaleStrings.get(R.string.error_album_write_failed))
         }

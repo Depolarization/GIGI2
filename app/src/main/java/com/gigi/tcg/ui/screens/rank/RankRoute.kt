@@ -278,7 +278,8 @@ private fun RankRow(
                     showToast(copiedToast)
                 },
             )
-            .padding(start = RANK_COLUMN_START_DP.dp, end = 16.dp, vertical = 8.dp),
+            .padding(start = RANK_COLUMN_START_DP.dp, end = 16.dp)
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // 名次列：固定 RANK_SLOT_WIDTH_DP 宽 + 居中 ⇒ 头像 x 位置跨行恒定、不随位数漂移；

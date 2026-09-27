@@ -22,6 +22,9 @@ data class GcgStats(
     val level: Int? = null,
     val avatarCardNumGained: Int? = null,
     val actionCardNumGained: Int? = null,
+    /** 图鉴总数（导出图胶囊的分母）；服务端/映射层缺失时为 null ⇒ 兜底用已得数 */
+    val avatarCardNumTotal: Int? = null,
+    val actionCardNumTotal: Int? = null,
 )
 
 const val CARD_TYPE_CHARACTER = "CardTypeCharacter"
@@ -66,6 +69,10 @@ data class GcgSummary(
     val level: Int,
     val avatarCardNum: Int,
     val actionCardNum: Int,
+    /** 角色牌图鉴总数（接口缺失或 ≤0 时 == avatarCardNum，绝不给 0 分母） */
+    val avatarCardTotal: Int,
+    /** 行动牌图鉴总数（接口缺失或 ≤0 时 == actionCardNum） */
+    val actionCardTotal: Int,
     /** 总对局数 = floor(Σ角色牌 use_count / 3) */
     val totalGames: Long,
     /** 获胜对局数 = floor(Σ角色牌 proficiency / 3) */
@@ -104,6 +111,9 @@ fun computeGcgSummary(stats: GcgStats?, lists: PreparedCardLists): GcgSummary {
         level = stats?.level ?: 0,
         avatarCardNum = stats?.avatarCardNumGained ?: 0,
         actionCardNum = stats?.actionCardNumGained ?: 0,
+        // 总数缺失/为 0 时兜底成已得数 ⇒ 胶囊显示 147/147，绝不出现 147/0
+        avatarCardTotal = stats?.avatarCardNumTotal?.takeIf { it > 0 } ?: (stats?.avatarCardNumGained ?: 0),
+        actionCardTotal = stats?.actionCardNumTotal?.takeIf { it > 0 } ?: (stats?.actionCardNumGained ?: 0),
         totalGames = totalGames,
         winGames = winGames,
         winRate = formatPercent(winRateValue),

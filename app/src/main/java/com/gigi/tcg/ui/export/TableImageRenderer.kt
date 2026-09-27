@@ -1,154 +1,198 @@
 package com.gigi.tcg.ui.export
 
+import android.content.res.Resources
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.RectF
 import com.gigi.tcg.R
 import com.gigi.tcg.i18n.LocaleStrings
 import java.io.IOException
 import kotlin.math.ceil
 
-// 版式照抄参考导出图的实测规格（.task/progress/R3-findings.md）：
-// 数据行/表头行各 50px、正文 20px、表头 22px（暖灰棕加粗）、分区标题带 64px 居中深棕字、
-// 单元格左右内边距 12px、表格左右外边距各 26px、纯斑马纹（第 1 个数据行就是斑马色），
-// 全表唯一的线是「表头上方 2px #EBEBEB」——行间/列间/双栏之间一律没有分隔线。
+// 版式照抄参考导出图的实测规格（.task/dispatch/SPEC-export.md，源自 Alpiiine/gcg-plugin 的 gcg.html/css）。
+// 关键模型：**HTML 表格自动布局** —— 单元格全部 whitespace-nowrap，
+// 列宽 = 该列 max(表头宽, 各行该列文本宽) + 左右内边距，表格自然变宽，
+// **永不换行、永不省略**（旧实现按 weight 拉伸填满固定画布：长牌名折成「8+1」看着像缩进、
+// 「使用率%」表头被省略号截断，根因都是列宽与内容无关）。
+// 画布宽由表格内容反推（SPEC-export.md「我们的适配」第 1 条），不再由调用方指定。
 // 字号直接按 px 定（不随屏幕密度），因为分享出去的图规格必须跨设备统一。
-// internal 供单测做「表头能否放进列 / 名称列容得下几个汉字」的字宽断言（防回归）。
+
+/** 文本测量注入：运行期用 Paint，JVM 单测用近似实现（CJK=字号，拉丁≈0.55×字号） */
+fun interface TextMeasurer {
+    fun measure(text: String, textSizePx: Float): Float
+}
+
+/**
+ * 生产实现：单张 Paint 复用，避免每格重建 Paint。
+ * 测量 Paint 开 fakeBold：表头与首列序号是按伪粗体画的，而 TextMeasurer 只吃 (文本, 字号)、
+ * 无法区分粗细 ⇒ 统一按伪粗体（更宽的一侧）量，列宽只会略富不会欠，避免压字/蹭到邻列。
+ */
+fun paintTextMeasurer(): TextMeasurer {
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFakeBoldText = true }
+    return TextMeasurer { text, textSizePx ->
+        paint.textSize = textSizePx
+        paint.measureText(text)
+    }
+}
+
+/** 单元格水平对齐：# 列 START，其余列 CENTER */
+enum class CellAlign { START, CENTER, END }
+
+/** 列定义；[minWidthPx] 是列宽下限（0 = 不设），用于内容测不出可用宽度时兜底 */
+data class TableColumn(
+    val header: String,
+    val align: CellAlign,
+    val minWidthPx: Int = 0,
+)
+
+/** 一张表的完整内容（页眉文案 + 表体） */
+data class TableSpec(
+    /** 分区标题带文字（角色牌数据 / 行动牌数据） */
+    val title: String,
+    /** 页眉第 1 行，形如 "Clin - 110526730" */
+    val nickname: String,
+    /** 页眉第 2 行，形如 "牌手等级 10"；null 时整行连同间距都不占 */
+    val levelText: String?,
+    /** 蓝底胶囊（已得/总数、场次、胜率） */
+    val badges: List<String>,
+    /** 白底签名框文字 */
+    val signature: String,
+    val columns: List<TableColumn>,
+    /** 每行的单元格文本，每行长度必须 == columns.size */
+    val rows: List<List<String>>,
+    /** 日期行（右对齐）；null 不画、也不占高 */
+    val exportDateText: String?,
+)
+
+/** 纯计算的布局结果（不引用 android.graphics，可 JVM 单测） */
+data class TableLayout(
+    /** 画布宽 = 表格内容宽 + 2×(24+2)，双栏再加 15px 栏间距 */
+    val widthPx: Int,
+    val heightPx: Int,
+    /** 表格内容宽（双栏时 = 单栏宽 × 2，即两栏合计占用的内容宽） */
+    val tableWidthPx: Int,
+    /** 单栏表格内容宽 = 列宽之和（双栏时两栏共用同一套全局列宽 ⇒ 两栏等宽） */
+    val bandWidthPx: Int,
+    /** 各列左缘，相对表格内容区左缘 */
+    val columnX: List<Int>,
+    val columnWidth: List<Int>,
+    val columnsPerBand: Int,
+    /** 每栏行数（单栏 = rows.size；双栏 = ceil(rows.size/2)，第 2 栏取剩余） */
+    val rowsPerBand: Int,
+)
+
+// ---- 表格本体：1:1 照抄参考图实测（字号 20、行高 50、内边距 10/15、斑马 #E2E8F0、无色线）----
 internal const val TEXT_SIZE_BODY_PX = 20f
-internal const val TEXT_SIZE_HEADER_PX = 22f
-private const val TEXT_SIZE_TITLE_PX = 24f
-
-// 数据单元格换行：名称列两行优先，超两行才省略（参考图是单行 + …，本应用在 670px 栏宽下靠两行保住长卡名）。
-// 行高占用 = 字号 × 该系数 × 行数：20f × 1.18 × 2 = 47.2px ≤ 50px 行高（两行仍装得进）。
-internal const val MAX_CELL_LINES = 2
-private const val CELL_LINE_HEIGHT_FACTOR = 1.18f
-
-// 行 / 表头 / 标题带 / 留白（R3 实测：数据行与表头行均 50px、分区标题带 64px）
+internal const val TEXT_SIZE_HEADER_PX = 20f
 internal const val ROW_HEIGHT_PX = 50
 internal const val HEADER_HEIGHT_PX = 50
-internal const val TITLE_LINE_HEIGHT_PX = 64
-// 副标题/徽章行高按 20px 正文字号重算：行高 = 字号 × 2（旧 52 是 26px 字号时代的比例）
-internal const val SUBTITLE_LINE_HEIGHT_PX = 40
-internal const val BADGES_LINE_HEIGHT_PX = 40
-// 徽章胶囊高 36px（R3 实测 pill y124–159），在 40px 行里上下各留 2px
-private const val BADGE_PILL_HEIGHT_PX = 36
-// 徽章行底 → 表头上方细线 ≈ 参考图 banner 底(307) → 线(332) 的 25px
-internal const val HEADER_TOP_GAP_PX = 28
-internal const val BOTTOM_PADDING_PX = 32
+internal const val CELL_PADDING_PX = 10
+/** 首列左内边距（参考图 `sm:pl-3` 覆盖 `px-2`）；START 对齐只用于首列 */
+internal const val FIRST_CELL_LEFT_PADDING_PX = 15
+/** 页边距；表格盒边框 2px ⇒ 表格内容左缘 = 24 + 2 = 26（参考图实测） */
+internal const val PAGE_MARGIN_PX = 24
+internal const val TABLE_BORDER_PX = 2
+internal const val TABLE_CORNER_RADIUS_PX = 6f
+/** 双栏栏间距（参考图 `space-x-3`） */
+internal const val BAND_GAP_PX = 15
 
-internal const val MIN_COLUMN_WIDTH_PX = 40
-internal const val CELL_PADDING_PX = 12
-/** 表格左右外边距（对称，R3 实测 ≈26px）；由「压缩表格」得到，不是加宽画布 */
-internal const val PAGE_MARGIN_PX = 26
-/** 表头上方唯一那条细线（R3 实测 2px #EBEBEB） */
-private const val BORDER_LINE_PX = 2
+// ---- 页眉（参考图数值整体 ×1.25，见 SPEC-export.md「我们的适配」第 2 条）----
+private const val HEADER_TOP_PADDING_PX = 40
+private const val NICKNAME_TEXT_SIZE_PX = 35f
+private const val NICKNAME_LINE_HEIGHT_PX = 40
+private const val NICKNAME_TOP_MARGIN_PX = 5
+private const val NICKNAME_BOTTOM_MARGIN_PX = 10
+private const val LEVEL_TEXT_SIZE_PX = 25f
+private const val LEVEL_LINE_HEIGHT_PX = 25
+private const val LEVEL_BOTTOM_MARGIN_PX = 25
+private const val BADGE_TEXT_SIZE_PX = 25f
+private const val BADGE_HEIGHT_PX = 45
+private const val BADGE_RADIUS_PX = 8f
+private const val BADGE_HORIZONTAL_PADDING_PX = 20
+private const val BADGE_RIGHT_MARGIN_PX = 20
+private const val BADGE_BOTTOM_MARGIN_PX = 13
+private const val BADGE_ROW_BOTTOM_MARGIN_PX = 8
+private const val SIGNATURE_TEXT_SIZE_PX = 25f
+private const val SIGNATURE_HEIGHT_PX = 45
+private const val SIGNATURE_RADIUS_PX = 10f
+private const val SIGNATURE_HORIZONTAL_PADDING_PX = 20
+private const val SIGNATURE_BOTTOM_MARGIN_PX = 25
+/** 签名框底 → 分隔虚线顶；虚线高 4，其底 = 页眉块底（14 + 4 = 签名框 mb 25） */
+private const val DIVIDER_OFFSET_PX = 14
+private const val DIVIDER_HEIGHT_PX = 4
+/** 分隔虚线左右缩进（参考图 `left/right: 28px`） */
+private const val DIVIDER_INSET_PX = 28
+private const val LOGO_WIDTH_PX = 225
+private const val LOGO_HEIGHT_PX = 75
+private const val LOGO_TOP_PX = 72
+private const val LOGO_RIGHT_INSET_PX = 40
+
+// ---- 分区标题带 / 日期行 / 页脚 ----
+private const val BANNER_HEIGHT_PX = 80
+private const val BANNER_BOTTOM_MARGIN_PX = 30
+private const val BANNER_TEXT_SIZE_PX = 31f
+private const val BANNER_LETTER_SPACING_PX = 8f
+private const val DATE_ROW_HEIGHT_PX = 34
+private const val DATE_TEXT_SIZE_PX = 25f
+private const val FOOTER_TOP_MARGIN_PX = 67
+private const val FOOTER_LINE_HEIGHT_PX = 22
+private const val FOOTER_BOTTOM_MARGIN_PX = 22
+private const val FOOTER_TEXT_SIZE_PX = 15f
 
 // ARGB_8888 估算内存超过它则降级 RGB_565。
-// 角色牌 822×7604×4 ≈ 23.8MB 保 ARGB；行动牌 1444×23804×4 ≈ 137MB 降级 RGB_565。
 private const val MAX_BITMAP_MEMORY_BYTES = 64L * 1024L * 1024L
 
 // 降级到 RGB_565 后仍超过它就不渲染，直接抛可读 IOException。
-// 取 100MB：真实最大用例（行动牌 941 行双栏 1444px）RGB_565 = 1444×23804×2 ≈ 68.7MB 必须放行，
+// 取 100MB：真实最大用例（行动牌 941 行双栏）RGB_565 必须放行，
 // 再大很多在低端机堆上必 OOM，不如提前失败。
 private const val MAX_RENDERABLE_MEMORY_BYTES = 100L * 1024L * 1024L
 
 private const val ELLIPSIS = "…"
 
-private const val COLOR_PAGE_BG = 0xFFFAFAF8.toInt()
+private const val COLOR_PAGE_BG = 0xFFFAFAF9.toInt()
 private const val COLOR_TABLE_BG = 0xFFFFFFFF.toInt()
-private const val COLOR_ROW_STRIPE = 0xFFE1E8F0.toInt()
-/** 表头文字（暖灰棕，R3 实测 #665856）；副标题与右上角导出日期（小灰字）同色 */
-private const val COLOR_MUTED_TEXT = 0xFF665856.toInt()
-private const val COLOR_BODY_TEXT = 0xFF1B1821.toInt()
-private const val COLOR_TITLE_BG = 0xFFF0E5D3.toInt()
-private const val COLOR_TITLE_TEXT = 0xFF6A5750.toInt()
-private const val COLOR_BADGE_BG = 0xFF4CA2F9.toInt()
+private const val COLOR_ROW_STRIPE = 0xFFE2E8F0.toInt()
+/** 页眉/表头/首列/标题带/页脚共用的暖灰棕（参考图 #675856） */
+private const val COLOR_MUTED_TEXT = 0xFF675856.toInt()
+private const val COLOR_BODY_TEXT = 0xFF111827.toInt()
+private const val COLOR_BADGE_BG = 0xFF4CA1F8.toInt()
 private const val COLOR_BADGE_TEXT = 0xFFFFFFFF.toInt()
 private const val COLOR_BORDER_LINE = 0xFFEBEBEB.toInt()
-
-/** 单元格水平对齐：# 列 START，其余列（含名称列）CENTER */
-enum class CellAlign { START, CENTER, END }
-
-/** 列定义 */
-data class TableColumn(
-    val header: String,
-    /** 相对权重（名称列给大值，数值列给小值）；用于按比例分配宽度 */
-    val weight: Float,
-    val align: CellAlign,
-)
-
-/** 一张表的完整内容 */
-data class TableSpec(
-    val title: String,
-    /** 顶部信息行（如 "Clin - 110526730"），可空 */
-    val subtitle: String?,
-    /** 徽章行（如 "共进行 3493 场游戏"），可空 */
-    val badges: List<String>,
-    val columns: List<TableColumn>,
-    /** 每行的单元格文本，行数 = rows.size，每行长度必须 == columns.size */
-    val rows: List<List<String>>,
-    /** 导出日期（yyyy-MM-dd），画在右上角（参考图放 logo 的位置）；null 不画 */
-    val exportDate: String? = null,
-)
-
-/** 纯计算的布局结果（不依赖 android.graphics，可 JVM 单测） */
-data class TableLayout(
-    val widthPx: Int,
-    val heightPx: Int,
-    /** 每列左边缘 x（**相对本栏左边缘**） */
-    val columnX: List<Int>,
-    /** 每列宽度（总和精确 == bandWidthPx） */
-    val columnWidth: List<Int>,
-    /** 单栏可用宽 = widthPx / 栏数 − 2 × PAGE_MARGIN_PX（表格只占槽位中间，两侧留页面底色） */
-    val bandWidthPx: Int,
-    val headerHeightPx: Int,
-    val rowHeightPx: Int,
-    /** 表头起始 y（= 标题区 + 与表头之间的留白） */
-    val titleHeightPx: Int,
-    val columnsPerBand: Int,
-    /** 每栏行数（单栏 = rows.size；双栏 = ceil(rows.size/2)） */
-    val rowsPerBand: Int,
-)
 
 /**
  * 纯函数：算布局。**不引用任何 android.graphics 类型**。
  *
- * 双栏契约：`columnX` / `columnWidth` **只描述第一栏**（相对本栏左边缘；列宽和 = [bandWidthPx]），
- * 第 band 栏的 x 偏移由 [renderTableBitmap] 加 `PAGE_MARGIN_PX + band × (widthPx / columnsPerBand)`，
- * [TableLayout] 不额外存字段。
+ * 列宽对**全部行**取 max（双栏时两栏共用同一套全局列宽 ⇒ 两栏等宽）；
+ * 画布宽由列宽反推，调用方不能再指定（旧 `widthPx` 参数与 weight 拉伸模型一起删除）。
  *
- * @param widthPx 目标总宽（角色牌 822 / 行动牌 1444）
  * @param twoColumnThreshold 行数超过它才分双栏
  */
 fun computeTableLayout(
     spec: TableSpec,
-    widthPx: Int,
+    measurer: TextMeasurer,
     twoColumnThreshold: Int,
 ): TableLayout {
-    require(widthPx > 0) { "widthPx must be positive, got $widthPx" }
+    require(twoColumnThreshold > 0) { "twoColumnThreshold must be positive, got $twoColumnThreshold" }
     require(spec.columns.isNotEmpty()) { "columns must not be empty" }
-    require(spec.columns.sumOf { it.weight.toDouble() } > 0.0) {
-        "sum of column weights must be positive"
-    }
     spec.rows.forEachIndexed { index, row ->
         require(row.size == spec.columns.size) {
             "row #$index has ${row.size} cells but columns.size=${spec.columns.size}"
         }
     }
 
-    val twoColumn = spec.rows.size > twoColumnThreshold
-    val columnsPerBand = if (twoColumn) 2 else 1
-    val rowsPerBand = if (twoColumn) ceil(spec.rows.size / 2.0).toInt() else spec.rows.size
-
-    // 外边距是「压缩表格」出来的：每栏槽位 = 画布宽 / 栏数，表格只占槽位减去两侧 26px 的部分。
-    // 双栏 1444px ⇒ 每栏槽位 722，表宽 670；单栏 822px ⇒ 表宽 770。
-    val bandSlotPx = widthPx / columnsPerBand
-    val bandWidthPx = bandSlotPx - 2 * PAGE_MARGIN_PX
-    require(bandWidthPx > 0) {
-        "widthPx=$widthPx too small for $columnsPerBand band(s) with ${PAGE_MARGIN_PX}px page margins"
+    val columnWidth = spec.columns.mapIndexed { i, column ->
+        var textWidth = measurer.measure(column.header, TEXT_SIZE_HEADER_PX)
+        for (row in spec.rows) {
+            val w = measurer.measure(row[i], TEXT_SIZE_BODY_PX)
+            if (w > textWidth) textWidth = w
+        }
+        // 首列 15+10，其余 10+10（参考图 px-2 / sm:pl-3）；测量值向上取整，宁宽半像素也不压字
+        val padding = if (i == 0) FIRST_CELL_LEFT_PADDING_PX + CELL_PADDING_PX else 2 * CELL_PADDING_PX
+        maxOf(ceil(textWidth).toInt() + padding, column.minWidthPx)
     }
-
-    val columnWidth = distributeColumnWidths(spec.columns, bandWidthPx)
     val columnX = ArrayList<Int>(columnWidth.size)
     var x = 0
     for (w in columnWidth) {
@@ -156,63 +200,46 @@ fun computeTableLayout(
         x += w
     }
 
-    var titleHeight = TITLE_LINE_HEIGHT_PX
-    if (spec.subtitle != null || spec.exportDate != null) titleHeight += SUBTITLE_LINE_HEIGHT_PX
-    if (spec.badges.isNotEmpty()) titleHeight += BADGES_LINE_HEIGHT_PX
-    titleHeight += HEADER_TOP_GAP_PX   // 标题区与表头之间的留白（表头起点）
+    val twoColumn = spec.rows.size > twoColumnThreshold
+    val columnsPerBand = if (twoColumn) 2 else 1
+    val rowsPerBand = if (twoColumn) ceil(spec.rows.size / 2.0).toInt() else spec.rows.size
 
-    val heightPx = titleHeight + HEADER_HEIGHT_PX + rowsPerBand * ROW_HEIGHT_PX + BOTTOM_PADDING_PX
+    val bandWidthPx = columnWidth.sum()
+    // 画布宽 = 表格内容宽（双栏含两栏 + 栏间距）+ 两侧页边距与边框各 24+2
+    val widthPx = bandWidthPx * columnsPerBand +
+        (if (twoColumn) BAND_GAP_PX else 0) +
+        2 * (PAGE_MARGIN_PX + TABLE_BORDER_PX)
+
+    val dateRowHeight = if (spec.exportDateText.isNullOrEmpty()) 0 else DATE_ROW_HEIGHT_PX
+    // 两栏各自成盒，行数可能差 1（奇数行）；高度按最高的那栏算 ⇒ 页脚位置与画布高都取 rowsPerBand
+    val bandRows = minOf(rowsPerBand, spec.rows.size)
+    // 竖向堆叠：页眉块 → 标题带 80 + mb 30 → 日期行 → 上边框 2 → 表头 50 → 数据行 → 下边框 2 → 页脚 111（67+22+22）
+    val heightPx = computeHeaderBlockHeight(spec) + BANNER_HEIGHT_PX + BANNER_BOTTOM_MARGIN_PX + dateRowHeight +
+        TABLE_BORDER_PX + HEADER_HEIGHT_PX + bandRows * ROW_HEIGHT_PX + TABLE_BORDER_PX +
+        FOOTER_TOP_MARGIN_PX + FOOTER_LINE_HEIGHT_PX + FOOTER_BOTTOM_MARGIN_PX
 
     return TableLayout(
         widthPx = widthPx,
         heightPx = heightPx,
+        tableWidthPx = bandWidthPx * columnsPerBand,
+        bandWidthPx = bandWidthPx,
         columnX = columnX,
         columnWidth = columnWidth,
-        bandWidthPx = bandWidthPx,
-        headerHeightPx = HEADER_HEIGHT_PX,
-        rowHeightPx = ROW_HEIGHT_PX,
-        titleHeightPx = titleHeight,
         columnsPerBand = columnsPerBand,
         rowsPerBand = rowsPerBand,
     )
 }
 
 /**
- * 按 weight 比例分配列宽，总和精确 == totalWidthPx（= 栏宽）。
- * 每列至少 [MIN_COLUMN_WIDTH_PX]（在 totalWidthPx 装得下 n×最小宽时）；
- * 舍入误差全部由最后一列吸收。
+ * 页眉块高（含顶部内边距与分隔虚线占位）：等级行/胶囊/签名为空时整行连同间距都不占。
+ * 虚线底 = 页眉块底。internal 供单测按同一口径核对画布总高。
  */
-private fun distributeColumnWidths(columns: List<TableColumn>, totalWidthPx: Int): List<Int> {
-    val n = columns.size
-    val totalWeight = columns.sumOf { it.weight.toDouble() }
-    val widths = IntArray(n)
-
-    val minFits = totalWidthPx.toLong() >= MIN_COLUMN_WIDTH_PX.toLong() * n
-    if (!minFits) {
-        // 装不下最小宽保护：纯比例分配，最后一列吸收误差
-        var used = 0
-        for (i in 0 until n - 1) {
-            val w = (columns[i].weight.toDouble() / totalWeight * totalWidthPx)
-                .toInt()
-                .coerceAtLeast(0)
-            widths[i] = w
-            used += w
-        }
-        widths[n - 1] = totalWidthPx - used
-        return widths.toList()
-    }
-
-    val slack = totalWidthPx - MIN_COLUMN_WIDTH_PX * n
-    var used = 0
-    for (i in 0 until n - 1) {
-        val share = (columns[i].weight.toDouble() / totalWeight * slack)
-            .toInt()
-            .coerceAtLeast(0)
-        widths[i] = MIN_COLUMN_WIDTH_PX + share
-        used += widths[i]
-    }
-    widths[n - 1] = totalWidthPx - used
-    return widths.toList()
+internal fun computeHeaderBlockHeight(spec: TableSpec): Int {
+    var y = HEADER_TOP_PADDING_PX + NICKNAME_TOP_MARGIN_PX + NICKNAME_LINE_HEIGHT_PX + NICKNAME_BOTTOM_MARGIN_PX
+    if (!spec.levelText.isNullOrEmpty()) y += LEVEL_LINE_HEIGHT_PX + LEVEL_BOTTOM_MARGIN_PX
+    if (spec.badges.isNotEmpty()) y += BADGE_HEIGHT_PX + BADGE_BOTTOM_MARGIN_PX + BADGE_ROW_BOTTOM_MARGIN_PX
+    if (spec.signature.isNotEmpty()) y += SIGNATURE_HEIGHT_PX + SIGNATURE_BOTTOM_MARGIN_PX
+    return y + DIVIDER_HEIGHT_PX
 }
 
 /** 内存预算内的位图配置选择（纯算术，可 JVM 单测） */
@@ -244,6 +271,7 @@ internal fun checkRenderMemoryBudget(widthPx: Int, heightPx: Int, config: Bitmap
 /**
  * 截断超长文本（可 JVM 单测：测量器由参数注入，不依赖 Paint）。
  * 未超长时原样返回；超长时二分找最长的能放下「前缀 + …」的截断点。
+ * 🔴 表格本体不用它（nowrap 模型下没有该截断的文本）；最近对局卡片仍在用，别删。
  */
 internal fun ellipsize(text: String, maxWidthPx: Float, measure: (String) -> Float): String {
     if (text.isEmpty() || measure(text) <= maxWidthPx) return text
@@ -263,46 +291,19 @@ internal fun ellipsize(text: String, maxWidthPx: Float, measure: (String) -> Flo
     return if (best >= 0) text.substring(0, best) + ELLIPSIS else ELLIPSIS
 }
 
-/**
- * 纯函数：把文本切成 <= maxLines 行，能完整放下就原样返回（不省略）。
- * 放不下时在第 maxLines 行末尾加省略号，并二分找最长的能放下的前缀。
- * measure 注入，不依赖 Paint。
- *
- * 贪心按字符断行（CJK 无空格可依赖）；文本自带 `\n` 先按硬换行切开，每段再各自贪心，
- * 避免脏数据把行高算歪。
- */
-internal fun wrapCellText(
-    text: String,
-    maxWidthPx: Float,
-    measure: (String) -> Float,
-    maxLines: Int = MAX_CELL_LINES,
-): List<String> {
-    if (maxWidthPx <= 0f || text.isEmpty()) return listOf("")
-    val lines = ArrayList<String>()
-    var segStart = 0
-    while (segStart <= text.length) {
-        val newline = text.indexOf('\n', segStart)
-        val segEnd = if (newline < 0) text.length else newline
-        var cursor = segStart
-        while (cursor < segEnd) {
-            var end = cursor + 1
-            // 单字就超宽时也先落这个字，保证推进（否则死循环）
-            while (end < segEnd && measure(text.substring(cursor, end + 1)) <= maxWidthPx) end++
-            lines.add(text.substring(cursor, end))
-            cursor = end
-        }
-        if (newline < 0) break
-        segStart = newline + 1
-        if (segStart == text.length) {
-            lines.add("") // 结尾换行：留一空行，保持行数口径
-            break
-        }
-    }
-    if (lines.isEmpty()) return listOf("")
-    if (lines.size <= maxLines) return lines
-    val kept = lines.take(maxLines - 1)
-    val rest = lines.subList(maxLines - 1, lines.size).joinToString("")
-    return kept + ellipsize(rest, maxWidthPx, measure)
+/** 参考图资源（divider / section-background / logo），由调用方解码一次注入 */
+data class ExportAssets(val divider: Bitmap, val sectionBg: Bitmap, val logo: Bitmap)
+
+/** 解一次参考图资源（放 drawable-nodpi：不随屏幕密度缩放，像素即设计像素） */
+fun loadExportAssets(resources: Resources): ExportAssets {
+    fun decode(id: Int, name: String): Bitmap =
+        BitmapFactory.decodeResource(resources, id)
+            ?: throw IOException("Missing export asset: $name")
+    return ExportAssets(
+        divider = decode(R.drawable.export_divider, "export_divider"),
+        sectionBg = decode(R.drawable.export_section_bg, "export_section_bg"),
+        logo = decode(R.drawable.export_logo, "export_logo"),
+    )
 }
 
 /**
@@ -310,7 +311,7 @@ internal fun wrapCellText(
  * 不用 GraphicsLayer.toImageBitmap：它要求整表完成 Compose 布局，
  * 超长内容会撞 GPU 纹理上限（常见 4096/8192）而失败。
  */
-fun renderTableBitmap(spec: TableSpec, layout: TableLayout): Bitmap {
+fun renderTableBitmap(spec: TableSpec, layout: TableLayout, assets: ExportAssets): Bitmap {
     val config = chooseBitmapConfig(layout.widthPx, layout.heightPx)
     checkRenderMemoryBudget(layout.widthPx, layout.heightPx, config)
     val bitmap = try {
@@ -324,75 +325,93 @@ fun renderTableBitmap(spec: TableSpec, layout: TableLayout): Bitmap {
     }
 
     // Paint 全部建好复用，禁止行内 new
-    val fillPaint = Paint().apply { style = Paint.Style.FILL }
-    val titlePaint = antialiasedTextPaint(TEXT_SIZE_TITLE_PX, COLOR_TITLE_TEXT).apply {
+    val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    val srcRect = Rect()
+    val dstRect = RectF()
+    val nicknamePaint = antialiasedTextPaint(NICKNAME_TEXT_SIZE_PX, COLOR_MUTED_TEXT).apply {
         isFakeBoldText = true
     }
-    val subtitlePaint = antialiasedTextPaint(TEXT_SIZE_BODY_PX, COLOR_MUTED_TEXT)
-    val exportDatePaint = antialiasedTextPaint(TEXT_SIZE_BODY_PX, COLOR_MUTED_TEXT)
-    val badgePaint = antialiasedTextPaint(TEXT_SIZE_BODY_PX, COLOR_BADGE_TEXT)
+    val levelPaint = antialiasedTextPaint(LEVEL_TEXT_SIZE_PX, COLOR_MUTED_TEXT)
+    val badgePaint = antialiasedTextPaint(BADGE_TEXT_SIZE_PX, COLOR_BADGE_TEXT)
+    val signaturePaint = antialiasedTextPaint(SIGNATURE_TEXT_SIZE_PX, COLOR_MUTED_TEXT)
+    // letterSpacing 是字号的比例（Paint 语义），8/31 ⇒ 每字后加 8px
+    val bannerPaint = antialiasedTextPaint(BANNER_TEXT_SIZE_PX, COLOR_MUTED_TEXT).apply {
+        isFakeBoldText = true
+        letterSpacing = BANNER_LETTER_SPACING_PX / BANNER_TEXT_SIZE_PX
+    }
+    val datePaint = antialiasedTextPaint(DATE_TEXT_SIZE_PX, COLOR_MUTED_TEXT)
     val headerPaint = antialiasedTextPaint(TEXT_SIZE_HEADER_PX, COLOR_MUTED_TEXT).apply {
         isFakeBoldText = true
     }
+    val indexPaint = antialiasedTextPaint(TEXT_SIZE_BODY_PX, COLOR_MUTED_TEXT).apply {
+        isFakeBoldText = true
+    }
     val bodyPaint = antialiasedTextPaint(TEXT_SIZE_BODY_PX, COLOR_BODY_TEXT)
+    val footerPaint = antialiasedTextPaint(FOOTER_TEXT_SIZE_PX, COLOR_MUTED_TEXT)
 
     val canvas = Canvas(bitmap)
     val width = layout.widthPx
-    val contentLeft = PAGE_MARGIN_PX
-    val contentWidth = width - 2 * PAGE_MARGIN_PX
 
-    // 1. 页面底色（#FAFAF8；表格区域稍后压白色数据带）
+    // 1. 页面底色
     fillPaint.color = COLOR_PAGE_BG
     canvas.drawRect(0f, 0f, width.toFloat(), layout.heightPx.toFloat(), fillPaint)
 
-    // 2. 分区标题带：奶油色 #F0E5D3、64px、与表格同宽（R3 实测 x24–797 ≈ 26px 边距，两侧纹样装饰不抄）
-    var y = 0
-    fillPaint.color = COLOR_TITLE_BG
-    canvas.drawRect(
-        contentLeft.toFloat(), y.toFloat(),
-        (contentLeft + contentWidth).toFloat(), (y + TITLE_LINE_HEIGHT_PX).toFloat(),
-        fillPaint,
+    // 2. 页眉块，返回页眉块底（= 分隔虚线底）
+    val headerBottom = drawHeaderBlock(
+        canvas, spec, layout, nicknamePaint, levelPaint, badgePaint, signaturePaint, fillPaint,
     )
-    drawText(canvas, ellipsize(spec.title, contentWidth.toFloat(), titlePaint::measureText), titlePaint,
-        x = 0f, rowTop = y, rowHeight = TITLE_LINE_HEIGHT_PX, align = CellAlign.CENTER, widthPx = width)
-    y += TITLE_LINE_HEIGHT_PX
 
-    // 3. 副标题（左）与导出日期（右，参考图放 logo 的位置）同一水平带
-    if (spec.subtitle != null || spec.exportDate != null) {
-        val dateText = spec.exportDate?.let {
-            ellipsize(it, (contentWidth / 2).toFloat(), exportDatePaint::measureText)
-        }
-        val dateWidth = dateText?.let { exportDatePaint.measureText(it) } ?: 0f
-        if (spec.subtitle != null) {
-            val subtitleMax = contentWidth - (if (dateText != null) dateWidth + CELL_PADDING_PX else 0f)
-            drawText(canvas, ellipsize(spec.subtitle, subtitleMax, subtitlePaint::measureText), subtitlePaint,
-                x = contentLeft.toFloat(), rowTop = y, rowHeight = SUBTITLE_LINE_HEIGHT_PX,
-                align = CellAlign.START, widthPx = contentWidth, padPx = PAGE_MARGIN_PX)
-        }
-        if (dateText != null) {
-            // 右缘对齐表格右边界：x=0 起算整幅画布、pad 取页边距
-            drawText(canvas, dateText, exportDatePaint,
-                x = 0f, rowTop = y, rowHeight = SUBTITLE_LINE_HEIGHT_PX,
-                align = CellAlign.END, widthPx = width, padPx = PAGE_MARGIN_PX)
-        }
-        y += SUBTITLE_LINE_HEIGHT_PX
-    }
-    if (spec.badges.isNotEmpty()) {
-        drawBadges(canvas, spec.badges, badgePaint, fillPaint, top = y)
-        y += BADGES_LINE_HEIGHT_PX
+    // 3. 分隔虚线（签名框底 + 14，左右各缩进 28，高 4）+ 右上角 logo（225×75，右缘距画布 40）
+    drawStretch(
+        assets.divider, canvas, top = headerBottom - DIVIDER_HEIGHT_PX - SIGNATURE_BOTTOM_MARGIN_PX + DIVIDER_OFFSET_PX,
+        left = DIVIDER_INSET_PX, right = width - DIVIDER_INSET_PX, height = DIVIDER_HEIGHT_PX,
+        srcRect = srcRect, dstRect = dstRect,
+    )
+    drawStretch(
+        assets.logo, canvas, top = LOGO_TOP_PX,
+        left = width - LOGO_RIGHT_INSET_PX - LOGO_WIDTH_PX, right = width - LOGO_RIGHT_INSET_PX,
+        height = LOGO_HEIGHT_PX, srcRect = srcRect, dstRect = dstRect,
+    )
+
+    // 4. 分区标题带
+    var y = headerBottom
+    drawBanner(canvas, spec.title, bannerPaint, assets.sectionBg, y, srcRect, dstRect)
+    y += BANNER_HEIGHT_PX + BANNER_BOTTOM_MARGIN_PX
+
+    // 5. 日期行：右对齐到画布右缘 − 24；null 时整行不占高
+    if (!spec.exportDateText.isNullOrEmpty()) {
+        datePaint.textAlign = Paint.Align.RIGHT
+        canvas.drawText(
+            spec.exportDateText, (width - PAGE_MARGIN_PX).toFloat(),
+            y + baselineInBox(datePaint, DATE_ROW_HEIGHT_PX.toFloat()), datePaint,
+        )
+        y += DATE_ROW_HEIGHT_PX
     }
 
-    // 4. 表头 + 数据行；双栏时右栏偏移 = 页边距 + 一个栏槽位（见 computeTableLayout 契约）
-    val bandSlotPx = width / layout.columnsPerBand
+    // 6. 表格：每栏一个白盒（2px 边框 + radius 6），各栏自带表头行 + 行段。
+    //    上边框占掉 banner 下方 30px 留白的前 2px ⇒ 内容顶 = y + 2。
+    val contentTop = y + TABLE_BORDER_PX
     repeat(layout.columnsPerBand) { band ->
-        val offsetX = PAGE_MARGIN_PX + band * bandSlotPx
         val firstRow = band * layout.rowsPerBand
-        val lastRowExclusive =
-            if (layout.columnsPerBand == 2 && band == 1) minOf(firstRow + layout.rowsPerBand, spec.rows.size)
-            else firstRow + layout.rowsPerBand
-        drawBand(canvas, spec, layout, offsetX, firstRow, lastRowExclusive,
-            headerPaint, bodyPaint, fillPaint)
+        val rowCount = (minOf(firstRow + layout.rowsPerBand, spec.rows.size) - firstRow).coerceAtLeast(0)
+        drawBand(
+            canvas, spec, layout,
+            bandLeft = PAGE_MARGIN_PX + TABLE_BORDER_PX + band * (layout.bandWidthPx + BAND_GAP_PX),
+            boxTop = contentTop, boxBottom = contentTop + HEADER_HEIGHT_PX + rowCount * ROW_HEIGHT_PX,
+            firstRow = firstRow, lastRowExclusive = firstRow + rowCount,
+            headerPaint = headerPaint, indexPaint = indexPaint, bodyPaint = bodyPaint, fillPaint = fillPaint,
+        )
     }
+    val tallestBoxBottom = contentTop + HEADER_HEIGHT_PX +
+        minOf(layout.rowsPerBand, spec.rows.size) * ROW_HEIGHT_PX + TABLE_BORDER_PX
+
+    // 7. 页脚：距最高的表格盒底 67，行高 22，其后留 22
+    footerPaint.textAlign = Paint.Align.CENTER
+    canvas.drawText(
+        LocaleStrings.getOrDefault(R.string.export_footer, "七圣召唤"), width / 2f,
+        tallestBoxBottom + FOOTER_TOP_MARGIN_PX + baselineInBox(footerPaint, FOOTER_LINE_HEIGHT_PX.toFloat()),
+        footerPaint,
+    )
     return bitmap
 }
 
@@ -402,152 +421,215 @@ private fun antialiasedTextPaint(textSize: Float, color: Int): Paint =
         this.color = color
     }
 
+/** 文字在 [boxHeight] 高的盒内垂直居中时，基线相对盒顶的偏移；入参收 Float，调用点不必各自转型 */
+private fun baselineInBox(paint: Paint, boxHeight: Float): Float =
+    boxHeight / 2f - (paint.ascent() + paint.descent()) / 2f
+
+/** 把 Bitmap 拉伸画进 (left, top)→(right, top+height)；尺寸非法或位图已回收时 no-op */
+private fun drawStretch(
+    src: Bitmap,
+    canvas: Canvas,
+    top: Int,
+    left: Int,
+    right: Int,
+    height: Int,
+    srcRect: Rect,
+    dstRect: RectF,
+) {
+    if (src.isRecycled || right <= left || height <= 0 || src.width <= 0 || src.height <= 0) return
+    srcRect.set(0, 0, src.width, src.height)
+    dstRect.set(left.toFloat(), top.toFloat(), right.toFloat(), (top + height).toFloat())
+    canvas.drawBitmap(src, srcRect, dstRect, null)
+}
+
+/**
+ * 页眉块：昵称 → 等级 → 胶囊行 → 签名框，返回页眉块底（= 分隔虚线底）。
+ * 胶囊行宽度不够时折到下一行（参考图 flex-wrap）。
+ */
+private fun drawHeaderBlock(
+    canvas: Canvas,
+    spec: TableSpec,
+    layout: TableLayout,
+    nicknamePaint: Paint,
+    levelPaint: Paint,
+    badgePaint: Paint,
+    signaturePaint: Paint,
+    fillPaint: Paint,
+): Int {
+    val left = PAGE_MARGIN_PX.toFloat()
+    val right = (layout.widthPx - PAGE_MARGIN_PX).toFloat()
+    var y = HEADER_TOP_PADDING_PX + NICKNAME_TOP_MARGIN_PX
+
+    nicknamePaint.textAlign = Paint.Align.LEFT
+    canvas.drawText(spec.nickname, left, y + baselineInBox(nicknamePaint, NICKNAME_LINE_HEIGHT_PX.toFloat()), nicknamePaint)
+    y += NICKNAME_LINE_HEIGHT_PX + NICKNAME_BOTTOM_MARGIN_PX
+
+    spec.levelText?.takeIf { it.isNotEmpty() }?.let { level ->
+        levelPaint.textAlign = Paint.Align.LEFT
+        canvas.drawText(level, left, y + baselineInBox(levelPaint, LEVEL_LINE_HEIGHT_PX.toFloat()), levelPaint)
+        y += LEVEL_LINE_HEIGHT_PX + LEVEL_BOTTOM_MARGIN_PX
+    }
+
+    if (spec.badges.isNotEmpty()) {
+        var x = left
+        var rowTop = y
+        for (badge in spec.badges) {
+            val badgeWidth = ceil(badgePaint.measureText(badge)).toInt() + 2 * BADGE_HORIZONTAL_PADDING_PX
+            if (x > left && x + badgeWidth > right) {
+                x = left
+                rowTop += BADGE_HEIGHT_PX + BADGE_BOTTOM_MARGIN_PX
+            }
+            fillPaint.color = COLOR_BADGE_BG
+            canvas.drawRoundRect(
+                x, rowTop.toFloat(), x + badgeWidth, (rowTop + BADGE_HEIGHT_PX).toFloat(),
+                BADGE_RADIUS_PX, BADGE_RADIUS_PX, fillPaint,
+            )
+            badgePaint.textAlign = Paint.Align.CENTER
+            canvas.drawText(
+                badge, x + badgeWidth / 2f,
+                rowTop + baselineInBox(badgePaint, BADGE_HEIGHT_PX.toFloat()), badgePaint,
+            )
+            x += badgeWidth + BADGE_RIGHT_MARGIN_PX
+        }
+        y = rowTop + BADGE_HEIGHT_PX + BADGE_BOTTOM_MARGIN_PX + BADGE_ROW_BOTTOM_MARGIN_PX
+    }
+
+    if (spec.signature.isNotEmpty()) {
+        // 下限取高的 3 倍：单字/两字签名也不会缩成正方形，参考图的签名框是扁长的
+        val boxWidth = maxOf(
+            ceil(signaturePaint.measureText(spec.signature)).toInt() + 2 * SIGNATURE_HORIZONTAL_PADDING_PX,
+            SIGNATURE_HEIGHT_PX * 3,
+        )
+        fillPaint.color = COLOR_TABLE_BG
+        canvas.drawRoundRect(
+            left, y.toFloat(), left + boxWidth, (y + SIGNATURE_HEIGHT_PX).toFloat(),
+            SIGNATURE_RADIUS_PX, SIGNATURE_RADIUS_PX, fillPaint,
+        )
+        signaturePaint.textAlign = Paint.Align.LEFT
+        canvas.drawText(
+            spec.signature, left + SIGNATURE_HORIZONTAL_PADDING_PX.toFloat(),
+            y + baselineInBox(signaturePaint, SIGNATURE_HEIGHT_PX.toFloat()), signaturePaint,
+        )
+        y += SIGNATURE_HEIGHT_PX + SIGNATURE_BOTTOM_MARGIN_PX
+    }
+    return y + DIVIDER_HEIGHT_PX
+}
+
+/** 分区标题带：section-background 拉伸铺满 (画布宽 − 48) × 80（x = 24），文字水平垂直居中 */
+private fun drawBanner(
+    canvas: Canvas,
+    title: String,
+    bannerPaint: Paint,
+    sectionBg: Bitmap,
+    top: Int,
+    srcRect: Rect,
+    dstRect: RectF,
+) {
+    drawStretch(
+        sectionBg, canvas, top = top, left = PAGE_MARGIN_PX, right = canvas.width - PAGE_MARGIN_PX,
+        height = BANNER_HEIGHT_PX, srcRect = srcRect, dstRect = dstRect,
+    )
+    if (title.isEmpty()) return
+    // measureText 把最后一个字的字距也算进去 ⇒ 减掉半个字距再居中才是视觉居中
+    val textWidth = bannerPaint.measureText(title) - BANNER_LETTER_SPACING_PX / 2f
+    bannerPaint.textAlign = Paint.Align.LEFT
+    canvas.drawText(
+        title, (canvas.width - textWidth) / 2f, top + baselineInBox(bannerPaint, BANNER_HEIGHT_PX.toFloat()), bannerPaint,
+    )
+}
+
+/**
+ * 一栏：白盒 + 四边 2px 边框 + 表头行 + 斑马数据行。
+ * 行间、列间一律无线（参考图 divide-y 的计算值是 0px）；斑马只覆盖表格内容宽，不铺满盒右侧空白。
+ */
 private fun drawBand(
     canvas: Canvas,
     spec: TableSpec,
     layout: TableLayout,
-    offsetX: Int,
+    bandLeft: Int,
+    boxTop: Int,
+    boxBottom: Int,
     firstRow: Int,
     lastRowExclusive: Int,
     headerPaint: Paint,
+    indexPaint: Paint,
     bodyPaint: Paint,
     fillPaint: Paint,
 ) {
-    val bandWidthPx = layout.bandWidthPx
-    val tableTop = layout.titleHeightPx
-    val rowsStart = tableTop + layout.headerHeightPx
-    val rowsHeight = (lastRowExclusive - firstRow) * layout.rowHeightPx
-
-    // 表格白底（表头行 + 本栏全部数据行）：压在页面底色上；双栏之间露出 52px 页面底色，无分隔线
+    val bandWidth = layout.bandWidthPx
     fillPaint.color = COLOR_TABLE_BG
-    canvas.drawRect(
-        offsetX.toFloat(), tableTop.toFloat(),
-        (offsetX + bandWidthPx).toFloat(), (rowsStart + rowsHeight).toFloat(),
-        fillPaint,
+    canvas.drawRoundRect(
+        (bandLeft - TABLE_BORDER_PX).toFloat(), (boxTop - TABLE_BORDER_PX).toFloat(),
+        (bandLeft + bandWidth + TABLE_BORDER_PX).toFloat(), (boxBottom + TABLE_BORDER_PX).toFloat(),
+        TABLE_CORNER_RADIUS_PX, TABLE_CORNER_RADIUS_PX, fillPaint,
     )
-
-    // 全表唯一的线：表头上方 2px #EBEBEB（表头下方/行间/列间一律无线）
+    // 四边描边用 4 个矩形而非 Paint.Style.STROKE：RGB_565 下描边抗锯齿会发灰
     fillPaint.color = COLOR_BORDER_LINE
-    canvas.drawRect(
-        offsetX.toFloat(), (tableTop - BORDER_LINE_PX).toFloat(),
-        (offsetX + bandWidthPx).toFloat(), tableTop.toFloat(),
-        fillPaint,
-    )
+    val outerLeft = (bandLeft - TABLE_BORDER_PX).toFloat()
+    val outerRight = (bandLeft + bandWidth + TABLE_BORDER_PX).toFloat()
+    canvas.drawRect(outerLeft, (boxTop - TABLE_BORDER_PX).toFloat(), outerRight, boxTop.toFloat(), fillPaint)
+    canvas.drawRect(outerLeft, boxBottom.toFloat(), outerRight, (boxBottom + TABLE_BORDER_PX).toFloat(), fillPaint)
+    canvas.drawRect(outerLeft, boxTop.toFloat(), bandLeft.toFloat(), boxBottom.toFloat(), fillPaint)
+    canvas.drawRect((bandLeft + bandWidth).toFloat(), boxTop.toFloat(), outerRight, boxBottom.toFloat(), fillPaint)
 
+    // 表头行：全部居中（含首列 #）
     spec.columns.forEachIndexed { i, column ->
-        val w = layout.columnWidth[i]
-        drawText(
-            canvas,
-            ellipsize(column.header, (w - 2 * CELL_PADDING_PX).toFloat(), headerPaint::measureText),
-            headerPaint, (offsetX + layout.columnX[i]).toFloat(), tableTop, layout.headerHeightPx,
-            column.align, w,
+        drawCellText(
+            canvas, headerPaint, column.header, bandLeft + layout.columnX[i], boxTop,
+            layout.columnWidth[i], if (i == 0) CellAlign.CENTER else column.align, HEADER_HEIGHT_PX,
         )
     }
 
+    val rowsStart = boxTop + HEADER_HEIGHT_PX
     var row = firstRow
-    var line = 0
     while (row < lastRowExclusive) {
-        val rowTop = rowsStart + line * layout.rowHeightPx
-        // 参考图第 1 个数据行就是斑马色 ⇒ 行序号 0/2/4…（偶数）填 #E1E8F0
+        val line = row - firstRow
+        val rowTop = rowsStart + line * ROW_HEIGHT_PX
+        // 参考图 tbody tr:nth-child(odd) ⇒ 本栏第 1、3、5…个数据行填斑马色
         if (line % 2 == 0) {
             fillPaint.color = COLOR_ROW_STRIPE
             canvas.drawRect(
-                offsetX.toFloat(), rowTop.toFloat(),
-                (offsetX + bandWidthPx).toFloat(), (rowTop + layout.rowHeightPx).toFloat(),
-                fillPaint,
+                bandLeft.toFloat(), rowTop.toFloat(),
+                (bandLeft + bandWidth).toFloat(), (rowTop + ROW_HEIGHT_PX).toFloat(), fillPaint,
             )
         }
         val cells = spec.rows[row]
         cells.forEachIndexed { i, cell ->
-            val w = layout.columnWidth[i]
-            // 数据格两行优先：能完整放下就不省略，超过两行才在末行加省略号
-            drawTextLines(
-                canvas,
-                wrapCellText(cell, (w - 2 * CELL_PADDING_PX).toFloat(), bodyPaint::measureText),
-                bodyPaint, (offsetX + layout.columnX[i]).toFloat(), rowTop, layout.rowHeightPx,
-                spec.columns[i].align, w,
+            // nowrap：列宽已按该列最宽文本算出 ⇒ 单行直画，既不换行也不省略
+            drawCellText(
+                canvas, if (i == 0) indexPaint else bodyPaint, cell, bandLeft + layout.columnX[i],
+                rowTop, layout.columnWidth[i], spec.columns[i].align, ROW_HEIGHT_PX,
             )
         }
         row++
-        line++
     }
 }
 
-private fun drawBadges(
+private fun drawCellText(
     canvas: Canvas,
-    badges: List<String>,
-    badgePaint: Paint,
-    fillPaint: Paint,
-    top: Int,
-) {
-    val contentWidth = canvas.width - 2 * PAGE_MARGIN_PX
-    val maxBadgeWidth = contentWidth / 2
-    var x = PAGE_MARGIN_PX.toFloat()
-    // 药丸 36px（R3 实测 pill 高），行高 40 上下各留 2px 对称居中
-    val pillTop = top + (BADGES_LINE_HEIGHT_PX - BADGE_PILL_HEIGHT_PX) / 2f
-    for (badge in badges) {
-        val text = ellipsize(badge, (maxBadgeWidth - 2 * CELL_PADDING_PX).toFloat(), badgePaint::measureText)
-        val textWidth = badgePaint.measureText(text)
-        val pillWidth = textWidth + 2 * CELL_PADDING_PX
-        if (x + pillWidth > canvas.width - PAGE_MARGIN_PX) break
-        fillPaint.color = COLOR_BADGE_BG
-        canvas.drawRoundRect(
-            x, pillTop, x + pillWidth, pillTop + BADGE_PILL_HEIGHT_PX,
-            BADGE_PILL_HEIGHT_PX / 2f, BADGE_PILL_HEIGHT_PX / 2f, fillPaint,
-        )
-        val baseline = pillTop + BADGE_PILL_HEIGHT_PX / 2f -
-            (badgePaint.ascent() + badgePaint.descent()) / 2f
-        badgePaint.textAlign = Paint.Align.LEFT
-        canvas.drawText(text, x + CELL_PADDING_PX, baseline, badgePaint)
-        x += pillWidth + CELL_PADDING_PX
-    }
-}
-
-private fun drawText(
-    canvas: Canvas,
+    paint: Paint,
     text: String,
-    paint: Paint,
-    x: Float,
+    columnLeft: Int,
     rowTop: Int,
-    rowHeight: Int,
+    columnWidth: Int,
     align: CellAlign,
-    widthPx: Int,
-    padPx: Int = CELL_PADDING_PX,
-) = drawTextLines(canvas, listOf(text), paint, x, rowTop, rowHeight, align, widthPx, padPx)
-
-/**
- * 画一格的所有文字块，整体在行高内垂直居中。
- * 单行时基线公式与历史实现逐字相同（居中 - (ascent+descent)/2），多行时按 lineHeight 堆叠后整体居中。
- * START/END 的 x 含 padPx 内边距；CENTER 以「x + width/2」为基准（内边距由居中对齐吸收）。
- */
-private fun drawTextLines(
-    canvas: Canvas,
-    lines: List<String>,
-    paint: Paint,
-    x: Float,
-    rowTop: Int,
     rowHeight: Int,
-    align: CellAlign,
-    widthPx: Int,
-    padPx: Int = CELL_PADDING_PX,
 ) {
-    if (lines.isEmpty()) return
-    val lineHeight = paint.textSize * CELL_LINE_HEIGHT_FACTOR
-    val blockHeight = lineHeight * lines.size
-    val blockTop = rowTop + rowHeight / 2f - blockHeight / 2f
-    val centering = -(paint.ascent() + paint.descent()) / 2f
-    paint.textAlign = when (align) {
-        CellAlign.START -> Paint.Align.LEFT
-        CellAlign.CENTER -> Paint.Align.CENTER
-        CellAlign.END -> Paint.Align.RIGHT
-    }
+    if (text.isEmpty()) return
     val drawX = when (align) {
-        CellAlign.START -> x + padPx
-        CellAlign.CENTER -> x + widthPx / 2f
-        CellAlign.END -> x + widthPx - padPx
+        // START 只用于首列 ⇒ 左内边距恒取 15（参考图 sm:pl-3）
+        CellAlign.START -> {
+            paint.textAlign = Paint.Align.LEFT
+            (columnLeft + FIRST_CELL_LEFT_PADDING_PX).toFloat()
+        }
+        CellAlign.CENTER -> {
+            paint.textAlign = Paint.Align.CENTER
+            columnLeft + columnWidth / 2f
+        }
+        CellAlign.END -> {
+            paint.textAlign = Paint.Align.RIGHT
+            (columnLeft + columnWidth - CELL_PADDING_PX).toFloat()
+        }
     }
-    lines.forEachIndexed { i, line ->
-        if (line.isEmpty()) return@forEachIndexed // drawText 对空串无意义
-        canvas.drawText(line, drawX, blockTop + lineHeight * i + lineHeight / 2f + centering, paint)
-    }
+    canvas.drawText(text, drawX, rowTop + baselineInBox(paint, rowHeight.toFloat()), paint)
 }

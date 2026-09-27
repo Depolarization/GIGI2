@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -42,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -76,10 +78,13 @@ import com.gigi.tcg.ui.dialogs.cardcover.EXPORT_DIR_RECORDS
 import com.gigi.tcg.ui.dialogs.cardcover.GIGI_ALBUM_NAME
 import com.gigi.tcg.ui.dialogs.cardcover.buildAlbumRelativePath
 import com.gigi.tcg.ui.dialogs.cardcover.exportDateText
+import com.gigi.tcg.ui.dialogs.cardcover.exportDirName
+import com.gigi.tcg.ui.export.fetchProfileAvatarBitmap
 import com.gigi.tcg.ui.export.fetchRecordAvatarBitmaps
 import com.gigi.tcg.ui.export.renderRecordsCardBitmap
 import com.gigi.tcg.ui.theme.LocalSemanticColors
 import com.gigi.tcg.ui.theme.SemanticColors
+import com.gigi.tcg.ui.theme.tierColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -110,40 +115,57 @@ fun HomeRoute(
     // 否则冷启动首屏顶部圈会与居中 LoadingView 同转（两个 progressbar）
     val isRefreshing by viewModel.refreshing.collectAsStateWithLifecycle()
 
-    // ---- 最近对局导出卡片图（V26：版式照抄首页 RecordItem，用户"省得截屏"）----
-    // 内容组装走本包纯函数 buildRecentRecordsCards（JVM 单测覆盖），头像在 IO 线程经 Coil
-    // 预取（allowHardware=false，硬件位图画不上软件 Canvas），绘制在 ui/export 渲染器，
-    // 落盘走 CardImageSaver（文件名带导出日期、子目录 Pictures/GIGI/最近对局）。
+    // ---- 最近对局导出卡片图（V27：一比一复刻首页整页——个人信息卡 + 对局卡列表，
+    // 仅排除「最近对局」标题行与两个按钮；用户「省得截屏」）----
+    // 内容组装走本包纯函数 buildRecentRecordsCards / buildProfileCardSpec（JVM 单测覆盖），
+    // 头像在 IO 线程经 Coil 预取（allowHardware=false，硬件位图画不上软件 Canvas），
+    // 绘制在 ui/export 渲染器，落盘走 CardImageSaver（文件名带导出日期、
+    // 子目录 Pictures/GIGI/最近对局/<uid>）。
     val appContext = LocalContext.current.applicationContext
     val showToast = LocalToast.current
     val coroutineScope = rememberCoroutineScope()
     var exporting by remember { mutableStateOf(false) }
     val recordList = (state.records as? Async.Content<List<GameRecord>>)?.value.orEmpty()
+    val profilePage = (state.profile as? Async.Content)?.value
+    // tierColor 是 @Composable（C 路），协程里调不到 ⇒ 组合上下文解析成 ARGB 灌进导出 spec；
+    // 与首页 ProfileCard 所见即所得（导出图不随主题漂移的定版色在渲染器内部）
+    val exportTierColorArgb = tierColor(
+        profilePage?.let { tierLabel(getTierStars(it.ladderScore ?: 0)) } ?: "",
+    ).toArgb()
     val startExport: () -> Unit = {
         if (recordList.isNotEmpty() && !exporting) {
             exporting = true
             val cards = buildRecentRecordsCards(recordList, sessionUid.orEmpty())
+            val profileSpec = profilePage?.let {
+                buildProfileCardSpec(it, sessionUid.orEmpty(), exportTierColorArgb)
+            }
             coroutineScope.launch {
                 try {
                     val avatars = fetchRecordAvatarBitmaps(appContext, cards)
-                    val bitmap = renderRecordsCardBitmap(cards, avatars)
+                    val profileAvatar = fetchProfileAvatarBitmap(appContext, profileSpec?.avatarUrl)
+                    val bitmap = renderRecordsCardBitmap(cards, avatars, profileSpec, profileAvatar)
                     try {
                         val dateText = exportDateText()
+                        val dir = exportDirName(EXPORT_DIR_RECORDS)
                         CardImageSaver(appContext).saveBitmap(
                             bitmap,
                             baseName = "最近对局_$dateText",
                             format = Bitmap.CompressFormat.JPEG,
-                            subDir = EXPORT_DIR_RECORDS,
+                            subDir = dir,
+                            accountUid = sessionUid.orEmpty().ifBlank { null },
                         )
                         showToast(
                             LocaleStrings.get(
                                 R.string.toast_saved_to_album_path,
-                                buildAlbumRelativePath(Environment.DIRECTORY_PICTURES, GIGI_ALBUM_NAME, EXPORT_DIR_RECORDS),
+                                buildAlbumRelativePath(
+                                    Environment.DIRECTORY_PICTURES, GIGI_ALBUM_NAME, dir, sessionUid.orEmpty(),
+                                ),
                             )
                         )
                     } finally {
                         // 回收放 finally：saveBitmap 抛异常也不能漏掉位图
                         avatars.filterNotNull().forEach { it.recycle() }
+                        profileAvatar?.recycle()
                         bitmap.recycle()
                     }
                 } catch (e: CancellationException) {
@@ -278,22 +300,33 @@ private fun ProfileCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Avatar(url = profile.avatarUrl, size = 64.dp, contentDescription = profile.nickname)
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    // V27（导出图与首页 1:1，字号对齐 PlayerDetailDialog.HeaderRow）：
+                    // 昵称与段位不同字号，基线对齐避免视觉不齐；段位色取 C 路 tierColor
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(
+                            text = profile.nickname ?: unknownLabel,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false).alignByBaseline(),
+                        )
+                        if (tier.isNotEmpty()) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = tier,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Medium,
+                                color = tierColor(tier),
+                                maxLines = 1,
+                                modifier = Modifier.alignByBaseline(),
+                            )
+                        }
+                    }
+                    // 去掉 "UID:" 文字标签（位置即语义，与 RecordItem 对手 UID 行同一套设计语言）
                     Text(
-                        text = profile.nickname ?: unknownLabel,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = stringResource(R.string.player_uid, uid),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = stringResource(R.string.home_tier_label, tier),
-                        style = MaterialTheme.typography.bodySmall,
+                        text = uid,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

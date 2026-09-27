@@ -1,6 +1,7 @@
 // 「最近对局」导出卡片图的内容组装（V26，用户反馈「首页那个最近对局的布局写得很好，
-// 导出图片也省得用户去截屏」）。本文件只做字符串与算术，🔴 不得引用 android.graphics ——
-// 渲染在 ui/export/RecentRecordsCardRenderer.kt（版式照抄 HomeRoute.RecordItem）。
+// 导出图片也省得用户去截屏」；V27 追加个人信息卡的规格）。本文件只做字符串与算术，
+// 🔴 不得引用 android.graphics —— 渲染在 ui/export/RecentRecordsCardRenderer.kt
+// （版式照抄 HomeRoute.ProfileCard / RecordItem）。
 // 分界线是为了让字段口径/退化规则能在纯 JVM 单测里覆盖（工程无 Robolectric）。
 
 package com.gigi.tcg.ui.screens.home
@@ -8,10 +9,13 @@ package com.gigi.tcg.ui.screens.home
 import androidx.annotation.StringRes
 import com.gigi.tcg.R
 import com.gigi.tcg.data.model.GameRecord
+import com.gigi.tcg.data.model.PageInfo
 import com.gigi.tcg.domain.UNKNOWN_OPPONENT_UID
+import com.gigi.tcg.domain.TierStars
 import com.gigi.tcg.domain.extractOpponentUid
 import com.gigi.tcg.domain.formatRecordTime
 import com.gigi.tcg.domain.formatScoreChange
+import com.gigi.tcg.domain.getTierStars
 import com.gigi.tcg.i18n.LocaleStrings
 
 /**
@@ -75,6 +79,56 @@ fun buildRecentRecordsCards(
         ladder = scoreLine(record.ladderScore?.score, record.ladderScore?.scoreChange, R.string.home_ladder_prefix),
         peak = scoreLine(record.peakScore?.score, record.peakScore?.scoreChange, R.string.home_peak_prefix),
     )
+}
+
+/**
+ * 个人信息卡的绘制规格 = 首页 ProfileCard 的可绘制镜像（V27：导出图整页复刻首页）。
+ * [tierColorArgb] 是 ARGB Int 而非 Compose Color：段位色由 C 路的 @Composable
+ * `tierColor(tier)` 在组合上下文解析后灌入——纯函数层拿不到组合上下文，
+ * 也只能放 Int（本文件 🔴 不得引用 android.graphics / compose.ui）。
+ */
+data class ProfileCardSpec(
+    val avatarUrl: String?,
+    val nickname: String,
+    val uid: String,
+    /** tierLabel(getTierStars(ladderScore)) 口径（纯函数层走 [tierDisplayText] 同口径映射） */
+    val tierText: String,
+    val tierColorArgb: Int,
+    val ladderScore: Int,
+    val peakScore: Int,
+)
+
+/**
+ * PageInfo + 会话 UID → 个人信息规格，口径照 HomeRoute.ProfileCard：
+ * 昵称缺失回落 common_unknown；段位文本见 [tierDisplayText]；分数缺失按 0（首页同款）。
+ */
+fun buildProfileCardSpec(pageInfo: PageInfo, sessionUid: String, tierColorArgb: Int): ProfileCardSpec =
+    ProfileCardSpec(
+        avatarUrl = pageInfo.avatarUrl,
+        nickname = pageInfo.nickname ?: exportText(R.string.common_unknown, "未知"),
+        uid = sessionUid,
+        tierText = tierDisplayText(getTierStars(pageInfo.ladderScore ?: 0)),
+        tierColorArgb = tierColorArgb,
+        ladderScore = pageInfo.ladderScore ?: 0,
+        peakScore = pageInfo.peakScore ?: 0,
+    )
+
+/**
+ * 段位文本的三语通道，逐字对齐 ui/components/tierLabel（StateViews 的 TIER_BY_NAME 是
+ * private，纯函数层只能同口径重建映射）：接口中文段位名 → 当前语言资源，
+ * 查不到回落原始值；★ 星缀语义同 domain formatTier（0 星不显示）；无段位画 home_tier_none。
+ */
+private val TIER_NAME_RES = mapOf(
+    "黄铜" to R.string.tier_brass, "Brass" to R.string.tier_brass,
+    "星银" to R.string.tier_silver, "Silver" to R.string.tier_silver,
+    "赤金" to R.string.tier_gold, "Gold" to R.string.tier_gold,
+    "影幻" to R.string.tier_phantom, "Phantom" to R.string.tier_phantom,
+)
+
+internal fun tierDisplayText(t: TierStars): String {
+    if (t.tier.isEmpty()) return exportText(R.string.home_tier_none, "无段位")
+    val name = TIER_NAME_RES[t.tier]?.let { exportText(it, t.tier) } ?: t.tier
+    return if (t.stars > 0) name + "★".repeat(t.stars) else name
 }
 
 /** 积分行：与首页 `"$prefix $score $change"` 同口径；整对 0/缺失 → null（渲染画占位符） */

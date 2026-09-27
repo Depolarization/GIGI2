@@ -77,11 +77,50 @@ class SummaryTest {
         assertEquals(0, empty.level)
         assertEquals(0, empty.avatarCardNum)
         assertEquals(0, empty.actionCardNum)
+        // stats 整体缺失 ⇒ 总数也归 0（胶囊显示 0/0，不会出现 x/0 之外的怪值）
+        assertEquals(0, empty.avatarCardTotal)
+        assertEquals(0, empty.actionCardTotal)
         assertEquals(0L, empty.totalGames)
         assertEquals(0L, empty.winGames)
         assertEquals("0%", empty.winRate)
         assertEquals(0, empty.actionTotalUse)
         assertEquals("0%", empty.modifyPercent)
+    }
+
+    // ---- 图鉴总数（导出图胶囊 `角色牌 147/147` 的分母）----
+
+    @Test
+    fun `总数缺失时兜底为已得数`() {
+        // 老接口没有 *_num_total 字段 ⇒ null ⇒ 分母取已得数，绝不显示 30/0
+        val s = computeGcgSummary(
+            GcgStats(nickname = "n", level = 1, avatarCardNumGained = 30, actionCardNumGained = 120),
+            lists,
+        )
+        assertEquals(30, s.avatarCardTotal)
+        assertEquals(120, s.actionCardTotal)
+    }
+
+    @Test
+    fun `总数为0时同样兜底为已得数`() {
+        val s = computeGcgSummary(
+            stats.copy(avatarCardNumTotal = 0, actionCardNumTotal = 0),
+            lists,
+        )
+        assertEquals(30, s.avatarCardTotal)
+        assertEquals(120, s.actionCardTotal)
+    }
+
+    @Test
+    fun `总数正常时直接采用服务端值`() {
+        val s = computeGcgSummary(
+            stats.copy(avatarCardNumTotal = 147, actionCardNumTotal = 941),
+            lists,
+        )
+        assertEquals(147, s.avatarCardTotal)
+        assertEquals(941, s.actionCardTotal)
+        // 已得数与总数各走各的口径，互不覆盖
+        assertEquals(30, s.avatarCardNum)
+        assertEquals(120, s.actionCardNum)
     }
 
     @Test
