@@ -2,6 +2,9 @@
 // 四入口共用，参数 (uid, onClose)；弹窗开关由调用页持有，本组件不持全局 controller。
 // 版式：头部（头像/昵称+段位/UID）+ 天梯/巅峰积分 + 展示角色 + 参赛经历；
 // is_shield / 无 pageInfo 走独立分支；胜负语义色来自 LocalSemanticColors。
+// 头像兜底（V26）：列表接口（排行榜 rank_infos / 对局 game_records）必定带回头像，
+// 而 other_home_page 在 is_shield 时 page_info.avatar_url 为空 ⇒ 弹窗只剩灰底占位图标。
+// 故入口把列表头像随 [PlayerDetailTarget] 带进来，在 UI 层回落，不写进 VM 缓存。
 // 底部按钮：关闭（dismiss，左）/ 复制UID（confirm，右）；复制写完剪贴板即收起弹窗。
 
 package com.gigi.tcg.ui.dialogs.playerdetail
@@ -53,9 +56,21 @@ import com.gigi.tcg.ui.components.tierLabel
 import com.gigi.tcg.ui.theme.LocalSemanticColors
 import com.gigi.tcg.ui.theme.SemanticColors
 
+/**
+ * 打开玩家详情的请求：目标 uid + 可选的「入口头像」。
+ * avatarUrl 由入口列表提供（排行榜 rank_infos / 对局 game_records 都返回头像），
+ * 只在 other_home_page 的 pageInfo.avatarUrl 缺失（典型：is_shield 无权访问）时兜底显示。
+ * 兜底仅发生在 UI 层：不写进 ViewModel 的进程级缓存，避免污染同一 uid 的后续查询。
+ */
+data class PlayerDetailTarget(
+    val uid: String,
+    val avatarUrl: String? = null,
+)
+
 @Composable
-fun PlayerDetailDialog(uid: String?, onClose: () -> Unit) {
-    if (uid == null) return
+fun PlayerDetailDialog(target: PlayerDetailTarget?, onClose: () -> Unit) {
+    if (target == null) return
+    val uid = target.uid
 
     val app = LocalContext.current.applicationContext as Application
     val viewModel: PlayerDetailViewModel = viewModel(factory = PlayerDetailViewModel.factory(app))
@@ -83,7 +98,7 @@ fun PlayerDetailDialog(uid: String?, onClose: () -> Unit) {
                     .verticalScroll(rememberScrollState()),
             ) {
                 when {
-                    content != null -> PlayerDetailBody(content, semantic)
+                    content != null -> PlayerDetailBody(content, semantic, fallbackAvatarUrl = target.avatarUrl)
                     state is DetailUiState.Error -> {
                         val e = state as DetailUiState.Error
                         ErrorState(message = e.message, onRetry = if (e.canRetry) viewModel::retry else null)
@@ -113,7 +128,11 @@ fun PlayerDetailDialog(uid: String?, onClose: () -> Unit) {
 }
 
 @Composable
-private fun PlayerDetailBody(content: DetailUiState.Content, semantic: SemanticColors) {
+private fun PlayerDetailBody(
+    content: DetailUiState.Content,
+    semantic: SemanticColors,
+    fallbackAvatarUrl: String?,
+) {
     val pageInfo = content.data.pageInfo
     when {
         // T10：接口无该玩家数据 → 说明式版式（区别于加载失败）
@@ -122,9 +141,15 @@ private fun PlayerDetailBody(content: DetailUiState.Content, semantic: SemanticC
             title = stringResource(R.string.detail_not_found_title),
             message = stringResource(R.string.detail_not_found_message, content.uid),
         )
-        // 屏蔽分支：仅保留昵称与 UID
+        // 屏蔽分支：仅保留昵称与 UID。此分支 pageInfo.avatarUrl 通常为空
+        // （无权访问 ⇒ 拿不到头像），故必须带上入口列表头像兜底，否则只剩灰底占位。
         pageInfo.isShield == true -> Column {
-            HeaderRow(uid = content.uid, nickname = pageInfo.nickname, avatarUrl = pageInfo.avatarUrl)
+            HeaderRow(
+                uid = content.uid,
+                nickname = pageInfo.nickname,
+                avatarUrl = pageInfo.avatarUrl,
+                fallbackAvatarUrl = fallbackAvatarUrl,
+            )
             Spacer(Modifier.height(8.dp))
             Text(
                 text = stringResource(R.string.detail_shielded),
@@ -138,6 +163,7 @@ private fun PlayerDetailBody(content: DetailUiState.Content, semantic: SemanticC
                 nickname = pageInfo.nickname,
                 avatarUrl = pageInfo.avatarUrl,
                 tier = tierLabel(getTierStars(pageInfo.ladderScore ?: 0)),
+                fallbackAvatarUrl = fallbackAvatarUrl,
             )
             Spacer(Modifier.height(8.dp))
             ScoresRow(
@@ -151,11 +177,29 @@ private fun PlayerDetailBody(content: DetailUiState.Content, semantic: SemanticC
     }
 }
 
+/**
+ * 详情头像取值：pageInfo 的 avatarUrl 优先，空白/缺失时回落到入口列表头像。
+ * 两者都为空才返回 null（交给 Avatar 画灰底 Person 占位）——即"确实没有任何头像可用"。
+ * 非 private：兜底优先级是本弹窗的对外契约，由 PlayerDetailAvatarTest 锁定。
+ */
+fun resolveAvatarUrl(avatarUrl: String?, fallback: String?): String? =
+    avatarUrl?.takeIf { it.isNotBlank() } ?: fallback?.takeIf { it.isNotBlank() }
+
 @Composable
-private fun HeaderRow(uid: String, nickname: String?, avatarUrl: String?, tier: String = "") {
+private fun HeaderRow(
+    uid: String,
+    nickname: String?,
+    avatarUrl: String?,
+    tier: String = "",
+    fallbackAvatarUrl: String? = null,
+) {
     val gold = LocalSemanticColors.current.gold
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Avatar(url = avatarUrl, size = 64.dp, contentDescription = nickname)
+        Avatar(
+            url = resolveAvatarUrl(avatarUrl, fallbackAvatarUrl),
+            size = 64.dp,
+            contentDescription = nickname,
+        )
         Spacer(Modifier.width(16.dp))
         Column {
             // 昵称与段位字号不同，基线对齐避免视觉不齐；Bottom 兜底无基线的子项

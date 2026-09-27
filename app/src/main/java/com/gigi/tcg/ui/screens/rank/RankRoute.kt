@@ -3,7 +3,9 @@
 // （首屏 60 条，滚到底自动追加）+ 下拉刷新当前 Tab（PullToRefreshBox → viewModel.retry，
 // Loading/Error/Empty 三态同样可下拉）；
 // 名次 = 下标 + 1，前三名固定金/银/铜语义色（不参与动态取色，设计红线 8，
-// 色值对齐 tokens.css --color-gold/silver/bronze）；点击行回调 onOpenPlayerDetail(uid)。
+// 色值对齐 tokens.css --color-gold/silver/bronze）；点击行回调 onOpenPlayerDetail(uid, avatarUrl)。
+// V26：行点击把本行头像一并带出去——排行榜接口必定返回头像，而详情接口在无权访问
+// （is_shield）时不给头像，弹窗靠这份入口头像兜底，避免退化成占位图标。
 
 package com.gigi.tcg.ui.screens.rank
 
@@ -83,7 +85,7 @@ private fun rankListFor(state: RankUiState, tab: RankTab): AsyncRankList =
 @Composable
 fun RankRoute(
     container: AppContainer,
-    onOpenPlayerDetail: (String) -> Unit,
+    onOpenPlayerDetail: (uid: String, avatarUrl: String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val viewModel: RankViewModel = viewModel(factory = RankViewModel.factory(container))
@@ -168,7 +170,7 @@ private fun RankPageContent(
     visibleCount: Int,
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
-    onOpenPlayerDetail: (String) -> Unit,
+    onOpenPlayerDetail: (uid: String, avatarUrl: String?) -> Unit,
 ) {
     when (list) {
         AsyncRankList.Loading, AsyncRankList.NotLoaded -> CenteredScrollableContainer {
@@ -196,7 +198,7 @@ private fun RankPageContent(
                             info = info,
                             rank = index + 1,
                             tab = tab,
-                            onClick = { onOpenPlayerDetail(uidOf(info)) },
+                            onClick = { onOpenPlayerDetail(uidOf(info), info.avatarUrl) },
                         )
                     }
                     if (hasMore) {

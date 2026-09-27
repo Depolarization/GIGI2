@@ -78,6 +78,7 @@ import com.gigi.tcg.ui.components.ToastHost
 import com.gigi.tcg.ui.dialogs.about.AboutDialog
 import com.gigi.tcg.ui.dialogs.cardcover.CardCoverSheet
 import com.gigi.tcg.ui.dialogs.playerdetail.PlayerDetailDialog
+import com.gigi.tcg.ui.dialogs.playerdetail.PlayerDetailTarget
 import com.gigi.tcg.ui.dialogs.playerdetail.PlayerQueryDialog
 import com.gigi.tcg.ui.login.LocalAccountActions
 import com.gigi.tcg.ui.screens.cardstats.CardStatsRoute
@@ -117,7 +118,9 @@ fun GigiNavHost() {
     val activeAccount = accounts.firstOrNull { it.uid == activeUid }
 
     var queryOpen by remember { mutableStateOf(false) }
-    var detailUid by remember { mutableStateOf<String?>(null) }
+    // 详情目标带一份「入口头像」：列表页（排行榜 / 对局）点进来时能给出头像，
+    // 详情接口无权访问（is_shield）时不至于只剩占位（V26）。无入口头像的入口传 null。
+    var detailTarget by remember { mutableStateOf<PlayerDetailTarget?>(null) }
     var coverId by remember { mutableStateOf<Long?>(null) }
     var aboutOpen by remember { mutableStateOf(false) }
     var accountMenuOpen by remember { mutableStateOf(false) }
@@ -128,7 +131,7 @@ fun GigiNavHost() {
 
     LaunchedEffect(sessionUid) {
         queryOpen = false
-        detailUid = null
+        detailTarget = null
         coverId = null
         aboutOpen = false
         accountMenuOpen = false
@@ -307,13 +310,17 @@ fun GigiNavHost() {
                             composable(ROUTE_HOME) {
                                 HomeRoute(
                                     container = container,
-                                    onOpenPlayerDetail = { detailUid = it },
+                                    onOpenPlayerDetail = { uid, avatarUrl ->
+                                        detailTarget = PlayerDetailTarget(uid, avatarUrl)
+                                    },
                                 )
                             }
                             composable(ROUTE_RANK) {
                                 RankRoute(
                                     container = container,
-                                    onOpenPlayerDetail = { detailUid = it },
+                                    onOpenPlayerDetail = { uid, avatarUrl ->
+                                        detailTarget = PlayerDetailTarget(uid, avatarUrl)
+                                    },
                                 )
                             }
                             composable(ROUTE_CARD_STATS) {
@@ -339,12 +346,13 @@ fun GigiNavHost() {
             PlayerQueryDialog(
                 onSubmit = { uid ->
                     queryOpen = false
-                    detailUid = uid
+                    // 手输 UID：没有列表入口可给头像，兜底传 null（沿用占位）
+                    detailTarget = PlayerDetailTarget(uid)
                 },
                 onClose = { queryOpen = false },
             )
         }
-        PlayerDetailDialog(uid = detailUid, onClose = { detailUid = null })
+        PlayerDetailDialog(target = detailTarget, onClose = { detailTarget = null })
         CardCoverSheet(contentId = coverId?.toInt(), onDismiss = { coverId = null })
         if (aboutOpen) {
             AboutDialog(onClose = { aboutOpen = false })

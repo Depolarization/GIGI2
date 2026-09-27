@@ -91,7 +91,8 @@ private const val EXPORT_JPEG_QUALITY = 72
 @Composable
 fun HomeRoute(
     container: AppContainer,
-    onOpenPlayerDetail: (uid: String) -> Unit,
+    /** uid + 入口头像：头像来自列表接口（对局记录 / 排行榜），供详情无权访问时兜底（V26） */
+    onOpenPlayerDetail: (uid: String, avatarUrl: String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val app = LocalContext.current.applicationContext as Application
@@ -181,7 +182,8 @@ fun HomeRoute(
                     is Async.Content -> ProfileCard(
                         profile = profile.value,
                         uid = sessionUid.orEmpty(),
-                        onClick = { onOpenPlayerDetail(sessionUid.orEmpty()) },
+                        // 本人卡片：详情接口必定可访问，无需入口头像兜底
+                        onClick = { onOpenPlayerDetail(sessionUid.orEmpty(), null) },
                     )
                     is Async.Error -> ErrorState(
                         message = profile.message ?: stringResource(R.string.state_home_profile_empty),
@@ -239,7 +241,10 @@ fun HomeRoute(
                                             record = record,
                                             uid = sessionUid.orEmpty(),
                                             semantic = semantic,
-                                            onOpenOpponent = onOpenPlayerDetail,
+                                            // 对局记录的 nickname/avatar_url 就是对手的
+                                            // （解析见 GameRecordsParseTest："对手1"），
+                                            // 故可直接作为对手详情弹窗的头像兜底。
+                                            onOpenOpponent = { uid -> onOpenPlayerDetail(uid, record.avatarUrl) },
                                         )
                                     }
                                 }
