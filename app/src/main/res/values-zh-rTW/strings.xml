@@ -222,6 +222,28 @@
     <string name="export_col_peak">巔峰</string>
     <string name="export_col_result">勝負</string>
 
+    <!-- 匯出目錄名（相簿資料夾，i18n） -->
+    <string name="export_dir_char">角色牌</string>
+    <string name="export_dir_action">行動牌</string>
+    <string name="export_dir_records">最近對局</string>
+    <string name="export_dir_qr">二維碼</string>
+
+    <!-- 匯出圖頁首 / 頁尾 -->
+    <string name="export_level">牌手等級 %1$d</string>
+    <string name="export_signature_placeholder">暫無簽名</string>
+    <string name="export_date_label">匯出日期 %1$s</string>
+    <string name="export_footer">七聖召喚</string>
+    <string name="export_badge_char_total">角色牌 %1$d/%2$d</string>
+    <string name="export_badge_action_total">行動牌 %1$d/%2$d</string>
+
+    <!-- 卡牌統計 / 圖鑑頁 -->
+    <string name="stats_export_current">匯出目前圖表</string>
+    <string name="stats_tab_char">角色牌</string>
+    <string name="stats_tab_action">行動牌</string>
+    <string name="wiki_tab_char">角色牌</string>
+    <string name="wiki_tab_action">行動牌</string>
+    <string name="wiki_tab_monster">魔物牌</string>
+
     <!-- 關於頁 -->
     <string name="about_title">說明</string>
     <string name="about_section_software">關於本軟體</string>

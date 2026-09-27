@@ -1,8 +1,10 @@
-// V7F 回归锁：排行榜行（RankRow）的"排名 ↔ 玩家信息"必须是跨语义组的 16dp 显式间距，
-// 排名槽位必须固定 32dp 宽（否则间距随位数浮动、信息列左边缘错位），
-// 头像 ↔ 信息列保持 12dp（同组层次）。历史缺陷：spacedBy(4.dp) + widthIn(min=28.dp)
-// 导致排名数字与玩家信息粘连、"排名和ID混淆"（用户真机反馈）。
-// 本测试对真实源码做文本断言，防止后人把间距改回去。
+// V27 回归锁：排行榜行（RankRow）行内间距以文件顶部 private const val 常量为准，
+// 本测试对真实源码做文本断言，锁死三条用户拍板的层次关系，防止后人改回去：
+//   1) 头像 → 信息列 ≥ 12dp（跨语义组要拉开，V27 现值 16dp）；
+//   2) 名次列左右边距各 4~8dp（贴左缘、收空隙，但 ≥4dp 不与头像粘连）；
+//   3) 名次槽固定宽度且 ≥ 4 位数在 titleMedium 下的估宽（16sp × 0.6 × 4 ≈ 38.4dp），
+//      杜绝 wrapContent 随位数抖动 / 千名级 4 位数换行省略。
+// 历史缺陷：V7F 前 spacedBy(4.dp) 粘连；V27 前槽宽 32dp 对 4 位数已经偏紧。
 package com.gigi.tcg.ui.screens.rank
 
 import java.io.File
@@ -26,47 +28,80 @@ class RankRowSpacingTest {
         return src.substring(start, end)
     }
 
-    /** 不变量 1：排名与玩家信息之间不再用全 Row 统一的 spacedBy 小间距 */
+    /** 解析文件顶部的 `private const val NAME = <Int>` 间距常量 */
+    private fun constDp(name: String): Int {
+        val m = Regex("""private const val $name = (\d+)""").find(src)
+        assertTrue("源码应把间距常量化为 `private const val $name = <dp值>`", m != null)
+        return m!!.groupValues[1].toInt()
+    }
+
+    /** titleMedium 字号（sp，Material 3 默认值）：4 位数估宽 = 16 × 0.6 × 4 的依据 */
+    private val titleMediumSp: Float = 16f
+
+    /** 不变量 1：不再用全 Row 统一的 spacedBy 小间距 */
     @Test
     fun rankRowHasNoUniformSpacedBy() {
         val body = rankRowBody()
         assertTrue(
-            "RankRow 不应再出现 Arrangement.spacedBy(（4dp 统一间距导致排名与信息粘连）",
+            "RankRow 不应再出现 Arrangement.spacedBy(（统一小间距导致排名与信息粘连）",
             !body.contains("Arrangement.spacedBy("),
         )
     }
 
-    /** 不变量 2：排名 ↔ 头像用显式 16dp Spacer（= 行左 padding，跨语义组留白对称） */
+    /** 不变量 2：头像 → 信息列间距 ≥ 12dp（V27 由 12 提到 16，拉开跨语义组层次） */
     @Test
-    fun rankToAvatarGapIsExplicit16dpSpacer() {
+    fun avatarToInfoGapAtLeast12dp() {
+        val gap = constDp("AVATAR_INFO_GAP_DP")
+        assertTrue("头像↔信息列应 ≥12dp，实际 $gap", gap >= 12)
         val body = rankRowBody()
         assertTrue(
-            "RankRow 应存在 Spacer(Modifier.width(16.dp))（排名↔头像的显式组间距）",
-            body.contains("Spacer(Modifier.width(16.dp))"),
+            "信息列应引用常量 padding(start = AVATAR_INFO_GAP_DP.dp)",
+            body.contains("padding(start = AVATAR_INFO_GAP_DP.dp)"),
         )
     }
 
-    /** 不变量 3：排名槽位固定 32dp，不再用会随位数浮动的 widthIn(min=28) */
+    /** 不变量 3：名次列左右边距各 ≤8dp 且 ≥4dp（贴左缘收空隙、但不与头像粘连） */
     @Test
-    fun rankSlotIsFixed32dp() {
+    fun rankColumnMarginsWithinFourToEightDp() {
+        val start = constDp("RANK_COLUMN_START_DP")
+        val gap = constDp("RANK_AVATAR_GAP_DP")
+        assertTrue("名次列左侧距列表左缘应 ≤8dp，实际 $start", start <= 8)
+        assertTrue("名次列左侧不应 <4dp（数字顶到屏幕边），实际 $start", start >= 4)
+        assertTrue("名次↔头像间距应 ≤8dp，实际 $gap", gap <= 8)
+        assertTrue("名次↔头像间距不应 <4dp（与头像粘连），实际 $gap", gap >= 4)
+    }
+
+    /** 不变量 4：名次槽固定宽度且容纳 4 位数（估宽 = 字号 × 0.6 × 4，见文件头注释） */
+    @Test
+    fun rankSlotFixedWidthFitsFourDigits() {
+        val slot = constDp("RANK_SLOT_WIDTH_DP")
+        val fourDigitEstimateDp = titleMediumSp * 0.6f * 4f
+        assertTrue(
+            "名次槽宽 $slot dp 应 ≥ 4 位数估宽 ${fourDigitEstimateDp}f dp（16sp×0.6×4），否则千名级换行/省略",
+            slot >= fourDigitEstimateDp,
+        )
         val body = rankRowBody()
         assertTrue(
-            "排名槽位应为固定 Modifier.width(32.dp)",
-            body.contains("Modifier.width(32.dp)"),
+            "名次槽应为固定 Modifier.width(RANK_SLOT_WIDTH_DP.dp)",
+            body.contains("Modifier.width(RANK_SLOT_WIDTH_DP.dp)"),
         )
         assertTrue(
             "不应再出现 widthIn(min = 28.dp)（间距随位数漂移、三位数撑破槽位）",
             !body.contains("widthIn(min = 28.dp)"),
         )
+        assertTrue(
+            "名次文本应 maxLines = 1（固定槽宽下禁止换行）",
+            body.contains("maxLines = 1"),
+        )
     }
 
-    /** 不变量 4：头像 ↔ 信息列保持 12dp 同组层次（小于 16dp 组间距） */
+    /** 不变量 5：名次↔头像用显式 Spacer 引用常量（非硬编码，便于统一调整） */
     @Test
-    fun avatarToInfoColumnKeeps12dpHierarchy() {
+    fun rankToAvatarGapUsesExplicitSpacer() {
         val body = rankRowBody()
         assertTrue(
-            "玩家信息列应为 padding(start = 12.dp)（同组内层次：12dp < 跨组 16dp）",
-            body.contains("padding(start = 12.dp)"),
+            "RankRow 应存在 Spacer(Modifier.width(RANK_AVATAR_GAP_DP.dp))（名次↔头像显式间距）",
+            body.contains("Spacer(Modifier.width(RANK_AVATAR_GAP_DP.dp))"),
         )
     }
 }

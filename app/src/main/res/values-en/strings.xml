@@ -222,6 +222,28 @@
     <string name="export_col_peak">Peak</string>
     <string name="export_col_result">Result</string>
 
+    <!-- Export folder names (album directories, i18n) -->
+    <string name="export_dir_char">Character Cards</string>
+    <string name="export_dir_action">Action Cards</string>
+    <string name="export_dir_records">Recent Matches</string>
+    <string name="export_dir_qr">QR Code</string>
+
+    <!-- Export image header / footer -->
+    <string name="export_level">Player Level %1$d</string>
+    <string name="export_signature_placeholder">No signature</string>
+    <string name="export_date_label">Exported %1$s</string>
+    <string name="export_footer">Genius Invokation</string>
+    <string name="export_badge_char_total">Character Cards %1$d/%2$d</string>
+    <string name="export_badge_action_total">Action Cards %1$d/%2$d</string>
+
+    <!-- Card stats / wiki pages -->
+    <string name="stats_export_current">Export current chart</string>
+    <string name="stats_tab_char">Character Cards</string>
+    <string name="stats_tab_action">Action Cards</string>
+    <string name="wiki_tab_char">Character Cards</string>
+    <string name="wiki_tab_action">Action Cards</string>
+    <string name="wiki_tab_monster">Monster Cards</string>
+
     <!-- About dialog -->
     <string name="about_title">About</string>
     <string name="about_section_software">About This App</string>

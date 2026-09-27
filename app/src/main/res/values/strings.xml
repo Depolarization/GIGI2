@@ -222,6 +222,28 @@
     <string name="export_col_peak">巅峰</string>
     <string name="export_col_result">胜负</string>
 
+    <!-- 导出目录名（相册文件夹，i18n：禁止硬编码中文） -->
+    <string name="export_dir_char">角色牌</string>
+    <string name="export_dir_action">行动牌</string>
+    <string name="export_dir_records">最近对局</string>
+    <string name="export_dir_qr">二维码</string>
+
+    <!-- 导出图页眉 / 页脚 -->
+    <string name="export_level">牌手等级 %1$d</string>
+    <string name="export_signature_placeholder">暂无签名</string>
+    <string name="export_date_label">导出日期 %1$s</string>
+    <string name="export_footer">七圣召唤</string>
+    <string name="export_badge_char_total">角色牌 %1$d/%2$d</string>
+    <string name="export_badge_action_total">行动牌 %1$d/%2$d</string>
+
+    <!-- 卡牌统计 / 图鉴页 -->
+    <string name="stats_export_current">导出当前图表</string>
+    <string name="stats_tab_char">角色牌</string>
+    <string name="stats_tab_action">行动牌</string>
+    <string name="wiki_tab_char">角色牌</string>
+    <string name="wiki_tab_action">行动牌</string>
+    <string name="wiki_tab_monster">魔物牌</string>
+
     <!-- 关于页 -->
     <string name="about_title">说明</string>
     <string name="about_section_software">关于本软件</string>

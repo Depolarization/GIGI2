@@ -70,6 +70,25 @@ import kotlinx.serialization.json.contentOrNull
 private val RankSilverColor = Color(0xFF9AA2AD)
 private val RankBronzeColor = Color(0xFFB07A4A)
 
+// V27 行内间距常量（用户在真机上要求：名次列贴左缘、收紧名次列自身留白、拉开头像与文字块）。
+// 刻意用 const Int + `.dp`：JVM 单测（RankRowSpacingTest 对源码文本断言）能直接解析数值做区间校验。
+
+/** 名次列左侧距列表左缘：16→8，让名次贴近左缘（≤8 且 ≥4，避免数字顶到屏幕边） */
+private const val RANK_COLUMN_START_DP = 8
+
+/**
+ * 名次槽固定宽度：titleMedium（16sp）下 4 位数最宽 ≈ 16 × 0.6 × 4 = 38.4dp
+ * （拉丁数字 advance ≈ 0.6×字号），取 40dp ⇒ 1~4 位数都不撑破、不换行不省略，
+ * 且头像 x 位置跨行恒定（固定宽而非 wrapContent，杜绝随位数抖动）。
+ */
+private const val RANK_SLOT_WIDTH_DP = 40
+
+/** 名次↔头像组间距：16→8，收窄空隙但仍 ≥4dp，名次数字与头像圆不粘连 */
+private const val RANK_AVATAR_GAP_DP = 8
+
+/** 头像→右侧信息列：12→16，头像与文字块是不同语义单元，拉开后层次更清晰 */
+private const val AVATAR_INFO_GAP_DP = 16
+
 private val rankTabs = listOf(RankTab.Peak, RankTab.Competition)
 
 @Composable
@@ -259,24 +278,25 @@ private fun RankRow(
                     showToast(copiedToast)
                 },
             )
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(start = RANK_COLUMN_START_DP.dp, end = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 排名槽位：固定 32dp 宽 + 居中 ⇒ 玩家信息列左边缘恒定不随位数漂移；
-        // 与右侧玩家信息块之间 16dp，等于行左 padding，使"排名"成为左右留白对称的
-        // 独立视觉单元，避免数字与头像粘连混淆（V7F，M3 跨语义组间距）。
+        // 名次列：固定 RANK_SLOT_WIDTH_DP 宽 + 居中 ⇒ 头像 x 位置跨行恒定、不随位数漂移；
+        // 左右留白（行首 8dp、名次↔头像 8dp）均落在 4~8dp 区间：比旧版 16dp 收紧，
+        // 名次更贴近左缘，又不与头像粘连（V27 用户要求）。
         // 刻意用显式 Spacer 而非 spacedBy：spacedBy 对所有子元素同间距，
-        // 表达不了"排名↔头像 16dp（跨组）> 头像↔信息列 12dp（同组）"的层次。
+        // 表达不了"名次↔头像 8dp（收紧密接）< 头像↔信息列 16dp（跨语义组拉开）"的层次。
         Text(
             text = "$rank",
             style = MaterialTheme.typography.titleMedium,
             color = medalColor,
             textAlign = TextAlign.Center,
-            modifier = Modifier.width(32.dp),
+            maxLines = 1,
+            modifier = Modifier.width(RANK_SLOT_WIDTH_DP.dp),
         )
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(RANK_AVATAR_GAP_DP.dp))
         Avatar(url = info.avatarUrl, size = 44.dp, contentDescription = info.nickname)
-        Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+        Column(modifier = Modifier.weight(1f).padding(start = AVATAR_INFO_GAP_DP.dp)) {
             Text(
                 text = info.nickname.orEmpty(),
                 style = MaterialTheme.typography.bodyLarge,
