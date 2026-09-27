@@ -43,8 +43,16 @@
 居中
 ----
 三向旋转对称的图形，**面积质心与外接矩形中心不可能重合** —— 这是 3 重对称的固有结论。
-但二者只能择一对齐，本脚本用 `CENTER` 选择基准：`"bbox" | "centroid" | "mid"`。
-**当前默认 `centroid`**（面积质心 = 视觉重量中心），残偏见该常量上方的实测表。
+二者只能择一或折中，本脚本用 `CENTER` 选择基准：`"bbox" | "centroid" | "mid"`。
+**当前默认 `mid`**（取外接矩形中心与面积质心的中点 = 两侧残差相等的 minimax 解），
+两种极端基准都已被用户真机否掉，残偏表见该常量上方注释。
+
+可见区
+------
+启动器实际露出的层深 `VISIBLE_DP` 用**真机实测值 67dp**（AOSP 说的 72dp 只是下限）。
+预览、导出、自检三处都按同一数值取景，故"预览所见 = 真机所见"。
+注意这是**启动器属性**，不是图标属性：同一份前景层在 MIUI 桌面按 67dp 取景、
+在系统「应用信息」页按 72dp 取景，故论文式地拿两处"母题/底板"比值互比是错的。
 
 用法
 ----
@@ -82,10 +90,23 @@ _CHUNK_PTS = 2_000_000              # 每个分块的最大子采样点数（控
 # ------------------------------------------------------------------ 画布
 VP = 108.0                          # 自适应图标 viewport（同时也是前景 viewport 尺寸）
 CX = CY = VP / 2.0
-VISIBLE_DP = 72.0                   # 启动器实际可见的中央区域边长（108 -> 72）
-PAD_DP = (VP - VISIBLE_DP) / 2.0    # 可见区左上角在 108dp 图层里的偏移（= 18dp）
-MOTIF_R_DP = 28.0                   # 母题外缘半径(dp)：可见区半径 36dp 的 ~78%，留足呼吸感
-                                    # （33dp=92% 会顶满蒙版，显得主体过大）
+# 启动器实际露出的中央区域边长（**启动器属性**，与图标无关）。
+# AOSP 文档写「108dp 图层的中央 72dp 一定可见」，但那是**下限**：真机（MIUI 桌面）实测只露出
+# ≈67dp。这个差值直接放大观感 —— 按 72dp 出图、按 67dp 显示，同一母题在手机上会显得大约
+# 72/67 ≈ 1.07 倍。
+# 实测链路（2026-09-27，Redmi Note 7 / 440dpi，启动器 icon_icon 视图 168px）：
+#   · 中心金点直径 5.96dp 单位真机实测 13~14px ⇒ px/单位 ≈ 2.27
+#   · 母题外接矩形高 40.99 单位真机实测 96px  ⇒ px/单位 ≈ 2.34（两把独立标尺一致）
+#   · 底板（= 背景层被启动器蒙版裁出的形状，背景是满画布渐变，故底板边界即蒙版边界）
+#     156~158px ⇒ 156/2.34 ≈ 66.6dp，取 67dp。
+# 另：真机渲染**忠实于矢量** —— 实测母题中心相对底板中心 +5.0px = 2.14 单位，与 CENTER="mid"
+# 理论残偏 2.10 单位吻合，故不需要为渲染器额外加偏移。
+VISIBLE_DP = 67.0
+PAD_DP = (VP - VISIBLE_DP) / 2.0    # 可见区左上角在 108dp 图层里的偏移（= 20.5dp）
+MOTIF_R_DP = 26.0                   # 母题外缘半径(dp)：真机观感 = 母题高 40.99/67 = 61.2%
+                                    # （实测桌面 61.5%），与"图2"中间那格（mid，61.7%）一致。
+                                    # 用户 2026-09-27 要求「小一点、像图2」，由 28 缩到 26：
+                                    # 真机占比 69.2% → 61.5%，中心偏移 +11.0px → +5.0px。
 
 # ------------------------------------------------------------------ 母题几何
 # tools/icon_template.py 给出两条闭合傅里叶曲线：整体剪影 + 单片主叶；
@@ -158,18 +179,17 @@ def _u_index(theta_deg):
     return np.clip(ul, 0, NB_U - 1)
 
 # ------------------------------------------------------------------ 居中基准
-# 三叶母题是「上宽下尖」的倒三角（逐行宽度 y=48→114px、y=96→81px、y=144→25px），
-# 几何外接矩形的中心与视觉重心并不重合，三种基准的实测残偏（本脚本自检输出）：
-#   · bbox     ⇒ 外接矩形残偏 0.00dp，面积质心偏上 4.30dp  ← 用户真机反馈「主体偏上」
-#   · mid      ⇒ 两者各 2.26dp（折中，V24A）
-#   · centroid ⇒ 面积质心残偏 0.00dp，外接矩形残偏 4.72dp
+# 三叶母题是「上宽下尖」的倒三角，几何外接矩形的中心与视觉重心并不重合；3 重对称图形下
+# 二者**不可能同时为零**，只能择一或折中。三种基准的实测残偏（本脚本自检输出，随尺寸等比缩放）：
+#   · bbox     ⇒ 外接矩形残偏 0.00dp，面积质心偏上 3.99dp   ← 上下留白相等，但用户实测「主体偏上」
+#   · mid      ⇒ 两者各 2.10dp                              ← 折中，当前采用
+#   · centroid ⇒ 面积质心残偏 0.00dp，外接矩形偏下 4.38dp   ← 用户实测「偏下」
 #
-# V25（用户 2026-09-27 要求「残偏归零」）：改用 **centroid**。
-# 依据：人眼判断「居中」看的是**视觉重量分布**，而面积质心正是该分布的物理量；
-# bbox 基准之所以被判偏上，正是因为质心被顶到了中心线以上 4.30dp。
-# 质心归零后，外接矩形中心必然落在其下方（4.72dp）——这是 3 重对称图形的固有结论，
-# 两者无法同时为零，只能择一。
-CENTER = "centroid"                 # "bbox" | "centroid" | "mid"
+# 2026-09-27 定论：用户先判 bbox 偏上、再判 centroid 偏下 —— 两端都被否，取中点即 minimax
+# 最优（两侧残差相等且最小）。真机验收（可见区 67dp、母题 26dp、桌面截图实测）：
+#   母题高 96px / 底板 156px = 61.5%；母题中心相对底板中心 +5.0px（= 2.14 单位，恰为 mid 的
+#   理论残偏 2.10 单位）—— 即真机渲染忠实于矢量，不需要为渲染器打额外偏移。
+CENTER = "mid"                      # "bbox" | "centroid" | "mid"
 
 # ------------------------------------------------------------------ 配色
 BG_TOP = (0xFD, 0xFA, 0xF3)
@@ -297,7 +317,7 @@ def _coverage(size):
     ss = _ss(size)
     n = size * ss
     ppd = n / VISIBLE_DP
-    # 画布覆盖 108dp 图层的中央 72dp：dp 从 PAD_DP 起
+    # 画布覆盖 108dp 图层里露出的那一段（VISIBLE_DP）：dp 从 PAD_DP 起
     xs = np.arange(n, dtype=np.float32) + 0.5
     Xn = (PAD_DP + xs / ppd - CX) / _K - _OFF[0]
 
@@ -363,7 +383,7 @@ def _shape_cov(size, shape="circle"):
 
 
 def _bg_rgb(size, top=BG_TOP, bottom=BG_BOTTOM):
-    """淡雅暖米白竖向渐变（对应 108dp 图层里的中央 72dp 段）。"""
+    """淡雅暖米白竖向渐变（对应 108dp 图层里启动器实际露出的 VISIBLE_DP 段）。"""
     j = (np.arange(size, dtype=np.float32) + 0.5) / size
     y_dp = PAD_DP + j * VISIBLE_DP
     t = y_dp / VP
@@ -386,7 +406,7 @@ def _blend(bg_rgb, cov_base, cov_gold, gold=GOLD_FLAT, outline=OUTLINE_RGB):
 
 def render_icon(size, round_mask=False, shape=None, top=BG_TOP, bottom=BG_BOTTOM,
                 gold=GOLD_FLAT, outline=OUTLINE_RGB):
-    """按启动器的真实裁切渲染图标：画布对应 108dp 图层的中央 72dp。"""
+    """按启动器的真实裁切渲染图标：画布对应 108dp 图层里实际露出的 VISIBLE_DP 段。"""
     cov_b, cov_g = _coverage(size)
     col = _blend(_bg_rgb(size, top, bottom), cov_b, cov_g, gold, outline)
     rgb = Image.fromarray(np.rint(col).astype(np.uint8), "RGB")
@@ -467,7 +487,8 @@ VEC_HEAD = """<?xml version="1.0" encoding="utf-8"?>
        做三重对称平均并拟合为闭合傅里叶级数 —— 天然闭合、C∞ 光滑、严格三重对称）。
        剪影 {silK} 阶 / 主叶 {leafK} 阶；栅格层用的极坐标表 {nbu} 列、R_MAX {rmax}，
        由同一条曲线射线求交而来，故栅格层与矢量层形状严格同构。
-       母题外缘半径 {rad:.2f}dp（可见区半宽 36dp / 保证区 ⌀66dp）。居中基准：{center}。
+       母题外缘半径 {rad:.2f}dp（启动器实际露出的中央 {vis:.0f}dp 段，半宽 {half:.1f}dp）。
+       居中基准：{center}。
      Android 8+ 的 adaptive icon 走的就是本文件（mipmap-anydpi-v26 优先于 mipmap-* PNG）。-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -479,7 +500,8 @@ VEC_HEAD = """<?xml version="1.0" encoding="utf-8"?>
 
 def write_vector(paths, out_path, desc):
     header = VEC_HEAD.format(desc=desc, nbu=NB_U, rmax=R_MAX, rad=MOTIF_R_DP,
-                             center=CENTER, silK=T.SIL_K, leafK=T.LEAF_K)
+                             center=CENTER, silK=T.SIL_K, leafK=T.LEAF_K,
+                             vis=VISIBLE_DP, half=VISIBLE_DP / 2.0)
     with open(out_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(header + "\n".join(paths) + "\n</vector>\n")
     print(f"  {os.path.relpath(out_path, ROOT)}  ({len(paths)} 个子路径)")
@@ -596,7 +618,7 @@ def _preview_centering():
     info = [f"居中基准 = {CENTER}",
             f"外接矩形中心残偏 {_BBOX_RES * _K:.2f} dp",
             f"面积质心残偏 {_CENT_RES * _K:.2f} dp",
-            f"母题外缘半径 {MOTIF_R_DP:.1f} dp（保证区半径 33 dp）"]
+            f"母题外缘半径 {MOTIF_R_DP:.1f} dp（可见区半宽 {VISIBLE_DP / 2:.1f} dp）"]
     for i, t in enumerate(info):
         d.text((16, 14 + i * 23), t, font=font, fill=(50, 44, 38))
     d.text((16, S - 34), "红=画布中心线　蓝=外接矩形　绿=面积质心", font=font, fill=(90, 82, 72))
