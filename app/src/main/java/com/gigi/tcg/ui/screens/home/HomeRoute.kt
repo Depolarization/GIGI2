@@ -7,6 +7,7 @@ package com.gigi.tcg.ui.screens.home
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.os.Environment
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -71,21 +72,16 @@ import com.gigi.tcg.ui.components.LoadingView
 import com.gigi.tcg.ui.components.LocalToast
 import com.gigi.tcg.ui.components.tierLabel
 import com.gigi.tcg.ui.dialogs.cardcover.CardImageSaver
-import com.gigi.tcg.ui.dialogs.cardcover.albumRelativePath
-import com.gigi.tcg.ui.export.computeTableLayout
-import com.gigi.tcg.ui.export.renderTableBitmap
-import com.gigi.tcg.ui.screens.cardstats.EXPORT_IMAGE_WIDTH_PX
+import com.gigi.tcg.ui.dialogs.cardcover.EXPORT_DIR_RECORDS
+import com.gigi.tcg.ui.dialogs.cardcover.GIGI_ALBUM_NAME
+import com.gigi.tcg.ui.dialogs.cardcover.buildAlbumRelativePath
+import com.gigi.tcg.ui.dialogs.cardcover.exportDateText
+import com.gigi.tcg.ui.export.fetchRecordAvatarBitmaps
+import com.gigi.tcg.ui.export.renderRecordsCardBitmap
 import com.gigi.tcg.ui.theme.LocalSemanticColors
 import com.gigi.tcg.ui.theme.SemanticColors
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-
-/** 导出长图的 JPEG 质量：与 CardStatsRoute 的长图导出同档（72），1600px 宽的文字图仍清晰 */
-private const val EXPORT_JPEG_QUALITY = 72
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -114,41 +110,42 @@ fun HomeRoute(
     // 否则冷启动首屏顶部圈会与居中 LoadingView 同转（两个 progressbar）
     val isRefreshing by viewModel.refreshing.collectAsStateWithLifecycle()
 
-    // ---- 最近对局导出长图（V24）----
-    // 与 CardStatsRoute 的导出同构：渲染走 ui/export 的通用渲染器，落盘走 CardImageSaver，
-    // 结果提示走 LocalToast。渲染互斥用 Mutex（每次都是新图，但同一时刻只允许一张在渲染）。
+    // ---- 最近对局导出卡片图（V26：版式照抄首页 RecordItem，用户"省得截屏"）----
+    // 内容组装走本包纯函数 buildRecentRecordsCards（JVM 单测覆盖），头像在 IO 线程经 Coil
+    // 预取（allowHardware=false，硬件位图画不上软件 Canvas），绘制在 ui/export 渲染器，
+    // 落盘走 CardImageSaver（文件名带导出日期、子目录 Pictures/GIGI/最近对局）。
     val appContext = LocalContext.current.applicationContext
     val showToast = LocalToast.current
     val coroutineScope = rememberCoroutineScope()
-    val exportMutex = remember { Mutex() }
     var exporting by remember { mutableStateOf(false) }
     val recordList = (state.records as? Async.Content<List<GameRecord>>)?.value.orEmpty()
     val startExport: () -> Unit = {
         if (recordList.isNotEmpty() && !exporting) {
             exporting = true
-            val nickname = (state.profile as? Async.Content<PageInfo>)?.value?.nickname
+            val cards = buildRecentRecordsCards(recordList, sessionUid.orEmpty())
             coroutineScope.launch {
                 try {
-                    withContext(Dispatchers.Default) {
-                        exportMutex.withLock {
-                            val spec = buildRecordsTableSpec(recordList, sessionUid.orEmpty(), nickname)
-                            // 最多 10 行，直接单栏（Int.MAX_VALUE = 永不触发双栏）
-                            val layout = computeTableLayout(spec, EXPORT_IMAGE_WIDTH_PX, Int.MAX_VALUE)
-                            val bitmap = renderTableBitmap(spec, layout)
-                            try {
-                                CardImageSaver(appContext).saveBitmap(
-                                    bitmap,
-                                    spec.title,
-                                    format = Bitmap.CompressFormat.JPEG,
-                                    quality = EXPORT_JPEG_QUALITY,
-                                )
-                            } finally {
-                                // 回收放 finally：saveBitmap 抛异常也不能漏掉位图
-                                bitmap.recycle()
-                            }
-                        }
+                    val avatars = fetchRecordAvatarBitmaps(appContext, cards)
+                    val bitmap = renderRecordsCardBitmap(cards, avatars)
+                    try {
+                        val dateText = exportDateText()
+                        CardImageSaver(appContext).saveBitmap(
+                            bitmap,
+                            baseName = "最近对局_$dateText",
+                            format = Bitmap.CompressFormat.JPEG,
+                            subDir = EXPORT_DIR_RECORDS,
+                        )
+                        showToast(
+                            LocaleStrings.get(
+                                R.string.toast_saved_to_album_path,
+                                buildAlbumRelativePath(Environment.DIRECTORY_PICTURES, GIGI_ALBUM_NAME, EXPORT_DIR_RECORDS),
+                            )
+                        )
+                    } finally {
+                        // 回收放 finally：saveBitmap 抛异常也不能漏掉位图
+                        avatars.filterNotNull().forEach { it.recycle() }
+                        bitmap.recycle()
                     }
-                    showToast(LocaleStrings.get(R.string.toast_saved_to_album_path, albumRelativePath()))
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {

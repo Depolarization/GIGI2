@@ -105,6 +105,9 @@
     <string name="login_qr_image_desc">米遊社掃碼登入QR Code</string>
     <string name="login_qr_scanned_badge">已掃碼</string>
     <string name="login_qr_scanned_confirm">已掃碼，請在手機確認</string>
+    <string name="login_qr_title">掃碼登入</string>
+    <string name="login_qr_save">儲存</string>
+    <string name="login_qr_autodelete_hint">掃碼登入成功後，軟體會自動刪除已儲存的 QR Code</string>
 
     <!-- 首頁 -->
     <string name="home_recent_games">最近對局</string>

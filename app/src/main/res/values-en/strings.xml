@@ -105,6 +105,9 @@
     <string name="login_qr_image_desc">HoYoLAB QR code for sign-in</string>
     <string name="login_qr_scanned_badge">Scanned</string>
     <string name="login_qr_scanned_confirm">Scanned. Confirm on your phone</string>
+    <string name="login_qr_title">Scan to Sign In</string>
+    <string name="login_qr_save">Save</string>
+    <string name="login_qr_autodelete_hint">After sign-in, the saved QR code image is deleted automatically</string>
 
     <!-- Home -->
     <string name="home_recent_games">Recent Matches</string>

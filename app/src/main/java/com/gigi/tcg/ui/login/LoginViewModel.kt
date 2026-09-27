@@ -1,10 +1,12 @@
 // 登录页状态机：语义对齐 web LoginPage.tsx（startQr 循环 + runSeq 防重入）与
 // 设计文档 §3.3（NoRole 零副作用：AuthManager 已保证不写凭据，本层不切登录态）。
 // Expired/Cancelled/超时自动换码；Scanned 仅更新提示；Confirmed → finalize(当前服务器)。
+// 登录成功这一刻静默删除相册里最后保存的那张二维码（自动换码/取消都不删）。
 
 package com.gigi.tcg.ui.login
 
 import android.app.Application
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
@@ -24,6 +26,7 @@ import com.gigi.tcg.i18n.LocaleStrings
 import com.gigi.tcg.i18n.displayNameSync
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -81,6 +84,9 @@ class LoginViewModel(
     private var qrJob: Job? = null
     private var finalizeJob: Job? = null
 
+    /** 相册里最后保存的那张二维码的 uri（UI 保存成功后的回执）：只在登录成功这一刻删，换码/取消不动 */
+    private var lastSavedQrUri: Uri? = null
+
     /** LoginPage.tsx runSeqRef 语义：旧流程的迟到回调用 generation 判弃 */
     private var generation = 0
 
@@ -103,6 +109,11 @@ class LoginViewModel(
 
     /** Failed 态"重新生成二维码"按钮（对齐 LoginPage 的 error 分支） */
     fun retry() = startQr()
+
+    /** 保存按钮落盘成功的回执；uri 为空（API 24-28 无 MediaStore 条目）则无从删除，忽略 */
+    fun onQrSaved(uri: Uri?) {
+        if (uri != null) lastSavedQrUri = uri
+    }
 
     fun start() = begin()
 
@@ -208,6 +219,7 @@ class LoginViewModel(
                     container.refreshAccounts()
                     container.updateSession(result.gameUid)
                     _uiState.value = LoginUiState.LoggedIn(result.gameUid)
+                    deleteSavedQrImage()
                 }
                 is AuthFinalizeResult.NoRole -> {
                     // 🔴 设计 §3.3：凭据未写入（AuthManager 保证）、不切登录态，
@@ -225,6 +237,23 @@ class LoginViewModel(
             throw cancel
         } catch (e: Exception) {
             _uiState.value = LoginUiState.Failed(e.message ?: LocaleStrings.get(R.string.error_login_retry))
+        }
+    }
+
+    /**
+     * 登录成功后的相册清理：只删最后保存的那一张，先清状态避免重复删。
+     * 🔴 静默容错 —— 走 IO 协程且吞掉一切异常，删图失败绝不影响登录流程
+     *（viewModelScope 在 LoggedIn 后不被 cancel() 取消，本协程能跑完）。
+     */
+    private fun deleteSavedQrImage() {
+        val uri = lastSavedQrUri ?: return
+        lastSavedQrUri = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                getApplication<Application>().contentResolver.delete(uri, null, null)
+            } catch (e: Exception) {
+                Log.w(QR_LOG_TAG, "删除已保存二维码失败：${e.javaClass.name}: ${e.message}")
+            }
         }
     }
 

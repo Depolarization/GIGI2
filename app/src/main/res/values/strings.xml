@@ -105,6 +105,9 @@
     <string name="login_qr_image_desc">米游社扫码登录二维码</string>
     <string name="login_qr_scanned_badge">已扫描</string>
     <string name="login_qr_scanned_confirm">已扫描，请在手机确认</string>
+    <string name="login_qr_title">扫码登录</string>
+    <string name="login_qr_save">保存</string>
+    <string name="login_qr_autodelete_hint">扫码登录成功后，软件会自动删除已保存的二维码</string>
 
     <!-- 首页 -->
     <string name="home_recent_games">最近对局</string>

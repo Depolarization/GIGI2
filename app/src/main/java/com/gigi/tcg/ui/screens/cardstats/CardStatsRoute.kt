@@ -6,6 +6,7 @@ package com.gigi.tcg.ui.screens.cardstats
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.os.Environment
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -78,7 +79,11 @@ import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
 import com.gigi.tcg.ui.dialogs.cardcover.CardImageSaver
-import com.gigi.tcg.ui.dialogs.cardcover.albumRelativePath
+import com.gigi.tcg.ui.dialogs.cardcover.EXPORT_DIR_ACTION
+import com.gigi.tcg.ui.dialogs.cardcover.EXPORT_DIR_CHAR
+import com.gigi.tcg.ui.dialogs.cardcover.GIGI_ALBUM_NAME
+import com.gigi.tcg.ui.dialogs.cardcover.buildAlbumRelativePath
+import com.gigi.tcg.ui.dialogs.cardcover.exportDateText
 import com.gigi.tcg.ui.export.computeTableLayout
 import com.gigi.tcg.ui.export.renderTableBitmap
 import com.gigi.tcg.ui.theme.Motion
@@ -154,7 +159,8 @@ private fun CardStatsContent(
     val appContext = LocalContext.current.applicationContext
     val coroutineScope = rememberCoroutineScope()
     // 两个导出按钮各自独立的 loading 态（点哪个转哪个，另一个仍可点）；
-    // 底层渲染用互斥锁串行：行动牌 1600px 双栏长图降级后仍约 93MB，两张巨图同时分配必 OOM。
+    // 底层渲染用互斥锁串行：行动牌 1200px 双栏长图降级 RGB_565 后仍约 54.5MB，
+    // 两张巨图同时分配在低端机上仍可能 OOM。
     var exportingChar by remember { mutableStateOf(false) }
     var exportingAction by remember { mutableStateOf(false) }
     val exportMutex = remember { Mutex() }
@@ -166,6 +172,8 @@ private fun CardStatsContent(
         val busy = if (charTable) exportingChar else exportingAction
         if (summary != null && !busy) {
             if (charTable) exportingChar = true else exportingAction = true
+            // 文件名带导出日期、按表类型落子目录（Toast 与落盘同源：同一个三参构造器）
+            val subDir = if (charTable) EXPORT_DIR_CHAR else EXPORT_DIR_ACTION
             coroutineScope.launch {
                 try {
                     withContext(Dispatchers.Default) {
@@ -177,17 +185,16 @@ private fun CardStatsContent(
                                 buildActionTableSpec(summary, uid, cards)
                             }
                             val layout = computeTableLayout(
-                                spec, EXPORT_IMAGE_WIDTH_PX, exportTwoColumnThreshold(charTable),
+                                spec, exportImageWidth(charTable), exportTwoColumnThreshold(charTable),
                             )
                             val bitmap = renderTableBitmap(spec, layout)
                             try {
-                                // quality 72 是 V9-C 实测选档：1600x30524 的行动牌长图 q72 ≈ 7.9MB
-                                //（真实卡名更短 ⇒ 接近用户样例 6MB），q65 只省 0.7MB 却开始糊 26px 中文笔画
+                                // quality 走 CardImageSaver 默认 q72：1200px 新规格比旧 1600px 长图体积更小
                                 CardImageSaver(appContext).saveBitmap(
                                     bitmap,
-                                    spec.title,
+                                    baseName = "${spec.title}_${exportDateText()}",
                                     format = Bitmap.CompressFormat.JPEG,
-                                    quality = 72,
+                                    subDir = subDir,
                                 )
                             } finally {
                                 // 回收放 finally：saveBitmap 抛异常也不能漏大图（长图可达数百 KB×行数像素）
@@ -195,8 +202,13 @@ private fun CardStatsContent(
                             }
                         }
                     }
-                    // 路径与 CardImageSaver 写入同源（albumRelativePath），不再各写一份字面量
-                    onShowToast(LocaleStrings.get(R.string.toast_saved_to_album_path, albumRelativePath()))
+                    // 路径与 CardImageSaver 落盘同源（relativePathFor(subDir) 用的就是这个三参构造器）
+                    onShowToast(
+                        LocaleStrings.get(
+                            R.string.toast_saved_to_album_path,
+                            buildAlbumRelativePath(Environment.DIRECTORY_PICTURES, GIGI_ALBUM_NAME, subDir),
+                        ),
+                    )
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {

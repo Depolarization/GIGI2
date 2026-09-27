@@ -1,12 +1,14 @@
-// 「最近对局」导出表内容组装的纯 JVM 单测（V24）：列结构、胜负映射、积分带变化量、
-// 对手 UID 解析与退化、空列表、副标题退化。不碰 android.graphics —— 渲染层复用
-// TableImageRenderer，已由 CardStatsExportTest / TableLayoutTest 覆盖。
+// 「最近对局」导出卡片图内容组装的纯 JVM 单测（V26：导出图照抄首页卡片版式后，
+// 表结构断言改为卡片字段断言）。口径不变：胜负映射、对手 UID 解析与退化、
+// 积分带变化量与全零退化、昵称回落、条数封顶。渲染层（RecentRecordsCardRenderer）
+// 依赖 android.graphics，工程无 Robolectric，不在此覆盖。
 
 package com.gigi.tcg.ui.screens.home
 
+import com.gigi.tcg.R
 import com.gigi.tcg.data.model.GameRecord
 import com.gigi.tcg.data.model.ScoreChange
-import com.gigi.tcg.ui.export.computeTableLayout
+import com.gigi.tcg.domain.formatRecordTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -34,81 +36,92 @@ class RecentRecordsExportTest {
     )
 
     @Test
-    fun `列结构与表头六列，标题为最近对局`() {
-        val spec = buildRecordsTableSpec(listOf(record()), SELF_UID, "Oscuro")
-        assertEquals(6, spec.columns.size)
-        assertEquals(
-            listOf("对手", "UID", "时间", "天梯", "巅峰", "胜负"),
-            spec.columns.map { it.header },
-        )
-        assertEquals(listOf(false, false, false, true, true, true), spec.columns.map { it.alignEnd })
-        assertEquals("最近对局", spec.title)
-        // 局部列表（服务端最多 10 条）不带徽章行
-        assertTrue(spec.badges.isEmpty())
-        assertEquals("Oscuro - $SELF_UID", spec.subtitle)
+    fun `卡片字段与首页条目口径一致，无 resolver 时文案走中文默认值`() {
+        val cards = buildRecentRecordsCards(listOf(record()), SELF_UID)
+        assertEquals(1, cards.size)
+        val card = cards[0]
+        assertEquals("行云不与", card.nickname)
+        assertEquals(OTHER_UID, card.opponentUid)
+        assertEquals(formatRecordTime("1786515594"), card.timeText)
+        assertEquals("胜", card.resultDisplay)
+        assertEquals(ResultColorType.Win, card.resultColor)
+        assertEquals("天梯 2760 (10)", scoreLineText(card.ladder!!))
+        assertEquals("巅峰 2310 (-6)", scoreLineText(card.peak!!))
     }
 
     @Test
-    fun `对手 UID 取 trans_no 中不等于自己的一段，胜负映射为胜负空`() {
-        val spec = buildRecordsTableSpec(
+    fun `胜负映射为胜负空并驱动语义色枚举`() {
+        val cards = buildRecentRecordsCards(
             listOf(
-                record(result = "Win", transNo = "146178207_$SELF_UID"),
-                record(result = "Lose", transNo = "${SELF_UID}_340438735"),
-                record(result = null, transNo = "${SELF_UID}_185290180"),
+                record(result = "Win"),
+                record(result = "Lose"),
+                record(result = null),
             ),
             SELF_UID,
-            "Oscuro",
         )
-        assertEquals("146178207", spec.rows[0][1])
-        assertEquals("340438735", spec.rows[1][1])
-        assertEquals("185290180", spec.rows[2][1])
-        assertEquals(listOf("胜", "负", "空"), spec.rows.map { it[5] })
+        assertEquals(listOf("胜", "负", "空"), cards.map { it.resultDisplay })
+        assertEquals(
+            listOf(ResultColorType.Win, ResultColorType.Lose, ResultColorType.Neutral),
+            cards.map { it.resultColor },
+        )
     }
 
     @Test
-    fun `积分单元格带变化量，全零或缺失时退化为占位符`() {
-        val spec = buildRecordsTableSpec(
+    fun `对手 UID 取 trans_no 中不等于自己的一段`() {
+        val cards = buildRecentRecordsCards(
             listOf(
-                record(ladder = ScoreChange(2760, 10), peak = ScoreChange(2310, -6)),
-                record(ladder = ScoreChange(2750, -6), peak = ScoreChange(0, 0)),
+                record(transNo = "146178207_$SELF_UID"),
+                record(transNo = "${SELF_UID}_340438735"),
+                record(transNo = "${SELF_UID}_185290180"),
+            ),
+            SELF_UID,
+        )
+        assertEquals(listOf("146178207", "340438735", "185290180"), cards.map { it.opponentUid })
+    }
+
+    @Test
+    fun `对手 UID 解析失败为 null，渲染层据此画占位而不是 unknown 字样`() {
+        val cards = buildRecentRecordsCards(
+            listOf(record(transNo = null), record(transNo = "只一段没有下划线")),
+            SELF_UID,
+        )
+        assertNull(cards[0].opponentUid)
+        assertNull(cards[1].opponentUid)
+    }
+
+    @Test
+    fun `积分全零或缺失退化为 null，另一侧不受影响`() {
+        val cards = buildRecentRecordsCards(
+            listOf(
+                record(ladder = ScoreChange(2760, 10), peak = ScoreChange(0, 0)),
                 record(ladder = null, peak = null),
             ),
             SELF_UID,
-            "Oscuro",
         )
-        assertEquals("2760 (10)", spec.rows[0][3])
-        assertEquals("2310 (-6)", spec.rows[0][4])
-        assertEquals("2750 (-6)", spec.rows[1][3])
-        assertEquals("-", spec.rows[1][4])
-        assertEquals("-", spec.rows[2][3])
-        assertEquals("-", spec.rows[2][4])
+        assertEquals(2760, cards[0].ladder!!.score)
+        assertEquals(10, cards[0].ladder!!.change)
+        assertNull(cards[0].peak)
+        assertNull(cards[1].ladder)
+        assertNull(cards[1].peak)
     }
 
     @Test
-    fun `对手 UID 解析失败时用占位符而不是 unknown 字样`() {
-        val spec = buildRecordsTableSpec(
-            listOf(record(transNo = null), record(transNo = "只一段没有下划线")),
-            SELF_UID,
-            "Oscuro",
-        )
-        assertEquals("-", spec.rows[0][1])
-        assertEquals("-", spec.rows[1][1])
+    fun `昵称缺失回落未知`() {
+        val cards = buildRecentRecordsCards(listOf(record(nickname = null)), SELF_UID)
+        assertEquals("未知", cards[0].nickname)
     }
 
     @Test
-    fun `昵称缺失回落未知，uid 缺失时副标题退化为空`() {
-        val spec = buildRecordsTableSpec(listOf(record(nickname = null)), "", null)
-        assertEquals("未知", spec.rows[0][0])
-        assertNull(spec.subtitle)
+    fun `条数封顶 10 且空列表得空结果`() {
+        val cards = buildRecentRecordsCards(List(13) { record() }, SELF_UID)
+        assertEquals(RECENT_RECORDS_MAX_CARDS, cards.size)
+        assertEquals(RECENT_RECORDS_MAX_CARDS, 10)
+        assertTrue(buildRecentRecordsCards(emptyList(), SELF_UID).isEmpty())
     }
 
-    @Test
-    fun `空列表产出空行集且能被布局函数接受（不触发双栏）`() {
-        val spec = buildRecordsTableSpec(emptyList(), SELF_UID, "Oscuro")
-        assertTrue(spec.rows.isEmpty())
-        // 渲染前必须过布局计算：列权重和 > 0、每行列数 == 列数
-        val layout = computeTableLayout(spec, 1600, Int.MAX_VALUE)
-        assertEquals(1, layout.columnsPerBand)
-        assertEquals(0, layout.rowsPerBand)
+    /** 与渲染器 drawScoreLine 相同的拼接口径：前缀 + 空格 + 分数 + 空格 + (变化量) */
+    private fun scoreLineText(line: ScoreLine): String {
+        val prefix = if (line.prefixId == R.string.home_peak_prefix) "巅峰" else "天梯"
+        return "$prefix ${line.score} ${scoreChangeText(line.change)}"
     }
 }

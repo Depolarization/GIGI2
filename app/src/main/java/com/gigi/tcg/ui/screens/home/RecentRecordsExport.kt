@@ -1,7 +1,7 @@
-// 「最近对局」导出长图的内容组装（V24，用户真机反馈图 4 + 需求 6）。
-// 本文件只做字符串与算术，🔴 不得引用 android.graphics —— 渲染复用
-// ui/export/TableImageRenderer.kt（与卡牌使用情况导出同一套渲染器），
-// 分界线是为了让列结构/退化口径能在纯 JVM 单测里覆盖（工程无 Robolectric）。
+// 「最近对局」导出卡片图的内容组装（V26，用户反馈「首页那个最近对局的布局写得很好，
+// 导出图片也省得用户去截屏」）。本文件只做字符串与算术，🔴 不得引用 android.graphics ——
+// 渲染在 ui/export/RecentRecordsCardRenderer.kt（版式照抄 HomeRoute.RecordItem）。
+// 分界线是为了让字段口径/退化规则能在纯 JVM 单测里覆盖（工程无 Robolectric）。
 
 package com.gigi.tcg.ui.screens.home
 
@@ -13,14 +13,9 @@ import com.gigi.tcg.domain.extractOpponentUid
 import com.gigi.tcg.domain.formatRecordTime
 import com.gigi.tcg.domain.formatScoreChange
 import com.gigi.tcg.i18n.LocaleStrings
-import com.gigi.tcg.ui.export.TableColumn
-import com.gigi.tcg.ui.export.TableSpec
-
-/** 空值占位：积分缺失/对手 UID 未知时用，纯标点不需要翻译 */
-private const val EMPTY_CELL = "-"
 
 /**
- * 文案通道：本文件是**纯函数层**（JVM 单测直接调 buildRecordsTableSpec），拿不到 Compose 的
+ * 文案通道：本文件是**纯函数层**（JVM 单测直接调 buildRecentRecordsCards），拿不到 Compose 的
  * stringResource。故走 [LocaleStrings.getOrDefault]：有 resolver 时按当前语言取资源，
  * 没有（纯 JVM 测试）时回落到这里的中文默认值。
  * 🔴 默认值必须与 values/strings.xml 里的同 id 文案逐字一致。
@@ -28,55 +23,66 @@ private const val EMPTY_CELL = "-"
 private fun exportText(@StringRes id: Int, default: String): String =
     LocaleStrings.getOrDefault(id, default)
 
+/** 服务端一次最多返回 10 条，导出同样封顶 10（渲染器画布按它预留行高） */
+const val RECENT_RECORDS_MAX_CARDS = 10
+
+/** 胜负语义色枚举：数据层不放 ARGB（保持无 android 引用），由渲染器映射定版色值 */
+enum class ResultColorType { Win, Lose, Neutral }
+
+/** 一行「前缀 + 积分 + 变化量」的拆分形态，供渲染器双色绘制（前缀正文色、变化量语义色）。
+ *  null = 该模式无积分（整对缺失/全零），渲染器画占位符，对齐首页 home_peak_placeholder 语义 */
+data class ScoreLine(
+    @StringRes val prefixId: Int,
+    val score: Int,
+    val change: Int,
+)
+
 /**
- * 最近对局导出表的列结构（对齐列表页的字段顺序：对手 / UID / 时间 / 天梯 / 巅峰 / 胜负）。
- * 权重按「对手名最长 + UID 9 位 + 时间 11 字符 + 积分带变化量」估：总权重 12.4。
+ * 一张导出卡片 = 首页 RecordItem 的可绘制镜像。
+ * 注意：卡片上的昵称/头像是**对手**的（解析口径见 GameRecordsParseTest），
+ * 「我」的昵称不进卡片，与首页一致。
  */
-internal fun buildRecordsTableSpec(
+data class RecentRecordsCard(
+    val avatarUrl: String?,
+    val nickname: String,
+    /** 对手 UID；解析失败为 null，渲染画占位符而不是 "unknown" 字样 */
+    val opponentUid: String?,
+    /** 对局时间，formatRecordTime 口径（跨年自动补两位年份前缀） */
+    val timeText: String,
+    val resultDisplay: String,
+    val resultColor: ResultColorType,
+    val ladder: ScoreLine?,
+    val peak: ScoreLine?,
+)
+
+/** 内容超过 [RECENT_RECORDS_MAX_CARDS] 时按首页顺序截取前 10 条 */
+fun buildRecentRecordsCards(
     records: List<GameRecord>,
     uid: String,
-    nickname: String?,
-): TableSpec {
-    val columns = listOf(
-        TableColumn(exportText(R.string.export_col_opponent, "对手"), 3.2f, alignEnd = false),
-        TableColumn(exportText(R.string.export_col_uid, "UID"), 2.4f, alignEnd = false),
-        TableColumn(exportText(R.string.export_col_time, "时间"), 2.4f, alignEnd = false),
-        TableColumn(exportText(R.string.export_col_ladder, "天梯"), 1.7f, alignEnd = true),
-        TableColumn(exportText(R.string.export_col_peak, "巅峰"), 1.5f, alignEnd = true),
-        TableColumn(exportText(R.string.export_col_result, "胜负"), 1.2f, alignEnd = true),
-    )
-    val rows = records.map { record ->
-        val opponentUid = extractOpponentUid(record.transNo, uid)
-        listOf(
-            record.nickname ?: exportText(R.string.common_unknown, "未知"),
-            // 对手 UID 解析失败（trans_no 缺失/格式不符）时不印 "unknown" 字样，用占位符
-            if (opponentUid == UNKNOWN_OPPONENT_UID) EMPTY_CELL else opponentUid,
-            formatRecordTime(record.timestamp),
-            scoreCell(record.ladderScore?.score, record.ladderScore?.scoreChange),
-            scoreCell(record.peakScore?.score, record.peakScore?.scoreChange),
-            resultName(record.result),
-        )
-    }
-    return TableSpec(
-        title = exportText(R.string.export_records_title, "最近对局"),
-        subtitle = if (uid.isBlank()) nickname else "${nickname.orEmpty()} - $uid",
-        // 服务端最多返回 10 条，「共进行 N 场」这类徽章对局部列表没有意义，故不带徽章行
-        badges = emptyList(),
-        columns = columns,
-        rows = rows,
+): List<RecentRecordsCard> = records.take(RECENT_RECORDS_MAX_CARDS).map { record ->
+    val opponentUid = extractOpponentUid(record.transNo, uid)
+    RecentRecordsCard(
+        avatarUrl = record.avatarUrl,
+        nickname = record.nickname ?: exportText(R.string.common_unknown, "未知"),
+        opponentUid = opponentUid.takeUnless { it == UNKNOWN_OPPONENT_UID },
+        timeText = formatRecordTime(record.timestamp),
+        resultDisplay = resultName(record.result),
+        resultColor = when (record.result) {
+            "Win" -> ResultColorType.Win
+            "Lose" -> ResultColorType.Lose
+            else -> ResultColorType.Neutral
+        },
+        ladder = scoreLine(record.ladderScore?.score, record.ladderScore?.scoreChange, R.string.home_ladder_prefix),
+        peak = scoreLine(record.peakScore?.score, record.peakScore?.scoreChange, R.string.home_peak_prefix),
     )
 }
 
-/**
- * 积分单元格：`2310 (10)` —— 与列表页 `"$prefix $score $change"` 同口径（变化量沿用
- * formatScoreChange 的 `(n)` 形态）。整对都为 0/缺失时视为"该模式无积分"，给占位符，
- * 对齐列表页 home_peak_placeholder（"巅峰 -"）的语义。
- */
-private fun scoreCell(score: Int?, change: Int?): String {
+/** 积分行：与首页 `"$prefix $score $change"` 同口径；整对 0/缺失 → null（渲染画占位符） */
+private fun scoreLine(score: Int?, change: Int?, @StringRes prefixId: Int): ScoreLine? {
     val s = score ?: 0
     val c = change ?: 0
-    if (s == 0 && c == 0) return EMPTY_CELL
-    return "$s ${formatScoreChange(c)}"
+    if (s == 0 && c == 0) return null
+    return ScoreLine(prefixId, s, c)
 }
 
 /** 胜负：逐字对齐列表页 home_result_win / lose / none */
@@ -85,3 +91,6 @@ private fun resultName(result: String?): String = when (result) {
     "Lose" -> exportText(R.string.home_result_lose, "负")
     else -> exportText(R.string.home_result_none, "空")
 }
+
+/** 变化量文本（formatScoreChange 的 `(n)` 形态），渲染器与单测共用，保证口径唯一 */
+internal fun scoreChangeText(change: Int): String = formatScoreChange(change)
