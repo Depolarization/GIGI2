@@ -18,3 +18,27 @@ fun formatStatPercent(value: Double?): String {
     }
     return String.format(Locale.US, "%.1f%%", value)
 }
+
+/**
+ * 并列名次（V29 需求 8，角色牌/行动牌 # 列共用）：返回与 [sorted] 等长、同序的名次数组。
+ *
+ * 竞赛排序口径：**并列同名次、下一名跳号**（1,2,2,4），与主流榜一致；
+ * 依据是"当前排序键的值相等"即并列，与具体用哪个键无关。
+ *
+ * @param sorted 已按当前排序键排好序的列表（本屏的 sortedCharList / filteredActionList）
+ * @param keyOf 取该行参与比较的排序键（Int 或 Double 均可，包装成 Comparable 比较）
+ */
+fun <T> ranksWithTies(sorted: List<T>, keyOf: (T) -> Comparable<*>): IntArray {
+    val out = IntArray(sorted.size)
+    var lastKey: Comparable<*>? = null
+    var lastRank = 0
+    sorted.forEachIndexed { index, item ->
+        val key = keyOf(item)
+        // 第一个元素或与上一行键值不同 ⇒ 名次就是「行号 + 1」；相同则沿用上一行的名次
+        val rank = if (index == 0 || key != lastKey) index + 1 else lastRank
+        out[index] = rank
+        lastKey = key
+        lastRank = rank
+    }
+    return out
+}

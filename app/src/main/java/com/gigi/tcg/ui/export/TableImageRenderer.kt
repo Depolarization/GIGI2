@@ -58,8 +58,6 @@ data class TableSpec(
     val levelText: String?,
     /** 蓝底胶囊（已得/总数、场次、胜率） */
     val badges: List<String>,
-    /** 白底签名框文字 */
-    val signature: String,
     val columns: List<TableColumn>,
     /** 每行的单元格文本，每行长度必须 == columns.size */
     val rows: List<List<String>>,
@@ -115,13 +113,12 @@ private const val BADGE_HORIZONTAL_PADDING_PX = 20
 private const val BADGE_RIGHT_MARGIN_PX = 20
 private const val BADGE_BOTTOM_MARGIN_PX = 13
 private const val BADGE_ROW_BOTTOM_MARGIN_PX = 8
-private const val SIGNATURE_TEXT_SIZE_PX = 25f
-private const val SIGNATURE_HEIGHT_PX = 45
-private const val SIGNATURE_RADIUS_PX = 10f
-private const val SIGNATURE_HORIZONTAL_PADDING_PX = 20
-private const val SIGNATURE_BOTTOM_MARGIN_PX = 25
-/** 签名框底 → 分隔虚线顶；虚线高 4，其底 = 页眉块底（14 + 4 = 签名框 mb 25） */
-private const val DIVIDER_OFFSET_PX = 14
+/**
+ * 页眉最后一行 → 分隔虚线顶 的留白。
+ * V29-B 移除签名框后，这里接替原先 SIGNATURE_BOTTOM_MARGIN_PX 的 25（与 LEVEL_BOTTOM_MARGIN_PX
+ * 同一档间距），保证「文字行结束」到「虚线」不会挤成一行。
+ */
+private const val HEADER_BOTTOM_MARGIN_PX = 25
 private const val DIVIDER_HEIGHT_PX = 4
 /** 分隔虚线左右缩进（参考图 `left/right: 28px`） */
 private const val DIVIDER_INSET_PX = 28
@@ -236,15 +233,14 @@ fun computeTableLayout(
 }
 
 /**
- * 页眉块高（含顶部内边距与分隔虚线占位）：等级行/胶囊/签名为空时整行连同间距都不占。
+ * 页眉块高（含顶部内边距与分隔虚线占位）：等级行/胶囊为空时整行连同间距都不占。
  * 虚线底 = 页眉块底。internal 供单测按同一口径核对画布总高。
  */
 internal fun computeHeaderBlockHeight(spec: TableSpec): Int {
     var y = HEADER_TOP_PADDING_PX + NICKNAME_TOP_MARGIN_PX + NICKNAME_LINE_HEIGHT_PX + NICKNAME_BOTTOM_MARGIN_PX
     if (!spec.levelText.isNullOrEmpty()) y += LEVEL_LINE_HEIGHT_PX + LEVEL_BOTTOM_MARGIN_PX
     if (spec.badges.isNotEmpty()) y += BADGE_HEIGHT_PX + BADGE_BOTTOM_MARGIN_PX + BADGE_ROW_BOTTOM_MARGIN_PX
-    if (spec.signature.isNotEmpty()) y += SIGNATURE_HEIGHT_PX + SIGNATURE_BOTTOM_MARGIN_PX
-    return y + DIVIDER_HEIGHT_PX
+    return y + HEADER_BOTTOM_MARGIN_PX + DIVIDER_HEIGHT_PX
 }
 
 /** 内存预算内的位图配置选择（纯算术，可 JVM 单测） */
@@ -276,7 +272,8 @@ internal fun checkRenderMemoryBudget(widthPx: Int, heightPx: Int, config: Bitmap
 /**
  * 截断超长文本（可 JVM 单测：测量器由参数注入，不依赖 Paint）。
  * 未超长时原样返回；超长时二分找最长的能放下「前缀 + …」的截断点。
- * 🔴 表格本体不用它（nowrap 模型下没有该截断的文本）；最近对局卡片仍在用，别删。
+ * 🔴 表格本体不用它（nowrap 模型下没有该截断的文本）；V29-B 删掉「最近对局」导出卡片后
+ * 目前只有 TableLayoutTest 在锁这套截断语义，是否清理由集成方裁决。
  */
 internal fun ellipsize(text: String, maxWidthPx: Float, measure: (String) -> Float): String {
     if (text.isEmpty() || measure(text) <= maxWidthPx) return text
@@ -338,7 +335,6 @@ fun renderTableBitmap(spec: TableSpec, layout: TableLayout, assets: ExportAssets
     }
     val levelPaint = antialiasedTextPaint(LEVEL_TEXT_SIZE_PX, COLOR_MUTED_TEXT)
     val badgePaint = antialiasedTextPaint(BADGE_TEXT_SIZE_PX, COLOR_BADGE_TEXT)
-    val signaturePaint = antialiasedTextPaint(SIGNATURE_TEXT_SIZE_PX, COLOR_MUTED_TEXT)
     // letterSpacing 是字号的比例（Paint 语义），8/31 ⇒ 每字后加 8px
     val bannerPaint = antialiasedTextPaint(BANNER_TEXT_SIZE_PX, COLOR_MUTED_TEXT).apply {
         isFakeBoldText = true
@@ -363,12 +359,12 @@ fun renderTableBitmap(spec: TableSpec, layout: TableLayout, assets: ExportAssets
 
     // 2. 页眉块，返回页眉块底（= 分隔虚线底）
     val headerBottom = drawHeaderBlock(
-        canvas, spec, layout, nicknamePaint, levelPaint, badgePaint, signaturePaint, fillPaint,
+        canvas, spec, layout, nicknamePaint, levelPaint, badgePaint, fillPaint,
     )
 
-    // 3. 分隔虚线（签名框底 + 14，左右各缩进 28，高 4）+ 右上角 logo（225×75，右缘距画布 40）
+    // 3. 分隔虚线（页眉最后一行 + 25 留白，左右各缩进 28，高 4，其底即页眉块底）+ 右上角 logo（225×75，右缘距画布 40）
     drawStretch(
-        assets.divider, canvas, top = headerBottom - DIVIDER_HEIGHT_PX - SIGNATURE_BOTTOM_MARGIN_PX + DIVIDER_OFFSET_PX,
+        assets.divider, canvas, top = headerBottom - DIVIDER_HEIGHT_PX,
         left = DIVIDER_INSET_PX, right = width - DIVIDER_INSET_PX, height = DIVIDER_HEIGHT_PX,
         srcRect = srcRect, dstRect = dstRect,
     )
@@ -448,7 +444,7 @@ private fun drawStretch(
 }
 
 /**
- * 页眉块：昵称 → 等级 → 胶囊行 → 签名框，返回页眉块底（= 分隔虚线底）。
+ * 页眉块：昵称 → 等级 → 胶囊行，返回页眉块底（= 分隔虚线底）。
  * 胶囊行宽度不够时折到下一行（参考图 flex-wrap）。
  */
 private fun drawHeaderBlock(
@@ -458,7 +454,6 @@ private fun drawHeaderBlock(
     nicknamePaint: Paint,
     levelPaint: Paint,
     badgePaint: Paint,
-    signaturePaint: Paint,
     fillPaint: Paint,
 ): Int {
     val left = PAGE_MARGIN_PX.toFloat()
@@ -499,25 +494,8 @@ private fun drawHeaderBlock(
         y = rowTop + BADGE_HEIGHT_PX + BADGE_BOTTOM_MARGIN_PX + BADGE_ROW_BOTTOM_MARGIN_PX
     }
 
-    if (spec.signature.isNotEmpty()) {
-        // 下限取高的 3 倍：单字/两字签名也不会缩成正方形，参考图的签名框是扁长的
-        val boxWidth = maxOf(
-            ceil(signaturePaint.measureText(spec.signature)).toInt() + 2 * SIGNATURE_HORIZONTAL_PADDING_PX,
-            SIGNATURE_HEIGHT_PX * 3,
-        )
-        fillPaint.color = COLOR_TABLE_BG
-        canvas.drawRoundRect(
-            left, y.toFloat(), left + boxWidth, (y + SIGNATURE_HEIGHT_PX).toFloat(),
-            SIGNATURE_RADIUS_PX, SIGNATURE_RADIUS_PX, fillPaint,
-        )
-        signaturePaint.textAlign = Paint.Align.LEFT
-        canvas.drawText(
-            spec.signature, left + SIGNATURE_HORIZONTAL_PADDING_PX.toFloat(),
-            y + baselineInBox(signaturePaint, SIGNATURE_HEIGHT_PX.toFloat()), signaturePaint,
-        )
-        y += SIGNATURE_HEIGHT_PX + SIGNATURE_BOTTOM_MARGIN_PX
-    }
-    return y + DIVIDER_HEIGHT_PX
+    // V29-B：签名框整行删除，页眉最后一行到虚线改走 HEADER_BOTTOM_MARGIN_PX 这一档留白
+    return y + HEADER_BOTTOM_MARGIN_PX + DIVIDER_HEIGHT_PX
 }
 
 /** 分区标题带：section-background 拉伸铺满 (画布宽 − 48) × 80（x = 24），文字水平垂直居中 */

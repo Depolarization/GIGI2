@@ -15,7 +15,7 @@
     <string name="action_query">查詢</string>
     <string name="action_download">下載</string>
     <string name="action_save">儲存</string>
-    <string name="action_regenerate_qr">重新產生QR Code</string>
+    <string name="action_regenerate">重新產生</string>
 
     <!-- 導覽與圖示無障礙描述 -->
     <string name="nav_home">首頁</string>
@@ -91,11 +91,11 @@
 
     <!-- 登入頁 -->
     <string name="login_title">GIGI · 七聖召喚賽事工具</string>
-    <string name="login_title_add">GIGI · 新增帳號</string>
     <string name="login_expired_notice">登入已失效，請重新掃碼登入</string>
     <string name="login_no_role_notice">該米遊社帳號未綁定%1$s的原神角色，請切換伺服器後重試</string>
     <string name="login_status_generating">正在產生QR Code…</string>
-    <string name="login_status_waiting">請用米遊社或雲·原神掃碼並確認登入</string>
+    <!-- V29-B：原「請掃碼並確認登入」與「成功後自動刪圖」兩段灰字合併為一句（登入頁按鈕下方只留一段） -->
+    <string name="login_status_waiting">請用米遊社或雲·原神掃碼並確認登入，登入成功後會自動刪除已儲存的 QR Code</string>
     <string name="login_status_scanned">已掃碼，請在手機上確認登入…</string>
     <string name="login_status_refreshing">QR Code 已失效，正在換新碼…</string>
     <string name="login_status_finalizing">登入已確認，正在完成憑證交換…</string>
@@ -106,7 +106,6 @@
     <string name="login_qr_scanned_confirm">已掃碼，請在手機確認</string>
     <string name="login_qr_title">掃碼登入</string>
     <string name="login_qr_save">儲存</string>
-    <string name="login_qr_autodelete_hint">掃碼登入成功後，軟體會自動刪除已儲存的 QR Code</string>
 
     <!-- 首頁 -->
     <string name="home_recent_games">最近對局</string>
@@ -159,6 +158,8 @@
 
     <!-- 卡牌統計頁 -->
     <string name="stat_appear">出場</string>
+    <string name="stat_rank">#</string>
+    <string name="stats_col_type">類型</string>
     <string name="stat_appear_rate">出場率</string>
     <string name="stat_win_rate">勝率</string>
     <string name="stat_wins">勝場</string>
@@ -207,41 +208,38 @@
     <string name="export_col_use_rate">使用率%</string>
     <string name="export_char_title">角色牌資料</string>
     <string name="export_action_title">行動牌資料</string>
-    <string name="export_badge_char">角色牌 %1$d</string>
-    <string name="export_badge_action">行動牌 %1$d</string>
     <string name="export_badge_total_games">共進行 %1$d 場遊戲</string>
     <string name="export_badge_win_rate">勝率 %1$s</string>
-    <!-- 最近對局匯出（首頁） -->
-    <string name="home_export_records">匯出最近對局</string>
-    <string name="export_records_title">最近對局</string>
-    <string name="export_col_opponent">對手</string>
-    <string name="export_col_uid">UID</string>
-    <string name="export_col_time">時間</string>
-    <string name="export_col_ladder">天梯</string>
-    <string name="export_col_peak">巔峰</string>
-    <string name="export_col_result">勝負</string>
+    <!-- V29-B：「最近對局」圖片匯出（home_export_records / export_records_title / export_col_* 六個欄名）
+         與 export_date_label（匯出圖日期行）一併刪除；HomeRoute 裡的匯出按鈕塊由整合方同步移除。 -->
 
     <!-- 匯出目錄名（相簿資料夾，i18n） -->
     <string name="export_dir_char">角色牌</string>
     <string name="export_dir_action">行動牌</string>
-    <string name="export_dir_records">最近對局</string>
     <string name="export_dir_qr">二維碼</string>
 
     <!-- 匯出圖頁首 / 頁尾 -->
     <string name="export_level">牌手等級 %1$d</string>
-    <string name="export_signature_placeholder">暫無簽名</string>
-    <string name="export_date_label">匯出日期 %1$s</string>
     <string name="export_footer">七聖召喚</string>
     <string name="export_badge_char_total">角色牌 %1$d/%2$d</string>
     <string name="export_badge_action_total">行動牌 %1$d/%2$d</string>
 
     <!-- 卡牌統計 / 圖鑑頁 -->
-    <string name="stats_export_current">匯出目前圖表</string>
     <!-- V28-C 多選匯出對話框 -->
     <string name="stats_export_dialog_title">選擇要匯出的內容</string>
     <string name="stats_export_pick_at_least_one">請至少選擇一項</string>
     <string name="stats_tab_char">角色牌</string>
     <string name="stats_tab_action">行動牌</string>
+    <!-- V29 統計頁：匯出入口移進詳情面板、多選對話框條目帶條數、匯出結果一條帶「檢視」的 Snackbar -->
+    <string name="stats_export_button">匯出資料圖表</string>
+    <string name="stats_export_option_char">角色牌資料（%1$d條）</string>
+    <string name="stats_export_option_action">行動牌資料（%1$d條）</string>
+    <string name="stats_export_saved_one">已儲存 %1$d 張圖片到相簿</string>
+    <string name="stats_export_saved_two">已儲存 %1$d 張圖片到相簿</string>
+    <string name="stats_export_partial">已儲存 %1$d 張圖片，另有 %2$d 張匯出失敗</string>
+    <string name="stats_export_failed">匯出失敗，請重試</string>
+    <string name="stats_export_failed_detail">匯出失敗：%1$s</string>
+    <string name="action_view">檢視</string>
     <string name="wiki_tab_char">角色牌</string>
     <string name="wiki_tab_action">行動牌</string>
     <string name="wiki_tab_monster">魔物牌</string>

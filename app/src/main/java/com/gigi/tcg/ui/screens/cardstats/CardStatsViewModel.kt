@@ -4,7 +4,6 @@
 // - 分母（角色牌/行动牌总手牌数）首选 gcg/basicInfo 官方总数（需登录 Cookie，失败静默降级），
 //   取不到才退回公开图鉴计数——图鉴会去重手牌（行动牌只数出 568 / 真实 941），单用会把未收集画成全收集；
 //   服务端 cardList 的 *_card_num_total 恒缺失不可依赖；
-//   导出图签名框用的真实签名（米游社 `introduce`）同样并发取，社区 UID 不可得时为 null ⇒ 下游回落占位；
 // - retcode 业务失败 → "卡牌信息获取失败: {message}"（对齐原 game.lua，不跳登录），
 //   其余归因 → "请检查网络重试"（可重试）；归因只经 ApiError.kind，页面不判 retcode 值。
 
@@ -33,6 +32,8 @@ import com.gigi.tcg.domain.GcgSummary
 import com.gigi.tcg.domain.WikiCardTotals
 import com.gigi.tcg.domain.calcPercent
 import com.gigi.tcg.domain.computeGcgSummary
+import com.gigi.tcg.domain.formatTier
+import com.gigi.tcg.domain.getTierStars
 import com.gigi.tcg.domain.officialCardTotals
 import com.gigi.tcg.domain.percentSortKey
 import com.gigi.tcg.domain.prepareCardLists
@@ -80,11 +81,10 @@ data class StatsUiState(
     val actionList: List<GcgCard> = emptyList(),
     val avatarUrl: String? = null,
     /**
-     * 玩家真实签名（米游社社区资料 `introduce`），导出图签名框用；null = 没拿到 ⇒ 导出回落「暂无签名」占位。
-     * 🔴 只能来自**米游社社区 UID**，见 CardStatsViewModel.resolveCommunityUid：本工程登录链路只有 game_uid，
-     * 因此当前恒 null（接口/模型/仓库方法已就绪，社区 UID 一通即自动生效）。
+     * 段位文本（天梯积分换算，形如「圣手 3★」；V29 随头像一起从 myHomePage 带出）。
+     * 空串 = 没取到（未登录 / 接口失败 / 积分不足）⇒ 信息卡不显示段位那一段，而不是显示占位。
      */
-    val signature: String? = null,
+    val tier: String = "",
 ) {
     val isEmpty: Boolean
         get() = !loading && error == null && summary == null
@@ -171,15 +171,13 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
             val server = container.currentServer.value
             if (uid.isNullOrBlank()) {
                 _refreshing.value = false
-                _uiState.update { it.copy(loading = false, error = null, summary = null, charList = emptyList(), actionList = emptyList(), signature = null) }
+                _uiState.update { it.copy(loading = false, error = null, summary = null, charList = emptyList(), actionList = emptyList()) }
                 return@launch
             }
             // 分母的两路来源互不依赖、并发取（都不串在统计主链路后面，第三级 cardList total 随主链路免费拿到）：
             // basicInfo 官方总数（首选）/ 图鉴频道计数（兜底）。是本 job 的子协程，下拉 cancel 时一起收掉。
             val officialTotalsDeferred = async { fetchOfficialCardTotals(uid, server, force) }
             val totalsDeferred = async { fetchWikiCardTotals() }
-            // 签名（导出图签名框）同样与统计主链路互不依赖，并发取；社区 UID 不可得时立刻返回 null，不占 RTT
-            val signatureDeferred = async { fetchCommunitySignature() }
             try {
                 val data = container.repository.fetchGcgCardListCached(uid, server, force)
                 if (gen != generation) return@launch
@@ -187,7 +185,7 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
                 if (cardList.isEmpty()) {
                     _refreshing.value = false
                     _uiState.update {
-                        it.copy(loading = false, error = null, summary = null, charList = emptyList(), actionList = emptyList(), signature = null)
+                        it.copy(loading = false, error = null, summary = null, charList = emptyList(), actionList = emptyList())
                     }
                 } else {
                     val lists = prepareCardLists(cardList)
@@ -195,7 +193,6 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
                     // 两路分母与统计并发发起，这里等的只是三者中较慢的那个，首屏不多花一趟串行 RTT。
                     val officialTotals = officialTotalsDeferred.await()
                     val totals = totalsDeferred.await()
-                    val signature = signatureDeferred.await()
                     _refreshing.value = false
                     _uiState.update {
                         it.copy(
@@ -209,7 +206,6 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
                             ),
                             charList = lists.charCards,
                             actionList = lists.actionCards,
-                            signature = signature,
                         )
                     }
                 }
@@ -275,51 +271,26 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
         WikiCardTotals()
     }
 
-    /**
-     * 导出图签名框用的真实签名（米游社社区资料 `introduce`）。
-     * 与统计主链路互不依赖、只影响一张导出图的文案 ⇒ 失败静默吞掉返回 null，
-     * 下游 CardStatsExport 的 exportSignatureText 会回落「暂无签名」占位（不崩、不留空白框）。
-     * 不随下拉 force 刷新：签名变化极慢，仓库侧已有 24h 内存缓存。
-     */
-    private suspend fun fetchCommunitySignature(): String? {
-        val communityUid = resolveCommunityUid() ?: return null
-        return try {
-            container.repository.fetchCommunitySignature(communityUid)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    /**
-     * 「游戏 UID → 米游社社区 UID」解析点（**当前恒 null**，诚实降级，不造假）。
-     *
-     * 为什么不能直接返回 [AppContainer.sessionUid]：sessionUid 是原神**游戏 UID**（9 位），
-     * 而 `/user/api/getUserFullInfo?uid=` 要的是**米游社社区 UID**——两者命名空间不同。
-     * 拿游戏 UID 去打，服务端照样返回 `retcode=0`，但 nickname 退化成 `用户 <uid>`、
-     * introduce 退化成占位「暂无签名」：看起来成功，其实把占位当成了玩家签名。
-     *
-     * 打通条件（任一成立即可把下面的 `null` 换成真实来源，导出图会自动显示真实签名）：
-     * 1. 登录链路能拿到社区 UID：`common/badge/v1/login/info` 目前只解析 game_uid/nickname
-     *    （见 data.model.LoginInfoData），扫码流程里的 `account_id`（passport）与社区 UID
-     *    是否同源**未实测确认**，确认后可由 CredentialStore.StoredAccount 落一个 communityUid；
-     * 2. 或设置页让用户自己填米游社 UID。
-     */
-    private fun resolveCommunityUid(): String? = null
-
     private fun fetchAvatar() {
         val uid = container.sessionUid.value ?: return
         val server = container.currentServer.value
         viewModelScope.launch {
             try {
                 val home = container.repository.fetchMyHomePageCached(uid, server)
-                val url = home.pageInfo?.avatarUrl
-                if (!url.isNullOrBlank()) _uiState.update { it.copy(avatarUrl = url) }
+                val info = home.pageInfo
+                // V29：段位（天梯积分 → TierStars）与头像同源，一次请求一起带出来给信息卡用。
+                // 段位格式化交给 domain 的 getTierStars/formatTier，UI 层不重算分段规则。
+                val tier = info?.ladderScore?.let { formatTier(getTierStars(it)) }.orEmpty()
+                _uiState.update {
+                    it.copy(
+                        avatarUrl = info?.avatarUrl?.takeIf { url -> url.isNotBlank() } ?: it.avatarUrl,
+                        tier = tier.ifEmpty { it.tier },
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // 头像缺失只影响详情面板展示，静默忽略
+                // 头像/段位缺失只影响信息卡展示，静默忽略
             }
         }
     }

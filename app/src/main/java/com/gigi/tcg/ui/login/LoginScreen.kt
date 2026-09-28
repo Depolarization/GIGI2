@@ -1,14 +1,18 @@
 // 登录/添加账户页（设计 §4.5：全屏 Scaffold，非弹窗）—— V27-E 按 M3 重构：
 // CenterAlignedTopAppBar（标题按分支：首登「扫码登录」/ 添加账户「添加账户」，
 // navigationIcon 返回箭头仅添加账户分支）+ 可滚动单列，区块间距走 M3 阶梯 24dp、
-// 卡内 12/16dp、按钮与说明文字 8dp；「重新生成二维码」为二维码卡下方次要 TextButton
-// （失败态才升级为主按钮重试），「保存」是唯一主动作按钮（保存中转进度），
-// 其下紧贴自动删除灰色小字说明。落盘编排（PNG、Pictures/GIGI/二维码/、换码后自动删图）
+// 卡内 16dp、按钮与说明文字 8dp。落盘编排（PNG、Pictures/GIGI/二维码/、换码后自动删图）
 // 收敛在 LoginViewModel.saveQrToAlbum，页面只做展示与 Snackbar 反馈。
 // V28-D：① 页底两段说明文本（首登凭据去向 / 添加账户多账户共存）撤出本页——与「关于」
 // 对话框重复，正文归 about 段；② 服务器二选一从 FilterChip 换成撑满的 SegmentedButton
 // （与保存卡面弹窗的普通/动态切换同款控件，chip 居中悬浮不像一个「开关」）；
 // ③ 二维码卡内只放码本身（换码按钮移出卡外），保证码相对卡片四边等距、几何居中。
+// V29-B：④ 添加账户页撤掉正文的品牌标题行（顶栏已经是「添加账户」，正文再挂一行是同一句
+// 话讲两遍）；⑤ 「保存」「重新生成」改为同款 OutlinedButton 等宽横向并列，失败态不再另起
+// 主按钮——两处都是 viewModel.retry，按状态换形态只是让用户重新找按钮；
+// ⑥ 按钮下方原先两段灰字（「请扫码并确认登录」+「成功后自动删图」）合并为一句，并入
+// login_status_waiting、删 login_qr_autodelete_hint；
+// ⑦ 切换服务器不再重新出码（换码只由码自身失效驱动，见 LoginViewModel.selectServer）。
 
 package com.gigi.tcg.ui.login
 
@@ -18,6 +22,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,7 +36,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
@@ -47,7 +51,6 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -123,12 +126,17 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            // ① 品牌标题（首登 = 工具名 / 添加账户分支明示动作），titleLarge 居中
-            Text(
-                stringResource(if (addAccount) R.string.login_title_add else R.string.login_title),
-                style = MaterialTheme.typography.titleLarge,
-                textAlign = TextAlign.Center,
-            )
+            // ① 品牌标题——仅首登页。添加账户页不显示：顶栏已经是「添加账户」，
+            // 正文再挂一行「GIGI · 添加账户」是同一句话讲两遍，且会把二维码往下顶
+            // （用户 V29-B 明确要求撤掉）。首登页顶栏是「扫码登录」，这行 GIGI 品牌名
+            // 是本页唯一的工具标识，保留。
+            if (!addAccount) {
+                Text(
+                    stringResource(R.string.login_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    textAlign = TextAlign.Center,
+                )
+            }
 
             // ② 服务器级横幅：登录失效 / NoRole 引导换服（error 色，切服前一直保留）
             if (expiredNotice) {
@@ -150,8 +158,9 @@ fun LoginScreen(
                 )
             }
 
-            // ③ 服务器二选一（切服即重开二维码）。用 SegmentedButton 而非 chip：整行撑满、
-            //    两段等宽拼接，视觉上就是一个「二选一」开关；chip 悬浮居中不像互斥选择。
+            // ③ 服务器二选一（只切 finalize 的目标服务器，**不换码** —— 见 LoginViewModel.selectServer）。
+            //    用 SegmentedButton 而非 chip：整行撑满、两段等宽拼接，视觉上就是一个「二选一」开关；
+            //    chip 悬浮居中不像互斥选择。
             //    itemShape 必须带 index/count，否则两段都是全圆角、拼不起来。
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 ServerId.ALL.forEachIndexed { index, option ->
@@ -167,96 +176,86 @@ fun LoginScreen(
                 }
             }
 
-            // ④ 二维码区块：卡内只放码（图 / 生成中占位 / 已扫描蒙层），「重新生成」移出卡外。
+            // ④ 二维码卡：卡内只放码（图 / 生成中占位 / 已扫描蒙层）。
             //    卡内套一层 padding(16dp) + aspectRatio(1f) 的方形 Box，码 fillMaxSize 贴满方形内容区：
             //    码是正方形位图，Fit 缩放后正好等于内容区，四边留白恒等于 16dp、几何居中。
-            //    换码按钮留在卡内会把码往上挤（上下不对称），故拆成两个区块。
+            Card(Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    QrBox(state)
+                }
+            }
+
+            // ⑤ 操作组：两个同款 OutlinedButton 横向等宽并列 + 其下一段说明文字，
+            //    以 8dp 紧贴成一体跟随二维码（V28-D 的「保存是唯一主动作」层级在此让位于
+            //    「保存 / 重新生成」平权：两者都是对同一张码的操作，分出主次反而要用户猜）。
+            //    二维码未就绪（生成中/收尾）两个都禁用；保存中转小进度环。
+            val qr = state as? LoginUiState.Qr
+            val qrReady = state is LoginUiState.Qr
+            // 换码入口的有效时机：等待扫码中（作废当前码换一张）/ 生成失败（换码是唯一出路）。
+            // Scanned 态禁掉：手机已经拿着这张码，此刻换码等于把用户手上扫了一半的码作废。
+            val canRegenerate = !saving && (qr?.phase == QrPhase.Waiting || state is LoginUiState.Failed)
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Card(Modifier.fillMaxWidth()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .padding(16.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        QrBox(state)
-                    }
-                }
-
-                // 「重新生成二维码」紧贴卡下的次要 TextButton：与「保存」层级分离
-                // （保存才是本页唯一主动作）；失败态另有主按钮兜底。
-                val qr = state as? LoginUiState.Qr
-                if (qr != null && qr.phase == QrPhase.Waiting) {
-                    TextButton(
-                        onClick = { viewModel.retry() },
-                        modifier = Modifier.padding(top = 4.dp),
-                    ) {
-                        Text(stringResource(R.string.action_regenerate_qr))
-                    }
-                }
-            }
-
-            // ⑤ 保存组：按钮 + 说明文字以 8dp 紧贴成一体，跟随二维码而非飘散。
-            //    二维码未就绪（生成中/失败/收尾）禁用；保存中转小进度环。
-            val qrReady = state is LoginUiState.Qr
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedButton(
-                    enabled = qrReady && !saving,
-                    onClick = {
-                        scope.launch {
-                            // 协程上下文拿不了 stringResource，走 VM 同源的 LocaleStrings
-                            val message = when (val outcome = viewModel.saveQrToAlbum()) {
-                                is QrSaveOutcome.Success ->
-                                    LocaleStrings.get(R.string.toast_saved_to_album_path, outcome.albumPath)
-                                is QrSaveOutcome.Failure -> outcome.message
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        enabled = qrReady && !saving,
+                        onClick = {
+                            scope.launch {
+                                // 协程上下文拿不了 stringResource，走 VM 同源的 LocaleStrings
+                                val message = when (val outcome = viewModel.saveQrToAlbum()) {
+                                    is QrSaveOutcome.Success ->
+                                        LocaleStrings.get(R.string.toast_saved_to_album_path, outcome.albumPath)
+                                    is QrSaveOutcome.Failure -> outcome.message
+                                }
+                                snackbarHostState.showSnackbar(message)
                             }
-                            snackbarHostState.showSnackbar(message)
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        if (saving) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.width(8.dp))
                         }
-                    },
-                ) {
-                    if (saving) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                        )
-                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.login_qr_save))
                     }
-                    Text(stringResource(R.string.login_qr_save))
+                    OutlinedButton(
+                        enabled = canRegenerate,
+                        onClick = { viewModel.retry() },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(stringResource(R.string.action_regenerate))
+                    }
                 }
+
+                // 唯一一段说明文字（V29-B：原先这里是「扫码并确认登录」+「成功后自动删图」
+                // 两段灰字，语义相邻却各说各话 ⇒ 合并进 login_status_waiting 一句讲完，
+                // 三语文案见 strings）。Failed 态透出失败原因，走 error 色。
                 Text(
-                    stringResource(R.string.login_qr_autodelete_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    statusText(state),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (state is LoginUiState.Failed) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     textAlign = TextAlign.Center,
                 )
             }
-
-            // ⑥ 登录状态文案（失败原因透出为 error 色）；Failed 态换码是主出路，
-            //    此时才以主按钮形态出现（与 ④ 的次要入口二选一，不会并列）。
-            Text(
-                statusText(state),
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (state is LoginUiState.Failed) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                textAlign = TextAlign.Center,
-            )
-            if (state is LoginUiState.Failed) {
-                Button(onClick = { viewModel.retry() }) {
-                    Text(stringResource(R.string.action_regenerate_qr))
-                }
-            }
-            // 原 ⑦「底部说明」（首登凭据去向 / 添加账户多账户共存）撤出本页：
-            // 与主页右上角「关于」对话框重复，V28-D 起归 about 段（数据来源 / 使用要点）。
+            // 原 ⑥ 独立的失败态主按钮已并入 ⑤ 的「重新生成」（同一动作 viewModel.retry，
+            // 无需按状态换样式）；原 ⑦「底部说明」（首登凭据去向 / 添加账户多账户共存）
+            // V28-D 起撤出本页，归 about 段（数据来源 / 使用要点）。
         }
     }
 }

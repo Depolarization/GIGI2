@@ -36,4 +36,37 @@ class StatsFormatTest {
         assertEquals("1.5%", out)
         assertEquals(false, out.contains(','))
     }
+
+    // ---- ranksWithTies：V29 需求 8 的 # 列名次（并列同名次、下一名跳号） ----
+
+    @Test
+    fun `名次并列时同名次且下一名跳号`() {
+        // 竞赛排序的 1-2-2-4 形状：30 第一、20 第二、两个 10 并列第三、4 跳到第五
+        val sorted = listOf(30, 20, 10, 10, 4)
+        val ranks = ranksWithTies(sorted) { it }
+        assertEquals(listOf(1, 2, 3, 3, 5), ranks.toList())
+    }
+
+    @Test
+    fun `全相同时全部并列第一`() {
+        val ranks = ranksWithTies(listOf(0, 0, 0, 0)) { it }
+        assertEquals(listOf(1, 1, 1, 1), ranks.toList())
+    }
+
+    @Test
+    fun `无并列时名次即行号`() {
+        val ranks = ranksWithTies(listOf(9, 7, 5, 1)) { it }
+        assertEquals(listOf(1, 2, 3, 4), ranks.toList())
+    }
+
+    @Test
+    fun `空表返回空数组`() {
+        assertEquals(0, ranksWithTies(emptyList<Int>()) { it }.size)
+    }
+
+    @Test
+    fun `四个 40 并列第二后跳到第六`() {
+        val ranks = ranksWithTies(listOf(50, 40, 40, 40, 40, 10, 5)) { it }
+        assertEquals(listOf(1, 2, 2, 2, 2, 6, 7), ranks.toList())
+    }
 }

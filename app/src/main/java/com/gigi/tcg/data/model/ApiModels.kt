@@ -19,8 +19,8 @@ data class MihoyoResponse<T>(
 
 /**
  * 登录态接口 common/badge/v1/login/info 的 data（原 App 仅消费 game_uid）。
- * 🔴 这里**没有**米游社社区 UID ⇒ 「个性签名」接口（[CommunityUserInfo]）目前无 UID 可打，
- * 需要社区 UID 时得另找来源（登录流程/用户提供），不能拿 gameUid 顶替。
+ * 🔴 这里**没有**米游社社区 UID，需要社区维度数据时得另找来源（登录流程/用户提供），
+ * 不能拿 gameUid 顶替。
  */
 @Serializable
 data class LoginInfoData(
@@ -70,26 +70,6 @@ data class MyHomePageData(
 @Serializable
 data class OtherHomePageData(
     @SerialName("page_info") val pageInfo: PageInfo? = null,
-)
-
-/**
- * 米游社社区用户资料（bbs-api `/user/api/getUserFullInfo` 的 data.user_info）。
- * 🔴 玩家「个性签名」的字段名是 **`introduce`**（米游社把签名存成 introduce），
- * 响应里**没有** `signature` 字段；七圣活动接口 my_home_page 的 PageInfo 同样不返回签名。
- * 只声明导出需要的三个字段，其余（avatar/achieve/level_exps…）由 Json.ignoreUnknownKeys 丢弃。
- */
-@Serializable
-data class CommunityUserInfo(
-    @SerialName("uid") val uid: String? = null,
-    @SerialName("nickname") val nickname: String? = null,
-    /** 个性签名本体；未设置签名时服务端返回空串（不是 null） */
-    @SerialName("introduce") val introduce: String? = null,
-)
-
-/** getUserFullInfo 的 data（外层 retcode/message 由 Repository 统一判定，写法同 [RankData] 那一类） */
-@Serializable
-data class CommunityUserFullInfoData(
-    @SerialName("user_info") val userInfo: CommunityUserInfo? = null,
 )
 
 /** 最近对局记录（get_game_records） */

@@ -1,6 +1,8 @@
 // 登录页状态机：语义对齐 web LoginPage.tsx（startQr 循环 + runSeq 防重入）与
 // 设计文档 §3.3（NoRole 零副作用：AuthManager 已保证不写凭据，本层不切登录态）。
 // Expired/Cancelled/超时自动换码；Scanned 仅更新提示；Confirmed → finalize(当前服务器)。
+// V29-B：切换服务器**不再换码**（二维码与 ServerId 无关，只有 finalize 认服务器），
+// 换码只由码自身失效驱动，理由与不变式见 selectServer。
 // 登录成功这一刻静默删除相册里最后保存的那张二维码（自动换码/取消/无角色都不删），
 // 删除判定收敛为纯函数 shouldDeleteSavedQr（QrSaveTargetTest 钉死）。
 // V27-E：二维码 PNG 落盘 Pictures/GIGI/二维码/（不带 UID）编排在本 VM（saveQrToAlbum），
@@ -111,10 +113,15 @@ sealed interface LoginUiState {
 
     data class Checking(override val notice: String? = null) : LoginUiState
 
+    /**
+     * 展示中的二维码。
+     * 🔴 这里**不记**服务器：码本身与服务器无关（见 [selectServer]），而选中的服务器随时可被
+     * 用户切走。若在此快照一份，换服后它就变成"码是为 A 服的"的假事实——真要读服务器，
+     * 唯一可信来源是 [serverFlow] / finalize() 当场取的 `_server.value`。
+     */
     data class Qr(
         val payload: ImageBitmap,
         val phase: QrPhase,
-        val server: ServerId,
         override val notice: String? = null,
     ) : LoginUiState
 
@@ -174,12 +181,28 @@ class LoginViewModel(
         }
     }
 
-    /** 服务器二选一：换服即重启 QR 流程并清除换服提示（finalize/轮询均绑定当前服务器） */
+    /**
+     * 服务器二选一：**只改目标服务器，不换码**。
+     *
+     * 为什么换服不换码仍能用新服 finalize —— 二维码与服务器本来就没有绑定关系：
+     * - 出码（[AuthManager.createQrLogin]）与轮询（[AuthManager.pollQrStatus]）打的是
+     *   passport 的 createQRLogin / queryQRLoginStatus，全程不读 ServerId；
+     *   [QrSession.Created] 只携带 url / ticket / deviceId，三者都不是"按服务器建的会话"。
+     * - ServerId 唯一被消费的地方是凭据交换 [AuthManager.finalize]（拿 account_id 去
+     *   getGameRecordCard 找该 server.region 的角色，再 badge login 换 e_hk4e_token）。
+     * - 而 [finalize] 是在 Confirmed 到达那一刻才读 `_server.value`（见下方 finalize()），
+     *   不是出码时快照 ⇒ 只要用户在扫码确认之前把选中的服务器改掉，这同一张码确认后的
+     *   finalize 自然走新服务器。
+     *
+     * 所以旧实现里的 startQr() 是纯粹的浪费：重新出一张内容完全等价的码（同一 passport
+     * 会话），还顺带把用户已经扫了一半的码作废掉。真正的换码只应由码自身失效驱动
+     *（QrSession.Expired / Cancelled / 超过 QR_LIFETIME_MS → restart()，本方法不碰）。
+     */
     fun selectServer(server: ServerId) {
         if (_server.value == server) return
         _server.value = server
+        // NoRole 提示是"这台服务器没有角色"，改了目标服务器即失效
         clearNotice()
-        startQr()
     }
 
     /** Failed 态"重新生成二维码"按钮（对齐 LoginPage 的 error 分支） */
@@ -278,7 +301,6 @@ class LoginViewModel(
                 _uiState.value = LoginUiState.Qr(
                     payload = bitmap,
                     phase = QrPhase.Waiting,
-                    server = _server.value,
                     notice = _uiState.value.notice,
                 )
                 poll(gen, created, System.currentTimeMillis() + QR_LIFETIME_MS)

@@ -2,14 +2,14 @@
 // 展示逻辑一律走 domain 纯函数（tier/opponent/format），UI 层不重算；
 // 胜负语义色取 LocalSemanticColors（红线 8 固定色，不参与动态取色）；
 // 整页 PullToRefreshBox 下拉触发 refresh()，首屏两块同在加载时只渲染一个 LoadingView（整屏居中）。
-// V28：个人信息卡的版式按导出图 RecentRecordsCardRenderer 的几何口径重排（层级留白 /
-// 竖向对齐轴 / 表头与数值的字重字号差），见文件下方 PROFILE_*_DP 常量组说明。
+// V28：个人信息卡的版式按「层级留白 / 竖向对齐轴 / 表头与数值的字重字号差」重排，
+// 见文件下方 PROFILE_*_DP 常量组说明。
+// V29：移除了「导出最近对局长图」功能（渲染器 RecentRecordsCardRenderer 已删），
+// 首页只保留展示与刷新。
 
 package com.gigi.tcg.ui.screens.home
 
 import android.app.Application
-import android.graphics.Bitmap
-import android.os.Environment
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -40,12 +39,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -60,7 +57,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gigi.tcg.R
-import com.gigi.tcg.i18n.LocaleStrings
 import com.gigi.tcg.data.model.GameRecord
 import com.gigi.tcg.data.model.PageInfo
 import com.gigi.tcg.di.AppContainer
@@ -76,25 +72,14 @@ import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
 import com.gigi.tcg.ui.components.LocalToast
 import com.gigi.tcg.ui.components.tierLabel
-import com.gigi.tcg.ui.dialogs.cardcover.CardImageSaver
-import com.gigi.tcg.ui.dialogs.cardcover.EXPORT_DIR_RECORDS
-import com.gigi.tcg.ui.dialogs.cardcover.GIGI_ALBUM_NAME
-import com.gigi.tcg.ui.dialogs.cardcover.buildAlbumRelativePath
-import com.gigi.tcg.ui.dialogs.cardcover.exportDateText
-import com.gigi.tcg.ui.dialogs.cardcover.exportDirName
-import com.gigi.tcg.ui.export.fetchProfileAvatarBitmap
-import com.gigi.tcg.ui.export.fetchRecordAvatarBitmaps
-import com.gigi.tcg.ui.export.renderRecordsCardBitmap
 import com.gigi.tcg.ui.theme.LocalSemanticColors
 import com.gigi.tcg.ui.theme.SemanticColors
 import com.gigi.tcg.ui.theme.tierColor
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
 
 // ---- ProfileCard 版式常量（V28）----
-// 参照标准是导出图渲染器 RecentRecordsCardRenderer（dp×3 换算的同一套几何），
-// 首页保持 Compose 实现、只把留白节奏与对齐规则对齐过去，做到两处所见即所得。
-// 刻意用 const Int + `.dp`：JVM 单测（ProfileCardSpecTest 对源码文本断言）能直接解析数值做区间校验。
+// 这套几何原本是照着「最近对局」导出图渲染器的 dp×3 换算值对齐的；
+// V29 导出功能移除后渲染器已删，但这些数值本身经视觉复核是合适的，原样保留。
+// 刻意用 const Int + `.dp`：JVM 单测（HomeProfileLayoutTest 对源码文本断言）能直接解析数值做区间校验。
 
 /** 卡片内边距（四边同值，导出图 PROFILE_PADDING_PX = 16×3） */
 private const val PROFILE_CARD_PADDING_DP = 16
@@ -160,70 +145,6 @@ fun HomeRoute(
     // 否则冷启动首屏顶部圈会与居中 LoadingView 同转（两个 progressbar）
     val isRefreshing by viewModel.refreshing.collectAsStateWithLifecycle()
 
-    // ---- 最近对局导出卡片图（V27：一比一复刻首页整页——个人信息卡 + 对局卡列表，
-    // 仅排除「最近对局」标题行与两个按钮；用户「省得截屏」）----
-    // 内容组装走本包纯函数 buildRecentRecordsCards / buildProfileCardSpec（JVM 单测覆盖），
-    // 头像在 IO 线程经 Coil 预取（allowHardware=false，硬件位图画不上软件 Canvas），
-    // 绘制在 ui/export 渲染器，落盘走 CardImageSaver（文件名带导出日期、
-    // 子目录 Pictures/GIGI/最近对局/<uid>）。
-    val appContext = LocalContext.current.applicationContext
-    val showToast = LocalToast.current
-    val coroutineScope = rememberCoroutineScope()
-    var exporting by remember { mutableStateOf(false) }
-    val recordList = (state.records as? Async.Content<List<GameRecord>>)?.value.orEmpty()
-    val profilePage = (state.profile as? Async.Content)?.value
-    // tierColor 是 @Composable（C 路），协程里调不到 ⇒ 组合上下文解析成 ARGB 灌进导出 spec；
-    // 与首页 ProfileCard 所见即所得（导出图不随主题漂移的定版色在渲染器内部）
-    val exportTierColorArgb = tierColor(
-        profilePage?.let { tierLabel(getTierStars(it.ladderScore ?: 0)) } ?: "",
-    ).toArgb()
-    val startExport: () -> Unit = {
-        if (recordList.isNotEmpty() && !exporting) {
-            exporting = true
-            val cards = buildRecentRecordsCards(recordList, sessionUid.orEmpty())
-            val profileSpec = profilePage?.let {
-                buildProfileCardSpec(it, sessionUid.orEmpty(), exportTierColorArgb)
-            }
-            coroutineScope.launch {
-                try {
-                    val avatars = fetchRecordAvatarBitmaps(appContext, cards)
-                    val profileAvatar = fetchProfileAvatarBitmap(appContext, profileSpec?.avatarUrl)
-                    val bitmap = renderRecordsCardBitmap(cards, avatars, profileSpec, profileAvatar)
-                    try {
-                        val dateText = exportDateText()
-                        val dir = exportDirName(EXPORT_DIR_RECORDS)
-                        CardImageSaver(appContext).saveBitmap(
-                            bitmap,
-                            baseName = "最近对局_$dateText",
-                            format = Bitmap.CompressFormat.JPEG,
-                            subDir = dir,
-                            accountUid = sessionUid.orEmpty().ifBlank { null },
-                        )
-                        showToast(
-                            LocaleStrings.get(
-                                R.string.toast_saved_to_album_path,
-                                buildAlbumRelativePath(
-                                    Environment.DIRECTORY_PICTURES, GIGI_ALBUM_NAME, dir, sessionUid.orEmpty(),
-                                ),
-                            )
-                        )
-                    } finally {
-                        // 回收放 finally：saveBitmap 抛异常也不能漏掉位图
-                        avatars.filterNotNull().forEach { it.recycle() }
-                        profileAvatar?.recycle()
-                        bitmap.recycle()
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    showToast(e.message ?: LocaleStrings.get(R.string.error_export_failed))
-                } finally {
-                    exporting = false
-                }
-            }
-        }
-    }
-
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = viewModel::refresh,
@@ -264,17 +185,6 @@ fun HomeRoute(
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f),
                     )
-                    // 导出最近对局长图（V24）：放在刷新按钮左侧，与「卡牌统计」页的
-                    // 导出按钮同款交互（导出中转圈、成功后 Toast 出相册路径）。
-                    IconButton(
-                        onClick = startExport,
-                        enabled = !exporting && recordList.isNotEmpty(),
-                    ) {
-                        Icon(
-                            Icons.Outlined.Download,
-                            contentDescription = stringResource(R.string.home_export_records),
-                        )
-                    }
                     IconButton(onClick = viewModel::refresh) {
                         Icon(Icons.Outlined.Refresh, contentDescription = stringResource(R.string.cd_refresh))
                     }

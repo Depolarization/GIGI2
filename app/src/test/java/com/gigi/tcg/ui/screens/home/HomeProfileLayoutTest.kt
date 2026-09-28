@@ -1,80 +1,28 @@
-// 个人信息卡规格（V27 段位文本口径 + V28 版式口径）。
+// 首页个人信息卡 / 对局卡的版式口径锁（V28）。
 //
-// 一、段位文本：tierDisplayText 必须与 ui/components/tierLabel（StateViews，组合上下文版）
-// 逐字同口径——段位名走当前语言资源、★ 星缀同 domain formatTier（0 星不显示）、
-// 无段位画 home_tier_none。纯 JVM 无 resolver 时断中文默认值
-// （🔴 与 values/strings.xml 同 id 文案逐字一致）；注入 resolver 验证三语通道。
+// V29-B 变更：「最近对局」图片导出（RecentRecordsExport / RecentRecordsCardRenderer）已整体移除，
+// 原先同文件的段位文本口径（tierDisplayText / buildProfileCardSpec）随导出代码一并删除——
+// 首页展示侧的段位文本走 ui/components/tierLabel，不在本测试覆盖范围内（见 V29-B 交付报告）。
 //
-// 二、V28 版式：首页 ProfileCard/ScoreItem/RecordItem 的留白节奏、对齐轴、字号层级
-// 以导出图渲染器 RecentRecordsCardRenderer 的几何为参照标准。工程无 Robolectric/Compose UI 测试，
-// 故沿用 RankRowSpacingTest 的口径——对真实源码做文本断言，锁死用户拍板的六条不变量：
+// 这里保留的是 V28 版式不变量：首页 ProfileCard/ScoreItem/RecordItem 的留白节奏、对齐轴、
+// 字号层级。工程无 Robolectric/Compose UI 测试，故沿用 RankRowSpacingTest 的口径——
+// 对真实源码做文本断言，锁死用户拍板的六条不变量：
 //   1) 四层留白单调（组内 4dp、跨组 12dp，跨组 ≥3× 组内）；
 //   2) 昵称/段位同行基线对齐、UID 与积分表头共用一条竖向对齐轴（左对齐，无居中/右对齐）；
 //   3) 字号层级 昵称 > 段位 > UID ≈ 表头，数值 > 段位（层级靠字号+字重，颜色只做辅助）；
 //   4) 表头样式区别于数值（labelMedium + SemiBold + letterSpacing vs titleLarge + Bold）；
 //   5) 卡片内不出现硬编码颜色（深色模式一律走主题语义色 / tierColor）；
-//   6) 对局卡右缘组（两行积分 + 胜负）与昵称同基线（导出图「同顶」口径）。
-// 另加「最近对局」标题行与导出/刷新两个按钮的回归锁（上轮曾误删，导出与刷新入口依赖它们）。
+//   6) 对局卡右缘组（两行积分 + 胜负）与昵称同基线。
+// 另加「最近对局」标题行与刷新按钮的回归锁（V29-B 起导出按钮已从首页移除，只锁刷新入口）。
 
 package com.gigi.tcg.ui.screens.home
 
-import com.gigi.tcg.R
-import com.gigi.tcg.data.model.PageInfo
-import com.gigi.tcg.domain.TierStars
-import com.gigi.tcg.i18n.LocaleStrings
 import java.io.File
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class ProfileCardSpecTest {
-
-    @After
-    fun tearDown() {
-        LocaleStrings.installResolverForTest(null)
-    }
-
-    private fun tierTextOf(score: Int): String =
-        buildProfileCardSpec(PageInfo(ladderScore = score), "1", 0).tierText
-
-    @Test
-    fun `段位文本等于 tierLabel getTierStars 口径（多处分数抽查）`() {
-        assertEquals("无段位", tierTextOf(0))          // getTierStars(score<1)→无段位
-        assertEquals("黄铜★", tierTextOf(1))           // 下边界
-        assertEquals("黄铜★", tierTextOf(1199))        // <1200 仍是黄铜一星
-        assertEquals("黄铜★★", tierTextOf(1200))       // 1200 落入下一档（<1400 黄铜二星）
-        assertEquals("黄铜★★★★★", tierTextOf(1999))    // <2000 黄铜五星
-        assertEquals("星银★", tierTextOf(2050))        // <2100 星银一星
-        assertEquals("星银★★", tierTextOf(2100))
-        assertEquals("赤金★", tierTextOf(2550))        // <2600 赤金一星
-        assertEquals("赤金★★", tierTextOf(2600))
-        assertEquals("赤金★★★", tierTextOf(2760))
-        assertEquals("影幻", tierTextOf(3000))         // ≥3000，0 星不带 ★
-        assertEquals("影幻", tierTextOf(9999))
-    }
-
-    @Test
-    fun `段位名按当前语言资源映射（resolver 注入即三语通道生效）`() {
-        LocaleStrings.installResolverForTest { id ->
-            when (id) {
-                R.string.tier_silver -> "Silver"
-                R.string.home_tier_none -> "Unranked"
-                else -> null
-            }
-        }
-        assertEquals("Silver★", tierTextOf(2050))
-        assertEquals("Unranked", tierTextOf(0))
-    }
-
-    @Test
-    fun `未知段位名回落原始值本身（不显示成空白）`() {
-        // tierDisplayText 的映射表只认四档；domain 若新增段位，旧客户端也要能读出来
-        assertEquals("钻石★★", tierDisplayText(TierStars("钻石", 2)))
-        assertEquals("钻石", tierDisplayText(TierStars("钻石", 0)))
-    }
-
-    // ---- V28 版式口径 ----
+class HomeProfileLayoutTest {
 
     private val src: String by lazy {
         val file = File("src/main/java/com/gigi/tcg/ui/screens/home/HomeRoute.kt")
@@ -148,7 +96,7 @@ class ProfileCardSpecTest {
         assertTrue("昵称↔段位应 8~16dp，实际 $nickTierGap", nickTierGap in 8..16)
         assertTrue(profileBody.contains("Spacer(Modifier.width(PROFILE_NICK_TIER_GAP_DP.dp))"))
         assertTrue(profileBody.contains("padding(start = PROFILE_TEXT_COLUMN_GAP_DP.dp)"))
-        assertTrue("头像直径应为 64dp（导出图 PROFILE_AVATAR_PX = 64×3）", constDp("PROFILE_AVATAR_SIZE_DP") == 64)
+        assertTrue("头像直径应为 64dp", constDp("PROFILE_AVATAR_SIZE_DP") == 64)
     }
 
     /** 不变量 2a：昵称与段位同行且基线对齐（字号不同，顶端对齐会看着不齐） */
@@ -178,7 +126,7 @@ class ProfileCardSpecTest {
     fun `积分区等宽两列且左缘对齐昵称`() {
         val scoresRow = profileBody.substringAfter("Spacer(Modifier.height(PROFILE_SCORES_GAP_DP.dp))")
         assertTrue(
-            "积分区应缩进「头像直径 + 列间距」以共用竖向对齐轴（导出图同一个 colLeft）",
+            "积分区应缩进「头像直径 + 列间距」以共用竖向对齐轴",
             scoresRow.contains("padding(start = (PROFILE_AVATAR_SIZE_DP + PROFILE_TEXT_COLUMN_GAP_DP).dp)"),
         )
         val weights = Regex("Modifier\\.weight\\(1f\\)").findAll(scoresRow).count()
@@ -237,18 +185,18 @@ class ProfileCardSpecTest {
         }
     }
 
-    /** 不变量 6：对局卡右缘组（两行积分 + 胜负）基线对齐到昵称行（导出图「同顶」口径） */
+    /** 不变量 6：对局卡右缘组（两行积分 + 胜负）基线对齐到昵称行 */
     @Test
     fun `对局卡右缘组与昵称同基线`() {
         assertTrue("Row 应改为贴顶（垂直居中会把右缘组推到 UID 行）", recordBody.contains("verticalAlignment = Alignment.Top"))
         val baselines = Regex("alignByBaseline\\(\\)").findAll(recordBody).count()
         assertTrue("昵称列 / 积分列 / 胜负都应挂 alignByBaseline()，实际 $baselines 处", baselines >= 3)
-        assertTrue("对局卡头像 56dp（导出图 AVATAR_SIZE_PX = 56×3）", constDp("RECORD_AVATAR_SIZE_DP") == 56)
+        assertTrue("对局卡头像 56dp", constDp("RECORD_AVATAR_SIZE_DP") == 56)
     }
 
-    /** 回归锁：「最近对局」标题行 + 导出/刷新两个按钮（上轮误删过，导出与刷新入口依赖它们） */
+    /** 回归锁：「最近对局」标题行 + 刷新按钮仍在（V29-B 移除导出按钮，刷新入口是首页唯一的对局区动作） */
     @Test
-    fun `首页最近对局标题行与两个按钮仍在`() {
+    fun `首页最近对局标题行与刷新按钮仍在`() {
         val start = src.indexOf("fun HomeRoute(")
         // 结束点用 ProfileCard 的签名（🔴 不能跨行匹配 "@Composable\nprivate fun"——
         // 源码在 Windows 上可能是 CRLF，含 \n 的字面量会整条断言失效）
@@ -256,10 +204,19 @@ class ProfileCardSpecTest {
         assertTrue("HomeRoute 函数体定位失败", start >= 0 && end > start)
         val home = src.substring(start, end)
         assertTrue("「最近对局」标题必须保留", home.contains("R.string.home_recent_games"))
-        assertTrue("导出按钮必须保留", home.contains("Icons.Outlined.Download"))
         assertTrue("刷新按钮必须保留", home.contains("Icons.Outlined.Refresh"))
         assertTrue("刷新按钮仍接 viewModel::refresh", home.contains("onClick = viewModel::refresh"))
-        assertTrue("导出按钮仍接 startExport", home.contains("onClick = startExport"))
-        assertTrue("导出按钮的禁用条件不变（导出中 / 空列表）", home.contains("enabled = !exporting && recordList.isNotEmpty()"))
+    }
+
+    /** V29-B：图片导出的源码与测试都不应再回来（列表展示保留、导出能力移除） */
+    @Test
+    fun `最近对局图片导出的实现与测试已不存在`() {
+        listOf(
+            "src/main/java/com/gigi/tcg/ui/screens/home/RecentRecordsExport.kt",
+            "src/main/java/com/gigi/tcg/ui/export/RecentRecordsCardRenderer.kt",
+            "src/test/java/com/gigi/tcg/ui/screens/home/RecentRecordsExportTest.kt",
+        ).forEach { path ->
+            assertTrue("V29-B 已移除导出能力，$path 不应存在", !File(path).exists())
+        }
     }
 }

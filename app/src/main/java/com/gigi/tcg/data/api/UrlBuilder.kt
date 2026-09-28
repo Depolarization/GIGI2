@@ -30,22 +30,6 @@ fun cardDetailUrl(entryPageId: Int, lang: AppLanguage = AppLanguage.SimplifiedCh
         .replace("ENTRY_PAGE_ID", entryPageId.toString())
         .replace(Regex("lang=[^&]*"), "lang=${lang.apiLangParam()}")
 
-/**
- * 米游社社区用户资料（公开接口、免鉴权，实测裸请求 retcode=0）：
- * 玩家「个性签名」取响应 `data.user_info.introduce`（🔴 字段名是 introduce，不是 signature）。
- *
- * 🔴 参数 [communityUid] 必须是**米游社社区 UID**（如 361655932），**不是**原神游戏内 9 位 UID
- * （如 261958214）：两者命名空间不同。用游戏 UID 打这里，服务端**照样返回 retcode=0**，
- * 但 nickname 退化成 `用户 <uid>`、introduce 退化成占位「暂无签名」——看着成功、其实没拿到签名。
- * 因此调用方必须先确认 UID 来源（本工程登录链路目前只有 game_uid，见
- * ui.screens.cardstats.CardStatsViewModel 的 resolveCommunityUid）。
- *
- * uid 走 URL 编码：它来自外部数据，不能直接拼进 query。
- */
-fun getUserFullInfoUrl(communityUid: String): String =
-    "${ServerApi.BBS_API_ORIGIN}/user/api/getUserFullInfo?uid=" +
-        URLEncoder.encode(communityUid, "UTF-8")
-
 /** 登录态 / game_uid 换取（需凭据）：lang 随当前界面语言 */
 fun userInfoUrl(
     server: ServerId,
@@ -95,8 +79,8 @@ fun cardListUrl(uid: String, server: ServerId): String =
  * 七圣召唤总手牌数（需凭据）：与 [cardListUrl] 同主机、同鉴权口径（record 域只注入 Cookie、不发 DS），
  * 走同一通路即可，**不要**自行塞 DS/salt。
  *
- * 🔴 `role_id` 必须是**原神游戏内 9 位 UID**（如 261958214），不是米游社社区 UID（与
- * [getUserFullInfoUrl] 恰好相反，两者命名空间不同）。
+ * 🔴 `role_id` 必须是**原神游戏内 9 位 UID**（如 261958214），不是米游社社区 UID（后者是
+ * 另一个命名空间，两者不可混用）。
  * 🔴 未登录时 HTTP 仍是 200，但 body 是 `{"retcode":10001,"message":"Please login"}`
  * （不是 404），由 Repository 的 retcode 判定折算成 ApiError。
  */

@@ -75,6 +75,7 @@ import com.gigi.tcg.i18n.displayNameSync
 import com.gigi.tcg.ui.components.LocalToast
 import com.gigi.tcg.ui.components.ToastController
 import com.gigi.tcg.ui.components.ToastHost
+import com.gigi.tcg.ui.components.openInGallery
 import com.gigi.tcg.ui.dialogs.about.AboutDialog
 import com.gigi.tcg.ui.dialogs.cardcover.CardCoverSheet
 import com.gigi.tcg.ui.dialogs.playerdetail.PlayerDetailDialog
@@ -110,6 +111,9 @@ private val RAIL_BREAKPOINT = 840.dp
 @Composable
 fun GigiNavHost() {
     val container = (LocalContext.current.applicationContext as GigiApp).container
+    // 组合期取一次，供「查看相册」等非组合回调使用：
+    // LocalContext.current 是 @Composable 读取器，不能在协程/普通 lambda 里调。
+    val appContext = LocalContext.current.applicationContext
     val server by container.currentServer.collectAsStateWithLifecycle()
     val sessionUid by container.sessionUid.collectAsStateWithLifecycle()
     val accounts by container.accounts.collectAsStateWithLifecycle()
@@ -327,6 +331,20 @@ fun GigiNavHost() {
                                 CardStatsRoute(
                                     container = container,
                                     onShowToast = { toastController.show(it) },
+                                    // 导出结果带「查看」action：点开系统相册定位刚落盘的那张图。
+                                    // uris 为空（全失败 / API 24-28 拿不到 MediaStore uri）时
+                                    // 不挂 action，只出纯文本提示。
+                                    onShowExportResult = { message, uris ->
+                                        val first = uris.firstOrNull()
+                                        if (first == null) {
+                                            toastController.show(message)
+                                        } else {
+                                            toastController.showWithAction(
+                                                message,
+                                                LocaleStrings.get(R.string.action_view),
+                                            ) { openInGallery(appContext, first) }
+                                        }
+                                    },
                                 )
                             }
                             composable(ROUTE_CARD_WIKI) {

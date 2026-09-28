@@ -15,7 +15,7 @@
     <string name="action_query">Query</string>
     <string name="action_download">Download</string>
     <string name="action_save">Save</string>
-    <string name="action_regenerate_qr">Regenerate QR Code</string>
+    <string name="action_regenerate">Regenerate</string>
 
     <!-- Navigation &amp; icon descriptions -->
     <string name="nav_home">Home</string>
@@ -91,11 +91,12 @@
 
     <!-- Login -->
     <string name="login_title">GIGI · Genius Invokation TCG Companion</string>
-    <string name="login_title_add">GIGI · Add Account</string>
     <string name="login_expired_notice">Session expired, please sign in again with the QR code</string>
     <string name="login_no_role_notice">This HoYoLAB account has no Genshin character on %1$s. Switch the server and try again.</string>
     <string name="login_status_generating">Generating QR code…</string>
-    <string name="login_status_waiting">Scan with HoYoLAB or Cloud·Genshin and confirm sign-in</string>
+    <!-- V29-B：原「Scan … and confirm sign-in」与「After sign-in, the saved QR code image is
+         deleted automatically」两段合并为一句（登录页按钮下方只留一段） -->
+    <string name="login_status_waiting">Scan with HoYoLAB or Cloud·Genshin and confirm sign-in; after you sign in, the saved QR code image is deleted automatically</string>
     <string name="login_status_scanned">Scanned — confirm sign-in on your phone…</string>
     <string name="login_status_refreshing">QR code expired, generating a new one…</string>
     <string name="login_status_finalizing">Confirmed, exchanging credentials…</string>
@@ -106,7 +107,6 @@
     <string name="login_qr_scanned_confirm">Scanned. Confirm on your phone</string>
     <string name="login_qr_title">Scan to Sign In</string>
     <string name="login_qr_save">Save</string>
-    <string name="login_qr_autodelete_hint">After sign-in, the saved QR code image is deleted automatically</string>
 
     <!-- Home -->
     <string name="home_recent_games">Recent Matches</string>
@@ -159,6 +159,8 @@
 
     <!-- Card stats screen -->
     <string name="stat_appear">Appear</string>
+    <string name="stat_rank">#</string>
+    <string name="stats_col_type">Type</string>
     <string name="stat_appear_rate">Appear Rate</string>
     <string name="stat_win_rate">Win Rate</string>
     <string name="stat_wins">Wins</string>
@@ -207,41 +209,39 @@
     <string name="export_col_use_rate">Use %</string>
     <string name="export_char_title">Character Card Data</string>
     <string name="export_action_title">Action Card Data</string>
-    <string name="export_badge_char">Characters %1$d</string>
-    <string name="export_badge_action">Actions %1$d</string>
     <string name="export_badge_total_games">%1$d games played</string>
     <string name="export_badge_win_rate">Win rate %1$s</string>
-    <!-- Recent matches export (home) -->
-    <string name="home_export_records">Export Recent Matches</string>
-    <string name="export_records_title">Recent Matches</string>
-    <string name="export_col_opponent">Opponent</string>
-    <string name="export_col_uid">UID</string>
-    <string name="export_col_time">Time</string>
-    <string name="export_col_ladder">Ladder</string>
-    <string name="export_col_peak">Peak</string>
-    <string name="export_col_result">Result</string>
+    <!-- V29-B: the "Recent Matches" image export (home_export_records / export_records_title /
+         the six export_col_* headers) plus export_date_label (the date line in the exported
+         image) are deleted; the export button block in HomeRoute is removed in sync. -->
 
     <!-- Export folder names (album directories, i18n) -->
     <string name="export_dir_char">Character Cards</string>
     <string name="export_dir_action">Action Cards</string>
-    <string name="export_dir_records">Recent Matches</string>
     <string name="export_dir_qr">QR Code</string>
 
     <!-- Export image header / footer -->
     <string name="export_level">Player Level %1$d</string>
-    <string name="export_signature_placeholder">No signature</string>
-    <string name="export_date_label">Exported %1$s</string>
     <string name="export_footer">Genius Invokation</string>
     <string name="export_badge_char_total">Character Cards %1$d/%2$d</string>
     <string name="export_badge_action_total">Action Cards %1$d/%2$d</string>
 
     <!-- Card stats / wiki pages -->
-    <string name="stats_export_current">Export current chart</string>
     <!-- V28-C multi-select export dialog -->
     <string name="stats_export_dialog_title">Select what to export</string>
     <string name="stats_export_pick_at_least_one">Select at least one item</string>
     <string name="stats_tab_char">Character Cards</string>
     <string name="stats_tab_action">Action Cards</string>
+    <!-- V29 stats page: export button moved into the detail panel; dialog options carry row counts; one snackbar with a View action -->
+    <string name="stats_export_button">Export data charts</string>
+    <string name="stats_export_option_char">Character card data (%1$d)</string>
+    <string name="stats_export_option_action">Action card data (%1$d)</string>
+    <string name="stats_export_saved_one">Saved %1$d image to the gallery</string>
+    <string name="stats_export_saved_two">Saved %1$d images to the gallery</string>
+    <string name="stats_export_partial">Saved %1$d images, %2$d failed</string>
+    <string name="stats_export_failed">Export failed, please try again</string>
+    <string name="stats_export_failed_detail">Export failed: %1$s</string>
+    <string name="action_view">View</string>
     <string name="wiki_tab_char">Character Cards</string>
     <string name="wiki_tab_action">Action Cards</string>
     <string name="wiki_tab_monster">Monster Cards</string>

@@ -94,19 +94,17 @@ class AlbumPathTest {
         val table = mapOf(
             EXPORT_DIR_CHAR to "角色牌",
             EXPORT_DIR_ACTION to "行动牌",
-            EXPORT_DIR_RECORDS to "最近对局",
             EXPORT_DIR_QR to "二维码",
         )
         LocaleStrings.installResolverForTest { id -> table[id] }
         try {
             assertEquals("角色牌", exportDirName(EXPORT_DIR_CHAR))
             assertEquals("行动牌", exportDirName(EXPORT_DIR_ACTION))
-            assertEquals("最近对局", exportDirName(EXPORT_DIR_RECORDS))
             assertEquals("二维码", exportDirName(EXPORT_DIR_QR))
             // 调用点拼接的完整落盘形态：Pictures/GIGI/<类型>/<UID>
             assertEquals(
-                "Pictures/GIGI/最近对局/12345",
-                buildAlbumRelativePath("Pictures", "GIGI", exportDirName(EXPORT_DIR_RECORDS), "12345"),
+                "Pictures/GIGI/角色牌/12345",
+                buildAlbumRelativePath("Pictures", "GIGI", exportDirName(EXPORT_DIR_CHAR), "12345"),
             )
         } finally {
             LocaleStrings.installResolverForTest(null)
@@ -114,9 +112,9 @@ class AlbumPathTest {
     }
 
     @Test
-    fun `四个目录资源id互不相同`() {
-        val ids = setOf(EXPORT_DIR_CHAR, EXPORT_DIR_ACTION, EXPORT_DIR_RECORDS, EXPORT_DIR_QR)
-        assertEquals(4, ids.size)
+    fun `三个目录资源id互不相同`() {
+        val ids = setOf(EXPORT_DIR_CHAR, EXPORT_DIR_ACTION, EXPORT_DIR_QR)
+        assertEquals(3, ids.size)
     }
 
     @Test

@@ -39,15 +39,16 @@ private const val DOWNLOAD_READ_TIMEOUT_S = 30L
 const val GIGI_ALBUM_NAME: String = "GIGI"
 
 /**
- * 导出落盘的类型子目录名资源（角色牌 / 行动牌 / 最近对局 / 二维码）：文件夹名一律走 i18n，
- * 英文用官方译名 Character Cards / Action Cards / Recent Matches / QR Code，禁止中文硬编码常量。
+ * 导出落盘的类型子目录名资源（角色牌 / 行动牌 / 二维码）：文件夹名一律走 i18n，
+ * 英文用官方译名 Character Cards / Action Cards / QR Code，禁止中文硬编码常量。
  * 调用方经 [exportDirName] 取当前语言文案。最终目录结构：
- * - `Pictures/GIGI/<类型>/<UID>/<类型数据_yyyy-MM-dd>.jpg`（角色牌 / 行动牌 / 最近对局，按账号 UID 分文件夹）
+ * - `Pictures/GIGI/<类型>/<UID>/<类型数据_yyyy-MM-dd>.jpg`（角色牌 / 行动牌，按账号 UID 分文件夹）
  * - `Pictures/GIGI/<二维码>/扫码登录_yyyy-MM-dd.png`（二维码不分账号）
+ *
+ * V29：「最近对局」导出功能已移除，对应的 EXPORT_DIR_RECORDS 与 export_dir_records 一并删掉。
  */
 @StringRes val EXPORT_DIR_CHAR: Int = R.string.export_dir_char
 @StringRes val EXPORT_DIR_ACTION: Int = R.string.export_dir_action
-@StringRes val EXPORT_DIR_RECORDS: Int = R.string.export_dir_records
 @StringRes val EXPORT_DIR_QR: Int = R.string.export_dir_qr
 
 /** 取已本地化的导出子目录名（i18n） */

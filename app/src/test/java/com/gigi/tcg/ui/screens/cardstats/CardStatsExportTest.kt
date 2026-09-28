@@ -1,6 +1,7 @@
 // 长图内容组装的纯 JVM 单测（DESIGN-V8 §7）：列结构、序号、3 位小数、除零口径、类别映射、
-// 页眉文案（昵称/等级/胶囊/签名/日期）与 nowrap 列宽口径（🔴 永不折行、永不省略号）。
+// 页眉文案（昵称/等级/胶囊/日期）与 nowrap 列宽口径（🔴 永不折行、永不省略号）。
 // 不碰 android.graphics——渲染层与布局模型另由 TableLayoutTest 覆盖。
+// V29-B：导出图的玩家签名（签名框文案 / 占位回落 / 超长截断）整体移除，对应用例一并删除。
 
 package com.gigi.tcg.ui.screens.cardstats
 
@@ -117,7 +118,6 @@ class CardStatsExportTest {
         val spec = buildCharTableSpec(summary(), "110526730", listOf(char(10, 5)))
         assertEquals("Clin - 110526730", spec.nickname)
         assertTrue("levelText 必须带等级数字：${spec.levelText}", spec.levelText?.contains("45") == true)
-        assertEquals("暂无签名", spec.signature)
         val date = spec.exportDateText
         assertNotNull("exportDateText 必须填充（日期行右对齐）", date)
         assertTrue("exportDateText 应为 yyyy-MM-dd，实际 $date", Regex("\\d{4}-\\d{2}-\\d{2}").matches(date!!))
@@ -132,70 +132,8 @@ class CardStatsExportTest {
         }
     }
 
-    // ---- 签名框：真实签名（米游社 introduce）优先，取不到回落「暂无签名」占位 ----
-
-    @Test
-    fun `有真实签名时两张表都用真实签名`() {
-        val introduce = "万壑千岩沉玉间"
-        val charSpec = buildCharTableSpec(summary(), "u", listOf(char(10, 5)), signature = introduce)
-        val actionSpec = buildActionTableSpec(summary(), "u", emptyList(), signature = introduce)
-        assertEquals(introduce, charSpec.signature)
-        assertEquals(introduce, actionSpec.signature)
-    }
-
-    @Test
-    fun `签名缺失或空白回落暂无签名占位不留空白框`() {
-        // null = 社区 UID 不可得 / 接口失败；"" 与全空白 = 用户没设置签名（实测服务端返回空串）
-        listOf(null, "", "   ", "\n\t ").forEach { raw ->
-            val spec = buildCharTableSpec(summary(), "u", emptyList(), signature = raw)
-            assertEquals("占位不能是空串（空串渲染层会整框不画）：raw=$raw", "暂无签名", spec.signature)
-            assertEquals("暂无签名", buildActionTableSpec(summary(), "u", emptyList(), signature = raw).signature)
-        }
-    }
-
-    @Test
-    fun `未传签名的旧调用点仍走占位不崩`() {
-        // 默认参数路径：导出动作接线前的调用形态（CardStatsExportAction 传 3 个实参）
-        assertEquals("暂无签名", buildCharTableSpec(summary(), "u", emptyList()).signature)
-    }
-
-    @Test
-    fun `超长签名截断加省略号且不撑破白框`() {
-        // 真实样本里见过 40+ 字的长签名（V28-S 报告 B.3），白框宽 = 文字实测宽 + 内边距，
-        // 渲染层不截断 ⇒ 必须在组装层收尾，否则框被画出画布右缘。
-        val long = "呱～文明的建成。能量不是榨取，是调谐；引力不是操控，是在与时空的对话。" +
-            "万壑千岩沉玉间，海祇的旧梦依旧；珊瑚宫的心事谁来听，只余潮声与晚风。"
-        val signature = exportSignatureText(long)
-        assertTrue("超长签名必须以省略号收尾：$signature", signature.endsWith("…"))
-        assertTrue("截短了才有意义", signature.length < long.length)
-        val width = textWidth(signature, EXPORT_SIGNATURE_TEXT_SIZE_PX)
-        assertTrue("签名宽 $width 仍超过预算 ${EXPORT_SIGNATURE_MAX_WIDTH_PX}", width <= EXPORT_SIGNATURE_MAX_WIDTH_PX)
-
-        // 端到端核对最窄画布：空行的单栏角色牌表 bandWidth 最小，白框（文字宽 + 左右内边距 20×2）
-        // 必须留在画布内容区里，右缘最多到 bandWidth + 4（画布宽 = bandWidth + 2×(24+2)，两侧页边距 24）
-        val bandWidth = layoutFor(buildCharTableSpec(summary(), "u", emptyList(), signature = long), charTable = true)
-            .bandWidthPx
-        assertTrue("白框 ${width + 40} 超出画布内容宽 $bandWidth", width + 2 * 20 <= bandWidth + 4)
-    }
-
-    @Test
-    fun `签名压掉换行且截断不劈开代理对`() {
-        // 白框只有一行高 ⇒ 换行/连续空白压成单个空格
-        assertEquals("🌊签名 第二行", exportSignatureText("  🌊签名 \n 第二行  "))
-
-        // 签名里常带 emoji（代理对）：按 char 截断会留下孤立代理对 ⇒ 画出豆腐块
-        val longEmoji = "🌊".repeat(200)
-        val clipped = exportSignatureText(longEmoji)
-        assertTrue("应截断：${clipped.length}", clipped.length < longEmoji.length)
-        assertTrue("应以省略号收尾：$clipped", clipped.endsWith("…"))
-        val body = clipped.dropLast(1)
-        assertTrue("截断后不能是空串", body.isNotEmpty())
-        assertEquals(
-            "截断点必须落在码点边界（代理对成对）",
-            body.length / 2,
-            Character.codePointCount(body, 0, body.length),
-        )
-    }
+    // V29-B：签名框（真实 introduce / 「暂无签名」占位 / 超长截断加省略号 / 代理对不劈开）
+    // 连同 exportSignatureText 一起删除，这组用例随之移除。
 
     @Test
     fun `胶囊按参考图顺序且为已得斜杠总数`() {

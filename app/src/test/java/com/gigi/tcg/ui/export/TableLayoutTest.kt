@@ -48,14 +48,12 @@ class TableLayoutTest {
         cell: (row: Int, col: Int) -> String = { r, _ -> "v$r" },
         levelText: String? = "牌手等级 45",
         badges: List<String> = listOf("角色牌 147/147", "行动牌 941/941", "共进行 3493 场游戏", "胜率 58.9%"),
-        signature: String = "暂无签名",
         exportDateText: String? = "2026-09-27",
     ) = TableSpec(
         title = "角色牌数据",
         nickname = "Clin - 110526730",
         levelText = levelText,
         badges = badges,
-        signature = signature,
         columns = columns,
         rows = List(rowCount) { r -> List(columns.size) { c -> cell(r, c) } },
         exportDateText = exportDateText,
@@ -177,6 +175,19 @@ class TableLayoutTest {
         val withDate = spec(rowCount = 2)
         val withoutDate = withDate.copy(exportDateText = null)
         assertEquals(layoutOf(withDate).heightPx, layoutOf(withoutDate).heightPx)
+    }
+
+    // 7d. V29-B：签名框整行删除 ⇒ 页眉只剩 昵称 / 等级 / 胶囊 三行，
+    //     最后一行到分隔虚线走 25px 留白，虚线（高 4）底正好 = 页眉块底（线上不再余 11px）。
+    @Test
+    fun headerBlockIsSignatureFreeAndEndsAtTheDivider() {
+        val s = spec(rowCount = 2)
+        val withBadges = computeHeaderBlockHeight(s)
+        val noBadges = computeHeaderBlockHeight(s.copy(badges = emptyList()))
+        // 胶囊行只占「行高 45 + 下边距 13 + 行间距 8」，删掉签名行不会连带牵动别的行
+        assertEquals(45 + 13 + 8, withBadges - noBadges)
+        // 40 顶内边距 + 5 + 昵称行高 40 + 10 + 等级 25+25 + 胶囊 45+13+8 + 25 留白 + 4 虚线
+        assertEquals(40 + 5 + 40 + 10 + 25 + 25 + 45 + 13 + 8 + 25 + 4, withBadges)
     }
 
     // ---- 双栏阈值口径（沿用旧行为：>阈值才双栏，ceil(n/2) 分栏）----
@@ -303,7 +314,8 @@ class TableLayoutTest {
         )
     }
 
-    // ---- ellipsize：表格本体已不用（nowrap），但最近对局卡片渲染器仍在用，行为必须保持 ----
+    // ---- ellipsize：表格本体已不用（nowrap）；V29-B 删掉「最近对局」导出卡片后，
+    //      这三条是 ellipsize 仅存的调用点，是否随之后清理见 V29-B 交付报告 ----
 
     @Test
     fun ellipsizeReturnsOriginalWhenItFits() {

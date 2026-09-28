@@ -1,6 +1,8 @@
 // 卡牌使用详情长图的内容组装（DESIGN-V8 §3.1/§3.2）。
 // 本文件只做字符串与算术，🔴 不得引用 android.graphics —— 渲染在 ui/export/TableImageRenderer.kt，
 // 分界线是为了让列结构/百分比口径能在纯 JVM 单测里覆盖（工程无 Robolectric）。
+// V29-B：玩家签名获取成本高，导出图的签名框连同本层的签名文案（exportSignatureText 及宽度预算）
+// 一并移除；渲染层 TableSpec 也不再带 signature 字段。
 
 package com.gigi.tcg.ui.screens.cardstats
 
@@ -43,30 +45,6 @@ private const val HEADER_MIN_WIDTH_PX = 100
 private const val HEADER_PERCENT_MIN_WIDTH_PX = 111
 
 /**
- * 签名文字字号（= 渲染层 TableImageRenderer 的 private SIGNATURE_TEXT_SIZE_PX，25px）。
- * 那边是 private、本层是纯函数（拿不到 Paint），长度兜底只能在这里做 ⇒ 两个常量必须同步改。
- */
-internal const val EXPORT_SIGNATURE_TEXT_SIZE_PX = 25f
-
-/**
- * 签名可占的文字宽度上限（px）。
- * 为什么要限：渲染层画白框时 `boxWidth = 实测文字宽 + 2×内边距(20)`，**没有任何截断**——
- * 长签名会把白框一路撑出画布右缘（导出图被裁切）。
- * 口径取最窄的那张画布 = 单栏角色牌表且行数极少：列宽下限合计
- * 36(#) + 60(名称) + 100 + 111 + 111 + 100 = 518 = bandWidth，
- * 白框右缘最多到 `画布宽 - 页边距` ⇒ 可用宽 ≈ bandWidth + 4，再扣左右内边距 40 ≈ 480，
- * 保守取 440（省略号在 CJK 字体里接近一个全角字，余量留给它）。
- * 行动牌双栏画布更宽，440 只会更保守、不越界。
- */
-internal const val EXPORT_SIGNATURE_MAX_WIDTH_PX = 440f
-
-/** 宽度估算口径：CJK/全角按 1.0 字宽、其余按 0.55（与 TableLayoutTest 的假 measurer 同口径） */
-private const val FULLWIDTH_EM_RATIO = 1.0
-private const val HALFWIDTH_EM_RATIO = 0.55
-
-private const val ELLIPSIS = "…"
-
-/**
  * 文案通道：本文件是**纯函数层**（JVM 单测直接调 buildCharTableSpec，见 CardStatsExportTest），
  * 拿不到 Compose 的 stringResource，也不能依赖已 attach 的 resolver。
  * 故走 [LocaleStrings.getOrDefault]：有 resolver 时按当前语言取资源，
@@ -79,63 +57,10 @@ private fun exportText(@StringRes id: Int, default: String): String =
 private fun exportText(@StringRes id: Int, default: String, vararg args: Any): String =
     LocaleStrings.getOrDefault(id, default, *args)
 
-/** 单码点宽度估算（em）：CJK/全角 1.0、其余 0.55 —— 与 TableLayoutTest 的假 measurer 同口径 */
-private fun emWidthOfCodePoint(codePoint: Int): Double =
-    if (codePoint >= 0x2E80) FULLWIDTH_EM_RATIO else HALFWIDTH_EM_RATIO
-
-/**
- * 按 [emWidthOfCodePoint] 累加的粗口径文本宽（无 Paint，纯 JVM 可测）。
- * 🔴 必须按码点而非 char 累加：emoji 是代理对，按 char 算会把一个 emoji 记成两个字宽，
- * 与下面的截断循环口径不一致 ⇒ 白框宽度估算失真。
- */
-private fun estimateExportTextWidth(text: String, textSizePx: Float): Float {
-    var width = 0.0
-    var index = 0
-    while (index < text.length) {
-        val codePoint = text.codePointAt(index)
-        width += emWidthOfCodePoint(codePoint) * textSizePx
-        index += Character.charCount(codePoint)
-    }
-    return width.toFloat()
-}
-
-/**
- * 签名框文案：真实签名（米游社 `introduce`）优先，取不到/空白回落「暂无签名」占位（绝不留空白框）。
- *
- * 🔴 [signature] 只可能是**米游社社区 UID** 查回来的 introduce（见 data.api.getUserFullInfoUrl：
- * 用游戏 UID 去打只会拿到占位「暂无签名」）；社区 UID 尚未可得时恒 null ⇒ 导出图照旧显示占位。
- *
- * 超长时按宽度预算截断加省略号（见 [EXPORT_SIGNATURE_MAX_WIDTH_PX]）；换行/连续空白压成单个空格：
- * 白框只有一行高，带换行的签名交给 canvas.drawText 只会画出豆腐块。
- */
-internal fun exportSignatureText(signature: String?): String {
-    val placeholder = exportText(R.string.export_signature_placeholder, "暂无签名")
-    val text = signature?.trim()?.replace(Regex("\\s+"), " ").orEmpty()
-    if (text.isEmpty()) return placeholder
-    if (estimateExportTextWidth(text, EXPORT_SIGNATURE_TEXT_SIZE_PX) <= EXPORT_SIGNATURE_MAX_WIDTH_PX) return text
-
-    // 逐码点累加（代理对不劈开），留一个「…」的位置：装不下的第一个码点起截断。
-    // 省略号按 1 个全角字预留（CJK 字体里 … 接近全角，粗口径的 0.55 会低估 ⇒ 宁宽不溢出）
-    val ellipsisWidth = EXPORT_SIGNATURE_TEXT_SIZE_PX
-    var used = 0f
-    var keep = 0
-    var index = 0
-    while (index < text.length) {
-        val codePoint = text.codePointAt(index)
-        val codePointWidth = (emWidthOfCodePoint(codePoint) * EXPORT_SIGNATURE_TEXT_SIZE_PX).toFloat()
-        if (used + codePointWidth + ellipsisWidth > EXPORT_SIGNATURE_MAX_WIDTH_PX) break
-        used += codePointWidth
-        index += Character.charCount(codePoint)
-        keep = index
-    }
-    return if (keep == 0) placeholder else text.take(keep) + ELLIPSIS
-}
-
 internal fun buildCharTableSpec(
     summary: GcgSummary,
     uid: String,
     cards: List<GcgCard>,
-    signature: String? = null,
 ): TableSpec {
     // 出场率分母 = Σ角色牌 useCount（与 StatsUiState.charTotalUse / Summary.charTotalUse 同口径，
     // 而非"游玩场次数"——说明文案与原版代码的差异照原版保留）
@@ -170,7 +95,6 @@ internal fun buildCharTableSpec(
         nickname = buildNicknameLine(summary, uid),
         levelText = exportText(R.string.export_level, "牌手等级 %1\$d", summary.level),
         badges = buildBadges(summary),
-        signature = exportSignatureText(signature),
         columns = columns,
         rows = rows,
         exportDateText = exportDateText(),
@@ -181,7 +105,6 @@ internal fun buildActionTableSpec(
     summary: GcgSummary,
     uid: String,
     cards: List<GcgCard>,
-    signature: String? = null,
 ): TableSpec {
     // 使用率分母 = GcgSummary.actionTotalUse（= Σ行动牌 use_count），与下面的过滤无关，不随行数变化
     val totalUse = summary.actionTotalUse
@@ -212,7 +135,6 @@ internal fun buildActionTableSpec(
         nickname = buildNicknameLine(summary, uid),
         levelText = exportText(R.string.export_level, "牌手等级 %1\$d", summary.level),
         badges = buildBadges(summary),
-        signature = exportSignatureText(signature),
         columns = columns,
         rows = rows,
         exportDateText = exportDateText(),
