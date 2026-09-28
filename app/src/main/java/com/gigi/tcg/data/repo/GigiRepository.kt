@@ -307,7 +307,8 @@ class GigiRepository(
 
     /**
      * 单旬战绩（5 分钟）：🔴 键必须含 scheduleId——不同旬是不同数据，共用一键会串旬。
-     * 后缀含变量 ⇒ 不进 [invalidateMyPageCache]（那里只清固定键），切旬由调用方带 force 或自然过期。
+     * 先例见 [fetchRankCached] 的 `rank:${tab.key}:v1`。键含变量 ⇒ 无法在 [invalidateMyPageCache]
+     * 里逐键枚举（登出走 clearPrivateCache 前缀清理，不受影响）。
      */
     suspend fun fetchGcgChallengeRecordCached(
         uid: String,
