@@ -1,25 +1,114 @@
-// 「我的」页四个二级页（V35 P0 占位，设计 §3.3）：我的卡组 / 卡背图鉴 / 收藏对局 / 胜冠之试。
-// P0 只交付导航骨架与占位说明 —— 四个端点的元素级字段在 SDK 里是 unknown（设计 §1「核心未知项」），
-// 按「先抓样本，再写代码」的既定路径：P1 真机抓样本 → P2 按样本定型模型后填充真实内容。
-// 占位页用统一的 MySubpagePlaceholder，P2 逐个替换为真实页面。
+// 「我的」页四个二级页共用的小件（设计 §3.3）：页面外框（标题 + 可选「返回」）、
+// 以及 GcgTime 的展示格式化。页面本体各自一文件：
+// MyDecksPage / MyCardBacksPage / MyFavoritesPage / MyChallengePage。
+//
+// 🔴 二级页的「列表 → 详情」一律走页内状态切换（remember 一个 selectedX，详情态把 onBack 传进外框），
+// 不新增导航路由：`my/xxx` 二级路由会让 MyViewModel 在子 BackStackEntry 上多开一份实例，
+// 切账号时的清值/重载链路要翻倍，P2 先用页内切换规避（系统返回键仍由 NavHost 逐级回退到一级页）。
 
 package com.gigi.tcg.ui.screens.my
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gigi.tcg.R
+import com.gigi.tcg.data.model.GcgTime
+import java.util.Locale
 
-/** 二级页占位：居中标题 + 一句「待接入」说明（P2 逐个替换为真实页面） */
+/** 接口给的是拆开的年月日时分，展示前自己拼；缺字段返回 null，由调用方整段不显示（不显示 0000-00-00） */
+internal fun formatGcgDate(time: GcgTime?): String? {
+    val year = time?.year ?: return null
+    val month = time.month ?: return null
+    val day = time.day ?: return null
+    return String.format(Locale.US, "%04d-%02d-%02d", year, month, day)
+}
+
+/** 同上，补 `HH:mm`；时刻字段缺失时退回只到日期（对局时间缺分秒仍可读，不至于整行空白） */
+internal fun formatGcgDateTime(time: GcgTime?): String? {
+    val date = formatGcgDate(time) ?: return null
+    val hour = time?.hour ?: return date
+    val minute = time.minute ?: return date
+    return String.format(Locale.US, "%s %02d:%02d", date, hour, minute)
+}
+
+/**
+ * 二级页外框：页内标题行 + 内容。
+ * 顶部标题不挂宿主 `TopAppBar`（那一层在 GigiNavHost 里，四个二级页共用，只能显示一级「我的」），
+ * 且详情态的标题是动态的（牌组名 / 旬名），只能在页内画。
+ *
+ * @param onBack 非空时标题左侧出现「返回」入口 —— 只在详情态传入，回到本页列表态（不动导航栈）。
+ */
+@Composable
+fun MySubpageScaffold(
+    title: String,
+    modifier: Modifier = Modifier,
+    onBack: (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (onBack != null) {
+                TextButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        stringResource(R.string.action_back),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 1,
+                modifier = Modifier.padding(start = if (onBack == null) 8.dp else 0.dp),
+            )
+        }
+        content()
+    }
+}
+
+/** 页内小节标题（卡组详情的「角色牌 / 行动牌」等），沿用一级页区块小标题的 primary 弱化口径 */
+@Composable
+fun MySectionTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
+/**
+ * P0 占位页：GigiNavHost 的四个 `my` 子路由当前仍指向这里。
+ * 真实页面（MyDecksPage 等）已就绪，等导航层把调用点换过去后本函数即可删除。
+ */
 @Composable
 fun MySubpagePlaceholder(titleRes: Int, modifier: Modifier = Modifier) {
     Column(
