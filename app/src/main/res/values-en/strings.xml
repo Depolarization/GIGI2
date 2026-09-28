@@ -22,6 +22,7 @@
     <string name="nav_rank">Ranking</string>
     <string name="nav_card_stats">Card Stats</string>
     <string name="nav_card_wiki">Card Wiki</string>
+    <string name="nav_my">Me</string>
     <string name="cd_refresh">Refresh</string>
     <string name="cd_search">Search</string>
     <string name="cd_about">About</string>
@@ -34,6 +35,22 @@
     <string name="account_default_nickname">Player %1$s</string>
     <string name="account_logout_confirm_title">Sign out of the current account?</string>
     <string name="account_logout_message">Signing out deletes the credentials of this account stored on this device. Other accounts are unaffected.</string>
+
+    <!-- My page (V35 P0 skeleton, design doc §3.2/§3.3) -->
+    <string name="my_section_accounts">Accounts</string>
+    <string name="my_section_profile">Profile</string>
+    <string name="my_section_assets">Card assets</string>
+    <string name="my_section_records">Match records</string>
+    <string name="my_account_subtitle">%1$s · %2$s</string>
+    <string name="my_account_current">Current account</string>
+    <string name="my_profile_nickname">Nickname</string>
+    <string name="my_profile_game_uid">Game UID</string>
+    <string name="my_profile_level">Player level</string>
+    <string name="my_deck_entry">My decks</string>
+    <string name="my_cardback_entry">Card backs</string>
+    <string name="my_favorites_entry">Favorite matches</string>
+    <string name="my_challenge_entry">Champions\' Trial</string>
+    <string name="my_placeholder_note">This feature is coming in a later release.</string>
 
     <!-- Servers -->
     <string name="server_cn_gf01">Sky Island</string>
@@ -92,9 +109,10 @@
     <!-- Login -->
     <string name="login_title">GIGI · Genius Invokation TCG Companion</string>
     <string name="login_expired_notice">Session expired, please sign in again with the QR code</string>
+    <!-- V33: with the server picker removed, "no role" only means "no signable CN Genshin
+         character"; the copy now guides users to HoYoLAB binding instead of "switch server".
+         (V30\'s login_no_role_notice / login_no_role_elsewhere_notice were removed.) -->
     <string name="login_no_role_none_notice">This HoYoLAB account has no Genshin character bound. Bind one in HoYoLAB first, then try again.</string>
-    <string name="login_no_role_notice">This HoYoLAB account has no Genshin character on %1$s. Switch the server and try again.</string>
-    <string name="login_no_role_elsewhere_notice">This HoYoLAB account\'s Genshin character is bound to %1$s, not the %2$s you selected. Switch the server and try again.</string>
     <string name="login_status_generating">Generating QR code…</string>
     <!-- V29-B：原「Scan … and confirm sign-in」与「After sign-in, the saved QR code image is
          deleted automatically」两段合并为一句（登录页按钮下方只留一段） -->
@@ -102,8 +120,17 @@
     <string name="login_status_scanned">Scanned — confirm sign-in on your phone…</string>
     <string name="login_status_refreshing">QR code expired, generating a new one…</string>
     <string name="login_status_finalizing">Confirmed, exchanging credentials…</string>
+    <!-- V33: ChooseRole state for multi-role accounts (dialog covers the page; this is the status-line fallback) -->
+    <string name="login_status_choose_role">This account has multiple roles. Pick the roles to sign in.</string>
     <string name="login_status_failed">Generation failed: %1$s</string>
     <string name="login_status_success">Signed in</string>
+    <!-- V33: takes over the info role of the removed server picker (one line under the QR code) -->
+    <string name="login_servers_supported">Supports both official (Sky Island) and channel (World Tree) accounts</string>
+    <string name="login_choose_role_title">Choose roles to sign in</string>
+    <string name="login_choose_role_rescan">Scan again</string>
+    <!-- V34: multi-select confirm button and partial-failure notice -->
+    <string name="login_choose_role_confirm">Sign in and save</string>
+    <string name="login_choose_role_partial">Saved %1$d account(s), %2$d failed: %3$s</string>
     <string name="login_qr_image_desc">HoYoLAB QR code for sign-in</string>
     <string name="login_qr_scanned_badge">Scanned</string>
     <string name="login_qr_scanned_confirm">Scanned. Confirm on your phone</string>

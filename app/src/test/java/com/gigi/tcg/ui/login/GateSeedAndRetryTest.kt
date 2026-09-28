@@ -4,6 +4,7 @@
 
 package com.gigi.tcg.ui.login
 
+import com.gigi.tcg.data.ServerId
 import com.gigi.tcg.data.api.API_ERROR_KIND_NETWORK
 import com.gigi.tcg.data.api.API_ERROR_KIND_RETCODE
 import com.gigi.tcg.data.api.ApiError
@@ -91,5 +92,29 @@ class GateSeedAndRetryTest {
         assertEquals(false, after.addAccount)
         assertEquals(before.verified, after.verified) // verifiedForCurrentSession/verified 不被翻动
         assertEquals(before, after) // 与进入前逐字段一致 ⇒ 导航宿主经历同一分支类别
+    }
+
+    // ---- D（V31）：旧版单槽凭据收养的服务器归属口径 ----
+    // 实测（2026-09-28 真机 + 原始返回）：e_hk4e_token 是 per-角色 的，login/info 返回值
+    // 完全由 cookie 所持 token 决定、与 badge_region 参数无关——渠道服 token 恒返回
+    // region=cn_qd01。收养必须用响应 region，而非 currentServer（冷启动恒为默认官服），
+    // 否则渠道服账户被错标成官服（此后所有请求 badge_region/server 全错）。
+
+    @Test
+    fun `channel region from login info wins over official fallback`() {
+        assertEquals(ServerId.Channel, accountServerFor("cn_qd01", ServerId.Official))
+    }
+
+    @Test
+    fun `official region from login info is respected over channel fallback`() {
+        assertEquals(ServerId.Official, accountServerFor("cn_gf01", ServerId.Channel))
+    }
+
+    @Test
+    fun `missing or unknown region falls back to current server`() {
+        assertEquals(ServerId.Official, accountServerFor(null, ServerId.Official))
+        assertEquals(ServerId.Channel, accountServerFor("", ServerId.Channel))
+        // 非国服注册表值（如星铁/绝区零 prod_* 体系）不引入新失败面，回落当前服务器
+        assertEquals(ServerId.Channel, accountServerFor("prod_gf_cn", ServerId.Channel))
     }
 }

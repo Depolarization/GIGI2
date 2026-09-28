@@ -88,6 +88,16 @@ internal fun seededSessionUid(hasCookie: Boolean, activeAccountUid: String?): St
 internal fun shouldRetryVerify(t: Throwable, attempt: Int, maxAttempts: Int): Boolean =
     t !is CancellationException && !isAuthFailureError(t) && attempt in 1..maxAttempts
 
+/**
+ * 旧版单槽凭据被收养为正式账户时的服务器归属（纯函数便于 JVM 测）。
+ * 🔴 以 login/info 响应的 region 为准：e_hk4e_token 是 per-角色 的（2026-09-28 实测），
+ * 渠道服账户的 token 让该接口恒返回 cn_qd01，而 currentServer 在冷启动（尚无激活账户）时
+ * 恒为默认官服——直接采用会把渠道服账户错标成官服，此后所有请求的 badge_region/server
+ * 全错。region 缺失/非法（非国服注册表值）时回落 [fallback]，不引入新失败面。
+ */
+internal fun accountServerFor(loginRegion: String?, fallback: ServerId): ServerId =
+    ServerId.from(loginRegion) ?: fallback
+
 class GateViewModel(app: Application) : AndroidViewModel(app) {
 
     private val container: AppContainer = (app as GigiApp).container
@@ -179,7 +189,10 @@ class GateViewModel(app: Application) : AndroidViewModel(app) {
         val store = container.credentialStore
         val activeUid = store.activeUid()
         if (activeUid == null || store.accounts().none { it.uid == activeUid }) {
-            store.adoptActiveCookie(uid, server, loginInfo.nickname)
+            // 归属服务器以 login/info 的 region 为准（见 accountServerFor）：渠道服账户的
+            // token 让该接口恒返回 cn_qd01，而此处 server 变量来自 currentServer，冷启动恒为
+            // 默认官服，直接采用会把渠道服账户错标成官服。
+            store.adoptActiveCookie(uid, accountServerFor(loginInfo.region, server), loginInfo.nickname)
         }
         if (generation != verificationGeneration) return
         container.refreshAccounts()

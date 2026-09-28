@@ -14,20 +14,14 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Logout
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.BarChart
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PersonSearch
 import androidx.compose.material.icons.outlined.Style
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -39,7 +33,6 @@ import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -70,7 +63,6 @@ import androidx.navigation.compose.rememberNavController
 import com.gigi.tcg.GigiApp
 import com.gigi.tcg.R
 import com.gigi.tcg.i18n.LocaleStrings
-import com.gigi.tcg.i18n.displayShortName
 import com.gigi.tcg.i18n.displayNameSync
 import com.gigi.tcg.ui.components.LocalToast
 import com.gigi.tcg.ui.components.ToastController
@@ -81,16 +73,25 @@ import com.gigi.tcg.ui.dialogs.cardcover.CardCoverSheet
 import com.gigi.tcg.ui.dialogs.playerdetail.PlayerDetailDialog
 import com.gigi.tcg.ui.dialogs.playerdetail.PlayerDetailTarget
 import com.gigi.tcg.ui.dialogs.playerdetail.PlayerQueryDialog
-import com.gigi.tcg.ui.login.LocalAccountActions
 import com.gigi.tcg.ui.screens.cardstats.CardStatsRoute
 import com.gigi.tcg.ui.screens.cardwiki.CardWikiRoute
 import com.gigi.tcg.ui.screens.home.HomeRoute
+import com.gigi.tcg.ui.screens.my.MyRoute
+import com.gigi.tcg.ui.screens.my.MySubpagePlaceholder
 import com.gigi.tcg.ui.screens.rank.RankRoute
 
 private const val ROUTE_HOME = "home"
 private const val ROUTE_RANK = "rank"
 private const val ROUTE_CARD_STATS = "cardstats"
 private const val ROUTE_CARD_WIKI = "cardwiki"
+private const val ROUTE_MY = "my"
+
+// 「我的」页的四个二级页（V35 P0 占位，设计 §3.3）：挂在 my/ 下 ⇒
+// 底部导航/Rail 的选中态与顶栏标题按一级段（substringBefore('/')）归属到「我的」。
+private const val ROUTE_MY_DECK = "my/deck"
+private const val ROUTE_MY_CARDBACK = "my/cardback"
+private const val ROUTE_MY_FAVORITES = "my/favorites"
+private const val ROUTE_MY_CHALLENGE = "my/challenge"
 
 private data class GigiDestination(
     val route: String,
@@ -103,6 +104,7 @@ private val destinations = listOf(
     GigiDestination(ROUTE_RANK, R.string.nav_rank, Icons.Outlined.EmojiEvents),
     GigiDestination(ROUTE_CARD_STATS, R.string.nav_card_stats, Icons.Outlined.BarChart),
     GigiDestination(ROUTE_CARD_WIKI, R.string.nav_card_wiki, Icons.Outlined.Style),
+    GigiDestination(ROUTE_MY, R.string.nav_my, Icons.Outlined.Person),
 )
 
 private val RAIL_BREAKPOINT = 840.dp
@@ -116,10 +118,6 @@ fun GigiNavHost() {
     val appContext = LocalContext.current.applicationContext
     val server by container.currentServer.collectAsStateWithLifecycle()
     val sessionUid by container.sessionUid.collectAsStateWithLifecycle()
-    val accounts by container.accounts.collectAsStateWithLifecycle()
-    val activeUid by container.activeAccountUid.collectAsStateWithLifecycle()
-    val actions = LocalAccountActions.current
-    val activeAccount = accounts.firstOrNull { it.uid == activeUid }
 
     var queryOpen by remember { mutableStateOf(false) }
     // 详情目标带一份「入口头像」：列表页（排行榜 / 对局）点进来时能给出头像，
@@ -127,8 +125,6 @@ fun GigiNavHost() {
     var detailTarget by remember { mutableStateOf<PlayerDetailTarget?>(null) }
     var coverId by remember { mutableStateOf<Long?>(null) }
     var aboutOpen by remember { mutableStateOf(false) }
-    var accountMenuOpen by remember { mutableStateOf(false) }
-    var logoutConfirmOpen by remember { mutableStateOf(false) }
     val toastController = remember { ToastController() }
     var startRoute by remember { mutableStateOf(ROUTE_HOME) }
     var announcedServer by remember { mutableStateOf(server) }
@@ -138,8 +134,6 @@ fun GigiNavHost() {
         detailTarget = null
         coverId = null
         aboutOpen = false
-        accountMenuOpen = false
-        logoutConfirmOpen = false
     }
 
     LaunchedEffect(server) {
@@ -154,83 +148,31 @@ fun GigiNavHost() {
             val navController = rememberNavController()
             val backStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = backStackEntry?.destination?.route
+            // 一级段：二级页（my/deck 等）的选中态与顶栏标题归属到所属 tab
+            val baseRoute = currentRoute?.substringBefore('/')
+
+            // 持续记录当前 tab：账户切换 / 服务器切换触发下方 key() 重建后，startDestination
+            // 用最近记录的一级路由 ⇒ 停留在原页（V35 前该记录由顶栏账户菜单写入，菜单迁入
+            // 「我的」页后改由导航变化驱动，语义不变）。
+            LaunchedEffect(baseRoute) {
+                if (baseRoute != null && destinations.any { it.route == baseRoute }) {
+                    startRoute = baseRoute
+                }
+            }
 
             BoxWithConstraints {
                 val useRail = maxWidth >= RAIL_BREAKPOINT
 
                 Scaffold(
                     topBar = {
+                        // V35：顶栏不再展示个人 ID（账户按钮与菜单已迁入「我的」页 —— 用户拍板：
+                        // 有了「我的」页后底部导航一步可达，顶栏再挂账户名是冗余；
+                        // 账户管理（列表/切换/添加/登出）见 MyRoute 分区①）。
                         TopAppBar(
                             title = {
-                                Text(destinations.firstOrNull { it.route == currentRoute }?.let { stringResource(it.labelRes) } ?: "GIGI")
+                                Text(destinations.firstOrNull { it.route == baseRoute }?.let { stringResource(it.labelRes) } ?: "GIGI")
                             },
                             actions = {
-                                Box {
-                                    TextButton(
-                                        onClick = { accountMenuOpen = true },
-                                        modifier = Modifier.widthIn(max = 144.dp),
-                                    ) {
-                                        Text(
-                                            activeAccount?.displayName() ?: stringResource(R.string.account_label),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                    DropdownMenu(
-                                        expanded = accountMenuOpen,
-                                        onDismissRequest = { accountMenuOpen = false },
-                                    ) {
-                                        accounts.forEach { account ->
-                                            DropdownMenuItem(
-                                                text = {
-                                                    Text(
-                                                        stringResource(
-                                                            R.string.account_entry,
-                                                            account.displayName(),
-                                                            account.server().displayShortName(),
-                                                        ),
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                    )
-                                                },
-                                                leadingIcon = {
-                                                    if (account.uid == activeUid) {
-                                                        Icon(Icons.Outlined.Check, contentDescription = null)
-                                                    }
-                                                },
-                                                modifier = Modifier.semantics {
-                                                    role = Role.DropdownList
-                                                    selected = account.uid == activeUid
-                                                },
-                                                onClick = {
-                                                    accountMenuOpen = false
-                                                    if (account.uid != activeUid) {
-                                                        startRoute = currentRoute ?: ROUTE_HOME
-                                                        actions.switchAccount(account.uid)
-                                                    }
-                                                },
-                                            )
-                                        }
-                                        DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.account_add)) },
-                                            leadingIcon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                                            onClick = {
-                                                accountMenuOpen = false
-                                                actions.addAccount()
-                                            },
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.account_logout_item)) },
-                                            leadingIcon = {
-                                                Icon(Icons.AutoMirrored.Outlined.Logout, contentDescription = null)
-                                            },
-                                            onClick = {
-                                                accountMenuOpen = false
-                                                logoutConfirmOpen = true
-                                            },
-                                        )
-                                    }
-                                }
                                 IconButton(onClick = { queryOpen = true }) {
                                     Icon(Icons.Outlined.PersonSearch, contentDescription = stringResource(R.string.query_title))
                                 }
@@ -245,7 +187,7 @@ fun GigiNavHost() {
                             NavigationBar {
                                 destinations.forEach { dest ->
                                     NavigationBarItem(
-                                        selected = currentRoute == dest.route,
+                                        selected = baseRoute == dest.route,
                                         onClick = { navController.navigateToTab(dest.route) },
                                         icon = { Icon(dest.icon, contentDescription = stringResource(dest.labelRes)) },
                                         label = {
@@ -258,7 +200,7 @@ fun GigiNavHost() {
                                         alwaysShowLabel = true,
                                         modifier = Modifier.semantics {
                                             role = Role.Tab
-                                            this.selected = currentRoute == dest.route
+                                            this.selected = baseRoute == dest.route
                                         },
                                     )
                                 }
@@ -284,7 +226,7 @@ fun GigiNavHost() {
                                 }
                                 destinations.forEach { dest ->
                                     NavigationRailItem(
-                                        selected = currentRoute == dest.route,
+                                        selected = baseRoute == dest.route,
                                         onClick = { navController.navigateToTab(dest.route) },
                                         icon = { Icon(dest.icon, contentDescription = stringResource(dest.labelRes)) },
                                         label = {
@@ -296,7 +238,7 @@ fun GigiNavHost() {
                                         },
                                         modifier = Modifier.semantics {
                                             role = Role.Tab
-                                            this.selected = currentRoute == dest.route
+                                            this.selected = baseRoute == dest.route
                                         },
                                     )
                                 }
@@ -354,6 +296,21 @@ fun GigiNavHost() {
                                     onShowToast = { toastController.show(it) },
                                 )
                             }
+                            // 「我的」页（V35 P0 骸架）：四分区 + 账号管理；二级页为 P0 占位（P2 填数据）。
+                            // 二级页直接 navigate（不经 navigateToTab）：不进 tab 的 saveState 体系，
+                            // 返回键逐级回退；底部导航选中态靠 baseRoute 保持「我的」高亮。
+                            composable(ROUTE_MY) {
+                                MyRoute(
+                                    onOpenDeck = { navController.navigate(ROUTE_MY_DECK) },
+                                    onOpenCardBack = { navController.navigate(ROUTE_MY_CARDBACK) },
+                                    onOpenFavorites = { navController.navigate(ROUTE_MY_FAVORITES) },
+                                    onOpenChallenge = { navController.navigate(ROUTE_MY_CHALLENGE) },
+                                )
+                            }
+                            composable(ROUTE_MY_DECK) { MySubpagePlaceholder(titleRes = R.string.my_deck_entry) }
+                            composable(ROUTE_MY_CARDBACK) { MySubpagePlaceholder(titleRes = R.string.my_cardback_entry) }
+                            composable(ROUTE_MY_FAVORITES) { MySubpagePlaceholder(titleRes = R.string.my_favorites_entry) }
+                            composable(ROUTE_MY_CHALLENGE) { MySubpagePlaceholder(titleRes = R.string.my_challenge_entry) }
                         }
                     }
                 }
@@ -375,24 +332,7 @@ fun GigiNavHost() {
         if (aboutOpen) {
             AboutDialog(onClose = { aboutOpen = false })
         }
-        if (logoutConfirmOpen) {
-            AlertDialog(
-                onDismissRequest = { logoutConfirmOpen = false },
-                title = { Text(stringResource(R.string.account_logout_confirm_title)) },
-                text = { Text(stringResource(R.string.account_logout_message)) },
-                dismissButton = {
-                    TextButton(onClick = { logoutConfirmOpen = false }) { Text(stringResource(R.string.action_cancel)) }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            logoutConfirmOpen = false
-                            actions.logout()
-                        },
-                    ) { Text(stringResource(R.string.action_logout)) }
-                },
-            )
-        }
+        // 登出确认对话框已随账户管理迁入「我的」页（MyRoute），本层不再持有相关状态。
     }
 }
 

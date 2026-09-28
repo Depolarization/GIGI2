@@ -22,6 +22,7 @@
     <string name="nav_rank">排行榜</string>
     <string name="nav_card_stats">卡牌統計</string>
     <string name="nav_card_wiki">卡牌圖鑑</string>
+    <string name="nav_my">我的</string>
     <string name="cd_refresh">重新整理</string>
     <string name="cd_search">搜尋</string>
     <string name="cd_about">關於</string>
@@ -34,6 +35,22 @@
     <string name="account_default_nickname">玩家%1$s</string>
     <string name="account_logout_confirm_title">登出目前帳號？</string>
     <string name="account_logout_message">登出後將刪除本機儲存的目前帳號憑證，其他帳號不受影響。</string>
+
+    <!-- 我的頁（V35 P0 骸架，設計文件 §3.2/§3.3） -->
+    <string name="my_section_accounts">帳號</string>
+    <string name="my_section_profile">個人資訊</string>
+    <string name="my_section_assets">卡牌資產</string>
+    <string name="my_section_records">對局記錄</string>
+    <string name="my_account_subtitle">%1$s · %2$s</string>
+    <string name="my_account_current">目前帳號</string>
+    <string name="my_profile_nickname">暱稱</string>
+    <string name="my_profile_game_uid">遊戲 UID</string>
+    <string name="my_profile_level">牌手等級</string>
+    <string name="my_deck_entry">我的牌組</string>
+    <string name="my_cardback_entry">卡背圖鑑</string>
+    <string name="my_favorites_entry">收藏對局</string>
+    <string name="my_challenge_entry">勝冠之試</string>
+    <string name="my_placeholder_note">此功能將於後續版本開放。</string>
 
     <!-- 伺服器 -->
     <string name="server_cn_gf01">天空島</string>
@@ -92,17 +109,27 @@
     <!-- 登入頁 -->
     <string name="login_title">GIGI · 七聖召喚賽事工具</string>
     <string name="login_expired_notice">登入已失效，請重新掃碼登入</string>
+    <!-- V33：拆除伺服器預選後，no-role 只剩「帳號沒有可登入的國服角色」一種成因，
+         文案統一引導去米遊社綁定／檢查；「請切換伺服器」建議隨選擇器一併撤銷。
+         （V30 的 login_no_role_notice / login_no_role_elsewhere_notice 兩條已刪除） -->
     <string name="login_no_role_none_notice">該米遊社帳號未綁定任何原神角色，請先在米遊社「我的角色」中綁定後再試</string>
-    <string name="login_no_role_notice">該米遊社帳號未綁定%1$s的原神角色，請切換伺服器後重試</string>
-    <string name="login_no_role_elsewhere_notice">該米遊社帳號的原神角色綁定在%1$s，不在你選擇的%2$s，請切換伺服器後重試</string>
     <string name="login_status_generating">正在產生QR Code…</string>
     <!-- V29-B：原「請掃碼並確認登入」與「成功後自動刪圖」兩段灰字合併為一句（登入頁按鈕下方只留一段） -->
     <string name="login_status_waiting">請用米遊社或雲·原神掃碼並確認登入，登入成功後會自動刪除已儲存的 QR Code</string>
     <string name="login_status_scanned">已掃碼，請在手機上確認登入…</string>
     <string name="login_status_refreshing">QR Code 已失效，正在換新碼…</string>
     <string name="login_status_finalizing">登入已確認，正在完成憑證交換…</string>
+    <!-- V33：多角色帳號的 ChooseRole 態（對話框覆蓋展示，此文案為狀態列兜底） -->
+    <string name="login_status_choose_role">該帳號綁定了多個角色，請選擇要登入的角色</string>
     <string name="login_status_failed">產生失敗：%1$s</string>
     <string name="login_status_success">登入成功</string>
+    <!-- V33：承接原「伺服器二選一」控制項拆除後的資訊功能（登入頁 QR Code 下方一行說明） -->
+    <string name="login_servers_supported">支援國服官方（天空島）與渠道服（世界樹）帳號登入</string>
+    <string name="login_choose_role_title">選擇要登入的角色</string>
+    <string name="login_choose_role_rescan">重新掃碼</string>
+    <!-- V34：多選對話框的確認按鈕（勾選多個角色 → 逐個登入並儲存為多帳號）與部分失敗提示 -->
+    <string name="login_choose_role_confirm">登入並儲存</string>
+    <string name="login_choose_role_partial">已儲存 %1$d 個帳號，%2$d 個失敗：%3$s</string>
     <string name="login_qr_image_desc">米遊社掃碼登入QR Code</string>
     <string name="login_qr_scanned_badge">已掃碼</string>
     <string name="login_qr_scanned_confirm">已掃碼，請在手機確認</string>

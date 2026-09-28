@@ -21,7 +21,13 @@ class SessionRefreshWiringTest {
     private fun account(uid: String) = StoredAccount(uid = uid, nickname = "n-$uid")
 
     private fun success(uid: String) =
-        AuthFinalizeResult.Success(mergedCookie = "cookie=$uid", gameUid = uid, nickname = "n", exchanged = true)
+        AuthFinalizeResult.Success(
+            mergedCookie = "cookie=$uid",
+            gameUid = uid,
+            nickname = "n",
+            exchanged = true,
+            region = "cn_gf01",
+        )
 
     // ---- 测试 1：ContainerSessionRefresher 行为 ----
 

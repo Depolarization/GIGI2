@@ -13,9 +13,9 @@ package com.gigi.tcg.data
  *
  * ⚠️ 别被其他游戏的 region 命名带偏（2026-09-28 真机踩坑）：新一代游戏走 `prod_*` 体系——
  * 星穹铁道 `prod_gf_cn`(官服)/`prod_qd_cn`(渠道服)，绝区零实测同为 `prod_gf_cn`（新艾利都）。
- * `getGameRecordCard` 会把这些卡片和原神的一起返回，`prod_gf_cn` 曾被误读成"原神渠道服"。
- * 正确做法是按 `game_id == 2` 过滤（见 `AuthManager.isGenshinCard`），**不要**靠 region
- * 字符串形态猜测游戏归属。
+ * 角色枚举接口（不传 game_biz 时）会把这些游戏的角色和原神的一起返回，`prod_gf_cn` 曾被误读
+ * 成"原神渠道服"。正确做法是按 `game_biz` 过滤（见 `AuthManager.isGenshinBinding`），
+ * **不要**靠 region 字符串形态猜测游戏归属。
  */
 sealed class ServerId(val id: String, val name: String, val shortName: String) {
     /** 天空岛 cn_gf01 */
@@ -33,11 +33,11 @@ sealed class ServerId(val id: String, val name: String, val shortName: String) {
     fun shortNameOrDefault(): String = shortName
 
     companion object {
-        /** 全部可选服务器（切换控件渲染顺序即此列表顺序）。
+        /** 全部可选服务器（顺序=注册表声明顺序：官服、渠道服）。
          *  🔴 必须 lazy：嵌套 object 的类初始化发生在伴生对象之后，急切求值得到 [null, null] */
         val ALL: List<ServerId> by lazy { listOf(Official, Channel) }
 
-        /** 默认服务器：官服——未选择或标识符非法时的兜底目标 */
+        /** 默认服务器：官服——无账户/未识别标识符时的兜底目标（V33 起登录不再由用户预选） */
         val DEFAULT: ServerId get() = Official
 
         /** 按标识符精确查找（未命中返回 null，不做兜底；非注册表值一律不合法） */
@@ -58,5 +58,5 @@ fun resolveServerWithFallback(id: String?): ServerResolution {
     else ServerResolution(ServerId.DEFAULT, fallback = true)
 }
 
-/** 另一个服务器（二选一切换控件用） */
+/** 另一个服务器（V33 前登录页二选一控件使用；控件已拆除，暂无生产调用点，保留作注册表 API） */
 fun otherServer(id: ServerId): ServerId = ServerId.ALL.first { it != id }

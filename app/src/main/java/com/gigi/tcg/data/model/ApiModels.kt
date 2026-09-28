@@ -21,11 +21,18 @@ data class MihoyoResponse<T>(
  * 登录态接口 common/badge/v1/login/info 的 data（原 App 仅消费 game_uid）。
  * 🔴 这里**没有**米游社社区 UID，需要社区维度数据时得另找来源（登录流程/用户提供），
  * 不能拿 gameUid 顶替。
+ *
+ * [region]：账号所持角色的区服（cn_gf01 / cn_qd01）。实测口径（2026-09-28 真机 + 原始返回）：
+ * `e_hk4e_token` 是 **per-角色** 的，本接口返回值完全由 cookie 中所持 token 决定、
+ * 与请求的 `badge_region` 参数无关——渠道服 token 恒返回渠道服角色（region=cn_qd01），
+ * 官服 token 恒返回官服角色。旧版单槽凭据被收养为正式账户时必须以此校准服务器归属，
+ * 不能用 currentServer（冷启动恒为默认官服），否则渠道服账户会被错标成官服账户。
  */
 @Serializable
 data class LoginInfoData(
     @SerialName("game_uid") val gameUid: String? = null,
     @SerialName("nickname") val nickname: String? = null,
+    @SerialName("region") val region: String? = null,
 )
 
 /** 天梯/巅峰积分及变化量 */

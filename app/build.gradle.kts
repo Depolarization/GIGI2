@@ -52,6 +52,14 @@ android {
                 applicationIdSuffix = ".icondev"
                 versionNameSuffix = "-icondev"
             }
+            // 账号系统端到端测试旁路：仅当显式传入 -PgigiCookieDev 时，把 debug 包装成
+            // 独立条目（com.gigi.tcg.cookiedev），与设备上已装的 release 包并存。
+            // 配合 DebugCredentialInjector 的 raw_cookie 通道，做「只读 cookie、不走二维码」
+            // 的完整登录链路测试（AuthManager.finalize → CredentialStore 落盘 → AppGate 收养）。
+            if (project.hasProperty("gigiCookieDev")) {
+                applicationIdSuffix = ".cookiedev"
+                versionNameSuffix = "-cookiedev"
+            }
         }
         release {
             isMinifyEnabled = true

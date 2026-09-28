@@ -13,12 +13,21 @@
 // ⑥ 按钮下方原先两段灰字（「请扫码并确认登录」+「成功后自动删图」）合并为一句，并入
 // login_status_waiting、删 login_qr_autodelete_hint；
 // ⑦ 切换服务器不再重新出码（换码只由码自身失效驱动，见 LoginViewModel.selectServer）。
+// V33（2026-09-28）：⑧ 拆除服务器二选一控件（SegmentedButton）—— 二维码与服务器无关，
+// 服务器归属的正确决策时机在扫码确认之后（LoginViewModel.finalize → 唯一角色自动登录 /
+// 多角色 ChooseRole 弹选择）。原控件的信息功能（"支持这两台服"）由二维码下方的
+// login_servers_supported 一行说明承接；⑨ 新增 RoleChooserDialog（多角色账号的选择器）。
+// V34（2026-09-28）：⑩ RoleChooserDialog 由单选改**多选**（样式对齐统计页导出对话框的
+// ExportOptionRow：整行可点 + Checkbox）：默认全选、确认按钮在至少勾一项时可用，
+// 勾中的角色逐个登录并保存为多账户（提交顺序 = 候选列表顺序，见 selectedRolesInOrder）；
+// 部分失败时对话框带 notice 重现（只列失败项），用户无需重新扫码即可补登。
 
 package com.gigi.tcg.ui.login
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,8 +45,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -45,18 +56,19 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
@@ -64,9 +76,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gigi.tcg.R
-import com.gigi.tcg.data.ServerId
+import com.gigi.tcg.data.auth.AuthFinalizeResult
 import com.gigi.tcg.i18n.LocaleStrings
-import com.gigi.tcg.i18n.displayName
+import com.gigi.tcg.i18n.serverDisplayNameSync
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,7 +90,6 @@ fun LoginScreen(
     onCancelAddAccount: (() -> Unit)? = null,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val server by viewModel.serverFlow.collectAsStateWithLifecycle()
     val saving by viewModel.qrSaving.collectAsStateWithLifecycle()
 
     // 保存二维码的反馈走本页 Scaffold 的 Snackbar：本页挂在 AppGate 状态机上，
@@ -158,27 +169,10 @@ fun LoginScreen(
                 )
             }
 
-            // ③ 服务器二选一（只切 finalize 的目标服务器，**不换码** —— 见 LoginViewModel.selectServer）。
-            //    用 SegmentedButton 而非 chip：整行撑满、两段等宽拼接，视觉上就是一个「二选一」开关；
-            //    chip 悬浮居中不像互斥选择。
-            //    itemShape 必须带 index/count，否则两段都是全圆角、拼不起来。
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                ServerId.ALL.forEachIndexed { index, option ->
-                    SegmentedButton(
-                        selected = option == server,
-                        onClick = { viewModel.selectServer(option) },
-                        shape = SegmentedButtonDefaults.itemShape(
-                            index = index,
-                            count = ServerId.ALL.size,
-                        ),
-                        label = { Text(option.displayName()) },
-                    )
-                }
-            }
-
-            // ④ 二维码卡：卡内只放码（图 / 生成中占位 / 已扫描蒙层）。
+            // ③ 二维码卡：卡内只放码（图 / 生成中占位 / 已扫描蒙层）。
             //    卡内套一层 padding(16dp) + aspectRatio(1f) 的方形 Box，码 fillMaxSize 贴满方形内容区：
             //    码是正方形位图，Fit 缩放后正好等于内容区，四边留白恒等于 16dp、几何居中。
+            //    （V33：此位置原有的服务器二选一控件已拆除，服务器归属由扫码后的角色选择承担。）
             Card(Modifier.fillMaxWidth()) {
                 Box(
                     modifier = Modifier
@@ -191,7 +185,7 @@ fun LoginScreen(
                 }
             }
 
-            // ⑤ 操作组：两个同款 OutlinedButton 横向等宽并列 + 其下一段说明文字，
+            // ④ 操作组：两个同款 OutlinedButton 横向等宽并列 + 其下说明文字，
             //    以 8dp 紧贴成一体跟随二维码（V28-D 的「保存是唯一主动作」层级在此让位于
             //    「保存 / 重新生成」平权：两者都是对同一张码的操作，分出主次反而要用户猜）。
             //    二维码未就绪（生成中/收尾）两个都禁用；保存中转小进度环。
@@ -252,11 +246,31 @@ fun LoginScreen(
                     },
                     textAlign = TextAlign.Center,
                 )
+
+                // 支持范围说明（V33）：承接原「服务器二选一」控件拆除后的信息功能 ——
+                // 用户扫码前就能确认"我这个渠道服/官服账号能不能用"，不再靠一个切换开关暗示。
+                Text(
+                    stringResource(R.string.login_servers_supported),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
             }
-            // 原 ⑥ 独立的失败态主按钮已并入 ⑤ 的「重新生成」（同一动作 viewModel.retry，
-            // 无需按状态换样式）；原 ⑦「底部说明」（首登凭据去向 / 添加账户多账户共存）
+            // 原 ⑤ 独立的失败态主按钮已并入 ④ 的「重新生成」（同一动作 viewModel.retry，
+            // 无需按状态换样式）；原「底部说明」（首登凭据去向 / 添加账户多账户共存）
             // V28-D 起撤出本页，归 about 段（数据来源 / 使用要点）。
         }
+    }
+    // ⑨ 角色选择对话框（V33，V34 改多选）：多角色账号（典型：官服+渠道服各一）时覆盖本页展示候选。
+    //    码已确认失效、凭据未写入，用户勾选（默认全选）后逐个登录并保存；「重新扫码」给换账号出口。
+    //    部分失败时本态带着 notice 重现（candidates 只列失败项），用户可直接补登失败角色。
+    (state as? LoginUiState.ChooseRole)?.let { chooseRole ->
+        RoleChooserDialog(
+            candidates = chooseRole.candidates,
+            notice = chooseRole.notice,
+            onConfirm = { viewModel.chooseRoles(it) },
+            onRescan = { viewModel.begin() },
+        )
     }
 }
 
@@ -322,6 +336,130 @@ private fun statusText(state: LoginUiState): String = when (state) {
         QrPhase.Refreshing -> stringResource(R.string.login_status_refreshing)
     }
     is LoginUiState.Finalizing -> stringResource(R.string.login_status_finalizing)
+    is LoginUiState.ChooseRole -> stringResource(R.string.login_status_choose_role)
     is LoginUiState.Failed -> stringResource(R.string.login_status_failed, state.message)
     is LoginUiState.LoggedIn -> stringResource(R.string.login_status_success)
 }
+
+/**
+ * 角色选择对话框（V33 引入，V34 改多选）：该米游社账号绑定了多个可登录角色时展示候选
+ * （典型：官服+渠道服各一）。勾选（**默认全选**，与统计页导出多选同一产品决策：主用途是
+ * "都要"）后点「登录并保存」→ [LoginViewModel.chooseRoles] 携选中区服逐个完成凭据交换并
+ * 落盘为多账户；「重新扫码」→ [LoginViewModel.begin] 换一张码重来（想换账号的场景）。
+ *
+ * [notice]：部分成功时由 VM 带回（"已保存 N 个账户，M 个失败：原因"，候选此时只列失败项），
+ * 帮用户在框内直接补登，不必重新扫码。
+ *
+ * 🔴 不允许点外部/返回键关闭：此刻凭据已确认但未落盘，必须显式决断（登录 / 重新扫码）
+ * 才能离开，静默关闭会让用户以为登录卡死。
+ */
+@Composable
+private fun RoleChooserDialog(
+    candidates: List<AuthFinalizeResult.BoundRole>,
+    notice: String?,
+    onConfirm: (List<AuthFinalizeResult.BoundRole>) -> Unit,
+    onRescan: () -> Unit,
+) {
+    // 默认全选；勾选态以候选为 key —— 部分失败重现对话框（候选变为失败项）时重置为全选，
+    // 用户直接确认即可重试全部失败项。
+    var selected by remember(candidates) { mutableStateOf(initialRoleSelection(candidates)) }
+    AlertDialog(
+        onDismissRequest = { /* 不提供隐式关闭：显式登录或重新扫码 */ },
+        title = { Text(stringResource(R.string.login_choose_role_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                notice?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                candidates.forEach { role ->
+                    RoleOptionRow(
+                        role = role,
+                        checked = role.uid in selected,
+                        onCheckedChange = { now ->
+                            selected = if (now) selected + role.uid else selected - role.uid
+                        },
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = selected.isNotEmpty(),
+                onClick = { onConfirm(selectedRolesInOrder(candidates, selected)) },
+            ) {
+                Text(stringResource(R.string.login_choose_role_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onRescan) {
+                Text(stringResource(R.string.login_choose_role_rescan))
+            }
+        },
+    )
+}
+
+/**
+ * 多选项行（V34，样式对齐统计页导出对话框的 ExportOptionRow）：整行可点 + 左 Checkbox、
+ * 右两行文案（昵称 + [roleSubtitle]）。Checkbox 自身与整行点击都切换勾选（M3 惯用手势），
+ * 不冲突——Checkbox 消费自身点击，行只响应其余区域。
+ */
+@Composable
+private fun RoleOptionRow(
+    role: AuthFinalizeResult.BoundRole,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked = checked, onCheckedChange = onCheckedChange)
+        Column(modifier = Modifier.padding(start = 4.dp)) {
+            Text(
+                role.nickname?.takeIf { it.isNotEmpty() } ?: role.uid,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                roleSubtitle(role),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * 角色行副标题：「服名 · Lv.N · UID xxxxx」—— 展示数据可直接判别的身份要素，
+ * 让用户一眼确认要点哪个号（跟原本"先选服再扫"相比，这里给的是**真实存在的角色**）。
+ * 服名优先服务端 region_name，缺失回落本地映射；Lv 缺失则省略该段（"Lv."/UID 为游戏通用写法，不入 i18n）。
+ */
+internal fun roleSubtitle(role: AuthFinalizeResult.BoundRole): String = listOfNotNull(
+    role.regionName?.takeIf { it.isNotEmpty() } ?: serverDisplayNameSync(role.region),
+    role.level?.let { "Lv.$it" },
+    "UID ${role.uid}",
+).joinToString(" · ")
+
+/**
+ * 角色选择初始集合（V34 多选）：**默认全选** —— 与统计页导出多选同一产品决策，
+ * 主用途是"两个角色都要"（纯函数，JVM 单测钉死）。
+ */
+internal fun initialRoleSelection(candidates: List<AuthFinalizeResult.BoundRole>): Set<String> =
+    candidates.mapTo(LinkedHashSet()) { it.uid }
+
+/**
+ * 取勾选中的角色，**按候选列表顺序**输出（= 服务端绑定列表顺序，官服通常在前）——
+ * 提交顺序与勾选先后无关，保证 VM 侧"激活账户 = 第一个成功角色"的语义稳定可预期。
+ * 纯函数，JVM 单测钉死。
+ */
+internal fun selectedRolesInOrder(
+    candidates: List<AuthFinalizeResult.BoundRole>,
+    selected: Set<String>,
+): List<AuthFinalizeResult.BoundRole> = candidates.filter { it.uid in selected }
