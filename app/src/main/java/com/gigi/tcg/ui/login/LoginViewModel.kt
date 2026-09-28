@@ -93,34 +93,45 @@ internal fun shouldDeleteSavedQr(event: QrLifecycleEvent): Boolean =
  * no-role 提示文案分因（纯函数，NoRoleNoticeTest 钉死）。
  *
  * 🔴 为什么必须分因：判据只有一个 —— [AuthFinalizeResult.NoRole.region] 没在
- * `getGameRecordCard` 返回里命中**带 game_role_id 的**同 region 项。但"没命中"有两种截然
- * 不同的成因，此前被合并成同一句"该账号未绑定 X 的原神角色"：
- * 1. **真没绑 / 角色不带 id**（[AuthFinalizeResult.NoRole.boundRegions] 为空）——原提示正确；
- * 2. **角色绑在别的区服**（boundRegions 非空且不含所选服）——典型如"渠道服用户扫了码但角色
+ * `getGameRecordCard` 返回里命中**带 game_role_id 的原神（game_id=2）**同 region 项。
+ * 但"没命中"有两种截然不同的成因，此前被合并成同一句"该账号未绑定 X 的原神角色"：
+ * 1. **真没绑任何原神角色**（[AuthFinalizeResult.NoRole.boundRoles] 为空）——此时"请切换
+ *    服务器"是**错误建议**（切了也没有），必须改为引导去米游社绑定；
+ * 2. **角色绑在别的区服**（boundRoles 非空且不含所选服）——典型如"渠道服用户扫了码但角色
  *    绑在官服"（或反之）。此时原提示是**误导**：用户会认定自己没绑角色，于是反复换码重扫，
  *    而正确动作只是切到角色所在的服务器。
  *
- * 所以第 2 种改用 [R.string.login_no_role_elsewhere_notice]，把"绑在哪"直接说出来。
+ * 所以第 1 种走 [R.string.login_no_role_none_notice]，第 2 种走
+ * [R.string.login_no_role_elsewhere_notice] 并把"绑在哪 + 是哪个角色（UID）"直接说出来。
  * 纯展示逻辑，不改变任何凭据判定（登录成败仍由 AuthManager 决定）。
  */
 internal fun noRoleNotice(result: AuthFinalizeResult.NoRole, server: ServerId): String {
     val selected = server.displayNameSync()
-    val elsewhere = result.boundRegions
-        .filter { it != result.region }
-        .map { serverDisplayNameSync(it) }
+    val elsewhere = result.boundRoles.filter { it.region != result.region }
     // 🔴 用 getOrDefault 而非 get：JVM 单测无 Android 资源桥，get 会返回 [missing:…] 哨兵，
     // 默认字面量与 values/strings.xml 保持一致（与数据层既有约定同范式）。
-    return if (elsewhere.isEmpty()) {
-        LocaleStrings.getOrDefault(
+    return when {
+        // 三种成因中最需要区分的一种：账号根本没绑任何原神角色 ——
+        // 此时"请切换服务器"是错误建议（切了也没有），必须引导去米游社绑定。
+        result.boundRoles.isEmpty() -> LocaleStrings.getOrDefault(
+            R.string.login_no_role_none_notice,
+            "该米游社账号未绑定任何原神角色，请先在米游社「我的角色」中绑定后再试",
+        )
+        elsewhere.isEmpty() -> LocaleStrings.getOrDefault(
             R.string.login_no_role_notice,
             "该米游社账号未绑定%1\$s的原神角色，请切换服务器后重试",
             selected,
         )
-    } else {
-        LocaleStrings.getOrDefault(
+        else -> LocaleStrings.getOrDefault(
             R.string.login_no_role_elsewhere_notice,
             "该米游社账号的原神角色绑定在%1\$s，不在你选择的%2\$s，请切换服务器后重试",
-            elsewhere.joinToString("、"),
+            // 优先用服务端下发的官方区服名（region_name），并把 UID 一并透出，
+            // 让用户一眼确认是哪个角色；region_name 缺失才回落本地映射。
+            elsewhere.joinToString("、") { role ->
+                val name = role.regionName?.takeIf { it.isNotEmpty() }
+                    ?: serverDisplayNameSync(role.region)
+                "$name（UID ${role.uid}）"
+            },
             selected,
         )
     }

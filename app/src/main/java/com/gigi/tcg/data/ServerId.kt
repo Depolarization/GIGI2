@@ -6,6 +6,16 @@ package com.gigi.tcg.data
  *
  * i18n：🔴 数据层不 import R —— 三语显示名由 `com.gigi.tcg.i18n.displayName()` 提供
  * （那里做 id→资源映射）；[name]/[shortName] 为简中兜底字面量，仅供数据层/日志。
+ *
+ * 🔴 原神国服 region 全集（权威对照：mihoyo-api-collect/other/id.md「原神 · 服务器名称」）：
+ * `cn_gf01` 官服（天空岛）/ `cn_qd01` 渠道服（世界树）；另 `os_asia`/`os_euro`/`os_usa`/
+ * `os_cht` 是国际服，本应用只做国服两个。
+ *
+ * ⚠️ 别被其他游戏的 region 命名带偏（2026-09-28 真机踩坑）：新一代游戏走 `prod_*` 体系——
+ * 星穹铁道 `prod_gf_cn`(官服)/`prod_qd_cn`(渠道服)，绝区零实测同为 `prod_gf_cn`（新艾利都）。
+ * `getGameRecordCard` 会把这些卡片和原神的一起返回，`prod_gf_cn` 曾被误读成"原神渠道服"。
+ * 正确做法是按 `game_id == 2` 过滤（见 `AuthManager.isGenshinCard`），**不要**靠 region
+ * 字符串形态猜测游戏归属。
  */
 sealed class ServerId(val id: String, val name: String, val shortName: String) {
     /** 天空岛 cn_gf01 */

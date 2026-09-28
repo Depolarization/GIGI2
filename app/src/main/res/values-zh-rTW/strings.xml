@@ -92,6 +92,7 @@
     <!-- 登入頁 -->
     <string name="login_title">GIGI · 七聖召喚賽事工具</string>
     <string name="login_expired_notice">登入已失效，請重新掃碼登入</string>
+    <string name="login_no_role_none_notice">該米遊社帳號未綁定任何原神角色，請先在米遊社「我的角色」中綁定後再試</string>
     <string name="login_no_role_notice">該米遊社帳號未綁定%1$s的原神角色，請切換伺服器後重試</string>
     <string name="login_no_role_elsewhere_notice">該米遊社帳號的原神角色綁定在%1$s，不在你選擇的%2$s，請切換伺服器後重試</string>
     <string name="login_status_generating">正在產生QR Code…</string>

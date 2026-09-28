@@ -48,14 +48,30 @@ sealed interface AuthFinalizeResult {
     /**
      * 账号未绑定所选服务器的原神角色：未产生任何写入/副作用。
      *
-     * 🔴 [boundRegions] 是该米游社账号**实际已绑定**的原神角色所在区服（去重、已排除空
+     * 🔴 [boundRoles] 是该米游社账号**实际已绑定**的原神角色（仅 game_id=2，去重、已排除空
      * region / 空 game_role_id 的噪声项）。它区分了两种此前被混成同一句提示的失败：
-     * - 空 ⇒ 账号真的一个原神角色都没绑（提示"未绑定"即可）；
+     * - 空 ⇒ 账号真的一个原神角色都没绑（提示应引导去米游社绑定，而非"切换服务器"）；
      * - 非空且不含所选服 ⇒ 角色绑在别的区服上（提示应改为"该账号绑的是 X，请切换服务器"，
      *   否则用户会以为自己没绑角色，反复扫码）。
+     *
+     * 实测取证（2026-09-28 真机 + 官方接口原始返回）：getGameRecordCard **不按 gids=2 过滤**，
+     * 会一并返回同一米游社账号绑定的其他游戏卡片（实测混入绝区零 game_id=8 /
+     * region=prod_gf_cn / region_name=新艾利都）。不过滤 game_id 会让这些卡片被误当成
+     * "原神角色绑在别的区服"，把提示污染成用户看不懂的服务器标识。
      */
-    data class NoRole(val region: String, val boundRegions: List<String> = emptyList()) :
-        AuthFinalizeResult
+    data class NoRole(val region: String, val boundRoles: List<BoundRole> = emptyList()) :
+        AuthFinalizeResult {
+        /** 兼容/展示：已绑定原神角色的区服标识（去重保序，口径同 [boundRoles]） */
+        val boundRegions: List<String> get() = boundRoles.map { it.region }
+    }
+
+    /** 已绑定的原神角色摘要（仅 game_id=2），供 no-role 提示精确说明"角色实际在哪"。 */
+    data class BoundRole(
+        val region: String,
+        val regionName: String?,
+        val uid: String,
+        val nickname: String?,
+    )
 }
 
 /**
@@ -211,7 +227,7 @@ class AuthManager(
         val role = findGameRoleForRegion(recordList, server.id)
             ?: return AuthFinalizeResult.NoRole(
                 region = server.id,
-                boundRegions = boundRegionsOf(recordList),
+                boundRoles = boundRolesOf(recordList),
             )
 
         val region = role.region.orEmpty()
@@ -337,6 +353,9 @@ class AuthManager(
         /** 米游社网页端 app_id（auth-core.mjs QR_APP_ID，设计 §3.1 要求保留） */
         const val QR_APP_ID: String = "bll8iq97cem8"
 
+        /** getGameRecordCard 里原神的 game_id（实测 2026-09-28：绝区零=8 会混入同一响应，须过滤） */
+        const val GAME_ID_GENSHIN: Int = 2
+
         const val POLL_INTERVAL_MS: Long = 2500L
         const val RETCODE_EXPIRED: Int = -3501
         const val RETCODE_CANCELLED: Int = -3505
@@ -378,20 +397,34 @@ class AuthManager(
             return fragments.firstOrNull { it.startsWith(prefix) }?.substring(prefix.length)
         }
 
-        /** find(g => g.region === region && g.game_role_id) 语义。纯函数，no-role 判定唯一入口。 */
+        /** find(g => g.region === region && g.game_role_id) 语义 + game_id 过滤。
+         *  纯函数，no-role 判定唯一入口；game_id 过滤理由见 [isGenshinCard]。 */
         fun findGameRoleForRegion(list: List<GameRoleCard>, region: String): GameRoleCard? =
-            list.firstOrNull { it.region == region && !it.gameRoleId.isNullOrEmpty() }
+            list.firstOrNull {
+                it.isGenshinCard() && it.region == region && !it.gameRoleId.isNullOrEmpty()
+            }
 
         /**
-         * 该账号**实际已绑定**的原神角色所在区服（去重、保持服务端返回顺序）。
-         * 噪声项过滤口径与 [findGameRoleForRegion] 一致：region 非空且 game_role_id 非空才算真角色。
-         * 仅供 no-role 提示定位"角色其实绑在别的服"，不参与任何凭据判定。
+         * 该账号**实际已绑定**的原神角色摘要（去重、保持服务端返回顺序）。
+         * 噪声项过滤口径与 [findGameRoleForRegion] 一致：原神卡片（game_id 过滤）+ region 非空
+         * + game_role_id 非空。仅供 no-role 提示定位"角色其实绑在别的服"，不参与任何凭据判定。
          */
-        fun boundRegionsOf(list: List<GameRoleCard>): List<String> =
+        fun boundRolesOf(list: List<GameRoleCard>): List<AuthFinalizeResult.BoundRole> =
             list.asSequence()
-                .filter { !it.region.isNullOrEmpty() && !it.gameRoleId.isNullOrEmpty() }
-                .mapNotNull { it.region }
-                .distinct()
+                .filter {
+                    it.isGenshinCard() &&
+                        !it.region.isNullOrEmpty() &&
+                        !it.gameRoleId.isNullOrEmpty()
+                }
+                .map {
+                    AuthFinalizeResult.BoundRole(
+                        region = it.region!!,
+                        regionName = it.regionName,
+                        uid = it.gameRoleId!!,
+                        nickname = it.nickname,
+                    )
+                }
+                .distinctBy { it.region }
                 .toList()
 
         /** 响应 Set-Cookie 头 → name=value 片段（attributes 截断丢弃，对齐 collectSetCookies）。 */
@@ -426,7 +459,23 @@ class AuthManager(
 data class GameRoleCard(
     val region: String? = null,
     @SerialName("game_role_id") val gameRoleId: String? = null,
+    /** 游戏编号：原神=2、绝区零=8（实测）。过滤判定见 [isGenshinCard] */
+    @SerialName("game_id") val gameId: Int? = null,
+    @SerialName("game_name") val gameName: String? = null,
+    val nickname: String? = null,
+    /** 服务端本地化的区服名（天空岛/世界树/新艾利都）——提示文案直接用官方口径 */
+    @SerialName("region_name") val regionName: String? = null,
+    val level: Int? = null,
 )
+
+/**
+ * 该卡片是否属于原神。
+ * 🔴 不写成 `gameId == GAME_ID_GENSHIN`：设计红线 1 要求字段全可空，若服务端哪天不再下发
+ * game_id，严格判定会让**所有**账号都无法登录。故只排除"明确属于其他游戏"的卡片——
+ * 匹配仍有 region 精确相等兜底，宽松判定的风险面仅限提示文案。
+ */
+internal fun GameRoleCard.isGenshinCard(): Boolean =
+    gameId == null || gameId == AuthManager.GAME_ID_GENSHIN
 
 private data class ExchangePayload(val extraCookies: List<String>, val nickname: String?)
 

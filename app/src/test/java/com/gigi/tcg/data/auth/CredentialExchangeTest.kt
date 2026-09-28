@@ -159,26 +159,26 @@ class CredentialExchangeTest {
         )
     }
 
-    // ===== boundRegionsOf：no-role 提示"角色实际绑在哪"的诊断数据 =====
+    // ===== boundRolesOf：no-role 提示"角色实际绑在哪"的诊断数据 =====
 
     @Test
-    fun `bound regions keep server order and drop noise entries`() {
+    fun `bound roles keep server order and drop noise entries`() {
         // noRoleListJson：只有第一条是带 game_role_id 的真角色，另两条是噪声项
         val list = AuthManager.recordCardListFromJson(json, noRoleListJson)
-        assertEquals(listOf("cn_qd01"), AuthManager.boundRegionsOf(list))
+        assertEquals(listOf("cn_qd01"), AuthManager.boundRolesOf(list).map { it.region })
     }
 
     @Test
-    fun `bound regions are empty when account has no real role`() {
+    fun `bound roles are empty when account has no real role`() {
         val list = AuthManager.recordCardListFromJson(
             json,
             """{"data":{"list":[{"region":"cn_gf01","game_role_id":""},{"region":null}]}}""",
         )
-        assertEquals(emptyList<String>(), AuthManager.boundRegionsOf(list))
+        assertEquals(emptyList<AuthFinalizeResult.BoundRole>(), AuthManager.boundRolesOf(list))
     }
 
     @Test
-    fun `bound regions dedupe same server with multiple roles`() {
+    fun `bound roles dedupe same server with multiple roles`() {
         val list = AuthManager.recordCardListFromJson(
             json,
             """{"data":{"list":[
@@ -187,17 +187,65 @@ class CredentialExchangeTest {
                 {"region":"cn_gf01","game_role_id":"2"}
             ]}}""",
         )
-        assertEquals(listOf("cn_gf01", "cn_qd01"), AuthManager.boundRegionsOf(list))
+        assertEquals(listOf("cn_gf01", "cn_qd01"), AuthManager.boundRolesOf(list).map { it.region })
     }
 
     @Test
-    fun `bound regions include the selected server when role is genuinely missing`() {
-        // 选了渠道服、账号只绑了官服 ⇒ boundRegions=[cn_gf01]，供 UI 提示"绑在官服"
+    fun `bound roles include the selected server when role is genuinely missing`() {
+        // 选了渠道服、账号只绑了官服 ⇒ boundRoles=[cn_gf01]，供 UI 提示"绑在官服"
         val list = AuthManager.recordCardListFromJson(
             json,
             """{"data":{"list":[{"region":"cn_gf01","game_role_id":"1"}]}}""",
         )
         assertNull(AuthManager.findGameRoleForRegion(list, "cn_qd01"))
-        assertEquals(listOf("cn_gf01"), AuthManager.boundRegionsOf(list))
+        assertEquals(listOf("cn_gf01"), AuthManager.boundRolesOf(list).map { it.region })
+    }
+
+    // ===== game_id 过滤：实测 getGameRecordCard 会混入其他游戏卡片 =====
+    // 取证来源（2026-09-28 真机 + 官方接口原始返回）：同一米游社账号的响应 list 里同时有
+    // 原神（game_id=2 / cn_gf01 / 天空岛）与绝区零（game_id=8 / prod_gf_cn / 新艾利都）。
+    // 不过滤 game_id 会把绝区零的 region 当成"原神角色绑在别的区服"，污染 no-role 提示。
+
+    /** 真机原始返回片段（脱敏保留结构与关键值） */
+    private val crossGameListJson =
+        """{"retcode":0,"message":"OK","data":{"list":[
+            {"game_id":2,"game_name":"原神","region":"cn_gf01","region_name":"天空岛",
+             "game_role_id":"157777921","nickname":"墨邪","level":60},
+            {"game_id":8,"game_name":"绝区零","region":"prod_gf_cn","region_name":"新艾利都",
+             "game_role_id":"25329172","nickname":"燊","level":60}
+        ]}}"""
+
+    @Test
+    fun `other-game cards are excluded from genshin role matching`() {
+        val list = AuthManager.recordCardListFromJson(json, crossGameListJson)
+        // 回归钉：绝区零的 prod_gf_cn 绝不能被当成原神角色命中
+        assertNull(AuthManager.findGameRoleForRegion(list, "prod_gf_cn"))
+        assertNotNull(AuthManager.findGameRoleForRegion(list, "cn_gf01"))
+    }
+
+    @Test
+    fun `bound roles never include other games`() {
+        val list = AuthManager.recordCardListFromJson(json, crossGameListJson)
+        assertEquals(listOf("cn_gf01"), AuthManager.boundRolesOf(list).map { it.region })
+    }
+
+    @Test
+    fun `bound roles carry official region name uid and nickname for the notice`() {
+        val list = AuthManager.recordCardListFromJson(json, crossGameListJson)
+        val role = AuthManager.boundRolesOf(list).single()
+        assertEquals("cn_gf01", role.region)
+        assertEquals("天空岛", role.regionName)
+        assertEquals("157777921", role.uid)
+        assertEquals("墨邪", role.nickname)
+    }
+
+    @Test
+    fun `cards without game_id are still treated as genshin`() {
+        // 设计红线 1：字段全可空。服务端若不再下发 game_id，宽松判定保证不至于全员无法登录。
+        val list = AuthManager.recordCardListFromJson(
+            json,
+            """{"data":{"list":[{"region":"cn_gf01","game_role_id":"1"}]}}""",
+        )
+        assertNotNull(AuthManager.findGameRoleForRegion(list, "cn_gf01"))
     }
 }

@@ -92,6 +92,7 @@
     <!-- 登录页 -->
     <string name="login_title">GIGI · 七圣召唤赛事工具</string>
     <string name="login_expired_notice">登录已失效，请重新扫码登录</string>
+    <string name="login_no_role_none_notice">该米游社账号未绑定任何原神角色，请先在米游社「我的角色」中绑定后再试</string>
     <string name="login_no_role_notice">该米游社账号未绑定%1$s的原神角色，请切换服务器后重试</string>
     <!-- V30：no-role 分因。角色其实绑在别的区服时，明确告知"绑在哪"并直接建议切到那台，
          避免用户误以为是自己没绑角色而反复扫码。%1$s=所选服务器，%2$s=实际已绑定的区服名（顿号分隔） -->
