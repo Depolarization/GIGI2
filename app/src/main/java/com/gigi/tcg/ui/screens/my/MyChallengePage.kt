@@ -6,15 +6,19 @@
 package com.gigi.tcg.ui.screens.my
 
 import android.app.Application
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -154,8 +158,13 @@ private fun ChallengeDetail(
                             style = MaterialTheme.typography.titleMedium,
                         )
                     }
-                    // medal 可能为空串/缺失：传 null 交给 AppImage 的占位，空地址会白跑一次请求
-                    val medalUrl = basic?.medal?.takeIf { it.isNotBlank() }
+                    // medal 可能为空串/缺失：传 null 交给 AppImage 的占位，空地址会白跑一次请求。
+                    // 🔴 has_data==false 时服务端仍下发 medal（实测 challenge_medal_0.png）——给 0 胜画奖牌是误导
+                    val medalUrl = if (basic?.hasData != false) {
+                        basic?.medal?.takeIf { it.isNotBlank() }
+                    } else {
+                        null
+                    }
                     if (medalUrl != null) {
                         AppImage(
                             model = medalUrl,
@@ -191,25 +200,50 @@ private fun ChallengeDetail(
 
 @Composable
 private fun ChallengeDeckRow(entry: GcgChallengeDeck) {
+    val avatars = entry.deck?.avatarCards.orEmpty()
     Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                entry.deck?.name ?: stringResource(R.string.my_deck_entry),
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            entry.winCnt?.let { winCount ->
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    stringResource(R.string.my_challenge_win_count, winCount),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 8.dp),
+                    deckDisplayName(entry.deck),
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
+                entry.winCnt?.let { winCount ->
+                    Text(
+                        stringResource(R.string.my_challenge_win_count, winCount),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+            }
+            // 角色牌头像（实测恒 3 张，字段与卡组页 DeckRow 同构）；为空时整排不画，不摆空 Box
+            if (avatars.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    avatars.forEach { card ->
+                        Box(
+                            Modifier
+                                .width(52.dp)
+                                .aspectRatio(CARD_FACE_ASPECT_RATIO)
+                                .clip(DeckCardShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                        ) {
+                            AppImage(
+                                model = card.image?.takeIf { it.isNotBlank() },
+                                contentDescription = card.name,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
+                }
             }
         }
     }

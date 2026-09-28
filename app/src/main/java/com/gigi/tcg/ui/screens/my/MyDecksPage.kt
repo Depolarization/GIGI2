@@ -50,9 +50,9 @@ import com.gigi.tcg.ui.components.AppImage
 import com.gigi.tcg.ui.components.EmptyState
 
 /** 卡面宽高比：接口图片 URL 自带 `resize,m_fixed,h_275,w_160`，按原比例摆框，避免 Crop 切掉卡名 */
-private const val CARD_FACE_ASPECT_RATIO: Float = 160f / 275f
+internal const val CARD_FACE_ASPECT_RATIO: Float = 160f / 275f
 
-private val DeckCardShape = RoundedCornerShape(8.dp)
+internal val DeckCardShape = RoundedCornerShape(8.dp)
 
 /** 详情卡位宽度：360dp 屏 - 左右 16dp 留白 - 2 条 8dp 间距 ≈ 一行 3 张 */
 private val DECK_CARD_TILE_WIDTH = 104.dp
@@ -112,7 +112,7 @@ private fun DeckRow(deck: GcgDeck, onClick: () -> Unit) {
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                deck.name ?: stringResource(R.string.my_deck_entry),
+                deckDisplayName(deck),
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -156,7 +156,7 @@ private fun DeckRow(deck: GcgDeck, onClick: () -> Unit) {
 /** 牌组详情：两组卡面。行动牌 22–25 张，整页 verticalScroll + 固定宽度流式排布（量小，不上 LazyGrid） */
 @Composable
 private fun DeckDetail(deck: GcgDeck, onBack: () -> Unit, modifier: Modifier = Modifier) {
-    MySubpageScaffold(title = deck.name ?: stringResource(R.string.my_deck_entry), onBack = onBack, modifier = modifier) {
+    MySubpageScaffold(title = deckDisplayName(deck), onBack = onBack, modifier = modifier) {
         Column(
             modifier = Modifier
                 .weight(1f)

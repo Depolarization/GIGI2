@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.gigi.tcg.R
+import com.gigi.tcg.data.model.GcgDeck
 import com.gigi.tcg.data.model.GcgTime
 import java.util.Locale
 
@@ -44,6 +45,21 @@ internal fun formatGcgDateTime(time: GcgTime?): String? {
     val hour = time?.hour ?: return date
     val minute = time.minute ?: return date
     return String.format(Locale.US, "%s %02d:%02d", date, hour, minute)
+}
+
+/**
+ * 牌组的可读名。三级回退，**必须用 isNotBlank 而不是判 null**：
+ * 🔴 实测 challenge/record 内嵌 deck 的 `name` 恒为空串（玩家未改名），
+ * 而 deckList 的 `name` 可能是"我的牌组"——空串不是 null，`?:` 兜底会静默失效画出空标题。
+ * 回退顺序：接口名 → 三张角色牌名（牌组最可辨识的标识）→ 通用条目名。
+ */
+@Composable
+internal fun deckDisplayName(deck: GcgDeck?): String {
+    val named = deck?.name?.takeIf { it.isNotBlank() }
+    if (named != null) return named
+    val avatars = deck?.avatarCards.orEmpty().mapNotNull { it.name?.takeIf(String::isNotBlank) }
+    if (avatars.isNotEmpty()) return avatars.joinToString(" / ")
+    return stringResource(R.string.my_deck_entry)
 }
 
 /**

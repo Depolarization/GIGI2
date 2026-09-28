@@ -91,7 +91,9 @@ private fun MatchRow(match: GcgMatch) {
                     )
                 }
                 Text(
-                    match.opposite?.name ?: stringResource(R.string.state_empty_response),
+                    // name 可能是空串（不是 null，`?:` 不生效），空串一并兜底避免画出空标题
+                    match.opposite?.name?.takeIf { it.isNotBlank() }
+                        ?: stringResource(R.string.state_empty_response),
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
