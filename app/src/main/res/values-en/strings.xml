@@ -50,7 +50,6 @@
     <string name="my_cardback_entry">Card backs</string>
     <string name="my_favorites_entry">Favorite matches</string>
     <string name="my_challenge_entry">Champions\' Trial</string>
-    <string name="my_placeholder_note">This feature is coming in a later release.</string>
     <!-- 「我的」页四个二级页（P2 真实数据） -->
     <string name="my_empty_decks">No decks yet</string>
     <string name="my_empty_cardbacks">No card backs</string>

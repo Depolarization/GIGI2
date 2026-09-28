@@ -50,7 +50,6 @@
     <string name="my_cardback_entry">卡背圖鑑</string>
     <string name="my_favorites_entry">收藏對局</string>
     <string name="my_challenge_entry">勝冠之試</string>
-    <string name="my_placeholder_note">此功能將於後續版本開放。</string>
     <!-- 「我的」頁四個二級頁（P2 真實資料） -->
     <string name="my_empty_decks">暫無牌組</string>
     <string name="my_empty_cardbacks">暫無卡背</string>

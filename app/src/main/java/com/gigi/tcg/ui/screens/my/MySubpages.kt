@@ -8,7 +8,7 @@
 
 package com.gigi.tcg.ui.screens.my
 
-import androidx.compose.foundation.layout.Arrangement
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -25,8 +25,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gigi.tcg.R
 import com.gigi.tcg.data.model.GcgTime
@@ -53,7 +51,11 @@ internal fun formatGcgDateTime(time: GcgTime?): String? {
  * 顶部标题不挂宿主 `TopAppBar`（那一层在 GigiNavHost 里，四个二级页共用，只能显示一级「我的」），
  * 且详情态的标题是动态的（牌组名 / 旬名），只能在页内画。
  *
- * @param onBack 非空时标题左侧出现「返回」入口 —— 只在详情态传入，回到本页列表态（不动导航栈）。
+ * 两态都有「返回」入口，语义不同：
+ * @param onBack 详情态传入 —— 回到本页列表态（页内状态切换，不动导航栈）。
+ *   列表态 `onBack == null`，标题左侧同样画返回，动作交 NavHost 弹掉本页
+ *   （用 back 派发器，页内不持有 navController，四个页面签名保持 `MyXxxPage(modifier)` 不变）；
+ *   派发器取不到时不画该控件（避免出现点了没反应的按钮）。
  */
 @Composable
 fun MySubpageScaffold(
@@ -62,6 +64,9 @@ fun MySubpageScaffold(
     onBack: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val backOwner = LocalOnBackPressedDispatcherOwner.current
+    val onExit: (() -> Unit)? = onBack ?: backOwner?.onBackPressedDispatcher
+        ?.let { dispatcher -> { dispatcher.onBackPressed() } }
     Column(modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
@@ -69,8 +74,8 @@ fun MySubpageScaffold(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (onBack != null) {
-                TextButton(onClick = onBack) {
+            if (onExit != null) {
+                TextButton(onClick = onExit) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                         contentDescription = null,
@@ -87,7 +92,7 @@ fun MySubpageScaffold(
                 title,
                 style = MaterialTheme.typography.titleLarge,
                 maxLines = 1,
-                modifier = Modifier.padding(start = if (onBack == null) 8.dp else 0.dp),
+                modifier = Modifier.padding(start = if (onExit == null) 8.dp else 0.dp),
             )
         }
         content()
@@ -103,32 +108,4 @@ fun MySectionTitle(text: String, modifier: Modifier = Modifier) {
         color = MaterialTheme.colorScheme.primary,
         modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
     )
-}
-
-/**
- * P0 占位页：GigiNavHost 的四个 `my` 子路由当前仍指向这里。
- * 真实页面（MyDecksPage 等）已就绪，等导航层把调用点换过去后本函数即可删除。
- */
-@Composable
-fun MySubpagePlaceholder(titleRes: Int, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            stringResource(titleRes),
-            style = MaterialTheme.typography.titleLarge,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            stringResource(R.string.my_placeholder_note),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-    }
 }
