@@ -45,8 +45,17 @@ sealed interface AuthFinalizeResult {
         val exchanged: Boolean,
     ) : AuthFinalizeResult
 
-    /** 账号未绑定所选服务器的原神角色：未产生任何写入/副作用 */
-    data class NoRole(val region: String) : AuthFinalizeResult
+    /**
+     * 账号未绑定所选服务器的原神角色：未产生任何写入/副作用。
+     *
+     * 🔴 [boundRegions] 是该米游社账号**实际已绑定**的原神角色所在区服（去重、已排除空
+     * region / 空 game_role_id 的噪声项）。它区分了两种此前被混成同一句提示的失败：
+     * - 空 ⇒ 账号真的一个原神角色都没绑（提示"未绑定"即可）；
+     * - 非空且不含所选服 ⇒ 角色绑在别的区服上（提示应改为"该账号绑的是 X，请切换服务器"，
+     *   否则用户会以为自己没绑角色，反复扫码）。
+     */
+    data class NoRole(val region: String, val boundRegions: List<String> = emptyList()) :
+        AuthFinalizeResult
 }
 
 /**
@@ -200,7 +209,10 @@ class AuthManager(
             .build()
         val recordList = execute(cardRequest) { it.parseAs<RecordCardEnvelope>().data?.list.orEmpty() }
         val role = findGameRoleForRegion(recordList, server.id)
-            ?: return AuthFinalizeResult.NoRole(region = server.id)
+            ?: return AuthFinalizeResult.NoRole(
+                region = server.id,
+                boundRegions = boundRegionsOf(recordList),
+            )
 
         val region = role.region.orEmpty()
         val gameRoleId = role.gameRoleId.orEmpty()
@@ -369,6 +381,18 @@ class AuthManager(
         /** find(g => g.region === region && g.game_role_id) 语义。纯函数，no-role 判定唯一入口。 */
         fun findGameRoleForRegion(list: List<GameRoleCard>, region: String): GameRoleCard? =
             list.firstOrNull { it.region == region && !it.gameRoleId.isNullOrEmpty() }
+
+        /**
+         * 该账号**实际已绑定**的原神角色所在区服（去重、保持服务端返回顺序）。
+         * 噪声项过滤口径与 [findGameRoleForRegion] 一致：region 非空且 game_role_id 非空才算真角色。
+         * 仅供 no-role 提示定位"角色其实绑在别的服"，不参与任何凭据判定。
+         */
+        fun boundRegionsOf(list: List<GameRoleCard>): List<String> =
+            list.asSequence()
+                .filter { !it.region.isNullOrEmpty() && !it.gameRoleId.isNullOrEmpty() }
+                .mapNotNull { it.region }
+                .distinct()
+                .toList()
 
         /** 响应 Set-Cookie 头 → name=value 片段（attributes 截断丢弃，对齐 collectSetCookies）。 */
         fun setCookiePairs(response: Response): List<String> =

@@ -93,6 +93,7 @@
     <string name="login_title">GIGI · 七聖召喚賽事工具</string>
     <string name="login_expired_notice">登入已失效，請重新掃碼登入</string>
     <string name="login_no_role_notice">該米遊社帳號未綁定%1$s的原神角色，請切換伺服器後重試</string>
+    <string name="login_no_role_elsewhere_notice">該米遊社帳號的原神角色綁定在%1$s，不在你選擇的%2$s，請切換伺服器後重試</string>
     <string name="login_status_generating">正在產生QR Code…</string>
     <!-- V29-B：原「請掃碼並確認登入」與「成功後自動刪圖」兩段灰字合併為一句（登入頁按鈕下方只留一段） -->
     <string name="login_status_waiting">請用米遊社或雲·原神掃碼並確認登入，登入成功後會自動刪除已儲存的 QR Code</string>

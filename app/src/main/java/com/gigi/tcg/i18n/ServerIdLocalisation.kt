@@ -38,3 +38,14 @@ fun ServerId.displayNameSync(): String =
 fun ServerId.displayShortNameSync(): String =
     LocaleStrings.getOrDefault(shortNameRes(), shortNameOrDefault())
 
+/**
+ * 任意**注册表标识符字符串** → 显示名（跟随系统语言；未注册回落简中）。
+ *
+ * 与 [ServerId.displayNameSync] 的区别：入参是裸字符串而非 [ServerId]，用于服务端回传的
+ * region 标识符（no-role 诊断要展示"角色实际绑在哪台服"，拿到的是 region 字符串）。
+ * 🔴 未知标识符原样返回而非丢弃：宁可多显示一个原始值，也不要让诊断信息凭空少一块。
+ */
+fun serverDisplayNameSync(id: String): String =
+    ServerId.from(id)?.displayNameSync() ?: id
+
+

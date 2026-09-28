@@ -93,6 +93,7 @@
     <string name="login_title">GIGI · Genius Invokation TCG Companion</string>
     <string name="login_expired_notice">Session expired, please sign in again with the QR code</string>
     <string name="login_no_role_notice">This HoYoLAB account has no Genshin character on %1$s. Switch the server and try again.</string>
+    <string name="login_no_role_elsewhere_notice">This HoYoLAB account\'s Genshin character is bound to %1$s, not the %2$s you selected. Switch the server and try again.</string>
     <string name="login_status_generating">Generating QR code…</string>
     <!-- V29-B：原「Scan … and confirm sign-in」与「After sign-in, the saved QR code image is
          deleted automatically」两段合并为一句（登录页按钮下方只留一段） -->

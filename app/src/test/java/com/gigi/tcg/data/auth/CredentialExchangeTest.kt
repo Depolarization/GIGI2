@@ -158,4 +158,46 @@ class CredentialExchangeTest {
             buffer.readUtf8()
         )
     }
+
+    // ===== boundRegionsOf：no-role 提示"角色实际绑在哪"的诊断数据 =====
+
+    @Test
+    fun `bound regions keep server order and drop noise entries`() {
+        // noRoleListJson：只有第一条是带 game_role_id 的真角色，另两条是噪声项
+        val list = AuthManager.recordCardListFromJson(json, noRoleListJson)
+        assertEquals(listOf("cn_qd01"), AuthManager.boundRegionsOf(list))
+    }
+
+    @Test
+    fun `bound regions are empty when account has no real role`() {
+        val list = AuthManager.recordCardListFromJson(
+            json,
+            """{"data":{"list":[{"region":"cn_gf01","game_role_id":""},{"region":null}]}}""",
+        )
+        assertEquals(emptyList<String>(), AuthManager.boundRegionsOf(list))
+    }
+
+    @Test
+    fun `bound regions dedupe same server with multiple roles`() {
+        val list = AuthManager.recordCardListFromJson(
+            json,
+            """{"data":{"list":[
+                {"region":"cn_gf01","game_role_id":"1"},
+                {"region":"cn_qd01","game_role_id":"5"},
+                {"region":"cn_gf01","game_role_id":"2"}
+            ]}}""",
+        )
+        assertEquals(listOf("cn_gf01", "cn_qd01"), AuthManager.boundRegionsOf(list))
+    }
+
+    @Test
+    fun `bound regions include the selected server when role is genuinely missing`() {
+        // 选了渠道服、账号只绑了官服 ⇒ boundRegions=[cn_gf01]，供 UI 提示"绑在官服"
+        val list = AuthManager.recordCardListFromJson(
+            json,
+            """{"data":{"list":[{"region":"cn_gf01","game_role_id":"1"}]}}""",
+        )
+        assertNull(AuthManager.findGameRoleForRegion(list, "cn_qd01"))
+        assertEquals(listOf("cn_gf01"), AuthManager.boundRegionsOf(list))
+    }
 }
