@@ -76,8 +76,11 @@ import com.gigi.tcg.ui.dialogs.playerdetail.PlayerQueryDialog
 import com.gigi.tcg.ui.screens.cardstats.CardStatsRoute
 import com.gigi.tcg.ui.screens.cardwiki.CardWikiRoute
 import com.gigi.tcg.ui.screens.home.HomeRoute
+import com.gigi.tcg.ui.screens.my.MyCardBacksPage
+import com.gigi.tcg.ui.screens.my.MyChallengePage
+import com.gigi.tcg.ui.screens.my.MyDecksPage
+import com.gigi.tcg.ui.screens.my.MyFavoritesPage
 import com.gigi.tcg.ui.screens.my.MyRoute
-import com.gigi.tcg.ui.screens.my.MySubpagePlaceholder
 import com.gigi.tcg.ui.screens.rank.RankRoute
 
 private const val ROUTE_HOME = "home"
@@ -86,7 +89,7 @@ private const val ROUTE_CARD_STATS = "cardstats"
 private const val ROUTE_CARD_WIKI = "cardwiki"
 private const val ROUTE_MY = "my"
 
-// 「我的」页的四个二级页（V35 P0 占位，设计 §3.3）：挂在 my/ 下 ⇒
+// 「我的」页的四个二级页（P2 真实数据页，设计 §3.3）：挂在 my/ 下 ⇒
 // 底部导航/Rail 的选中态与顶栏标题按一级段（substringBefore('/')）归属到「我的」。
 private const val ROUTE_MY_DECK = "my/deck"
 private const val ROUTE_MY_CARDBACK = "my/cardback"
@@ -296,7 +299,7 @@ fun GigiNavHost() {
                                     onShowToast = { toastController.show(it) },
                                 )
                             }
-                            // 「我的」页（V35 P0 骸架）：四分区 + 账号管理；二级页为 P0 占位（P2 填数据）。
+                            // 「我的」页：四分区 + 账号管理；二级页为真实数据页（P2），列表→详情在页内切换。
                             // 二级页直接 navigate（不经 navigateToTab）：不进 tab 的 saveState 体系，
                             // 返回键逐级回退；底部导航选中态靠 baseRoute 保持「我的」高亮。
                             composable(ROUTE_MY) {
@@ -307,10 +310,10 @@ fun GigiNavHost() {
                                     onOpenChallenge = { navController.navigate(ROUTE_MY_CHALLENGE) },
                                 )
                             }
-                            composable(ROUTE_MY_DECK) { MySubpagePlaceholder(titleRes = R.string.my_deck_entry) }
-                            composable(ROUTE_MY_CARDBACK) { MySubpagePlaceholder(titleRes = R.string.my_cardback_entry) }
-                            composable(ROUTE_MY_FAVORITES) { MySubpagePlaceholder(titleRes = R.string.my_favorites_entry) }
-                            composable(ROUTE_MY_CHALLENGE) { MySubpagePlaceholder(titleRes = R.string.my_challenge_entry) }
+                            composable(ROUTE_MY_DECK) { MyDecksPage() }
+                            composable(ROUTE_MY_CARDBACK) { MyCardBacksPage() }
+                            composable(ROUTE_MY_FAVORITES) { MyFavoritesPage() }
+                            composable(ROUTE_MY_CHALLENGE) { MyChallengePage() }
                         }
                     }
                 }
