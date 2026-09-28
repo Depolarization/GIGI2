@@ -2,6 +2,7 @@ package com.gigi.tcg.data.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
@@ -169,6 +170,183 @@ data class GcgBasicInfoData(
     @SerialName("avatar_card_num_total") val avatarCardNumTotal: Int? = null,
     /** 官方行动牌总数（实测 941） */
     @SerialName("action_card_num_total") val actionCardNumTotal: Int? = null,
+)
+
+/**
+ * 年月日时分秒对象（服务端把时间拆成 6 个 int 下发，不给时间戳）。
+ * 复用方：`matchList.match_time`、`challenge/schedule` 的 `begin`/`end`、
+ * `challenge/record` 内联的 `basic.schedule`——实测三处**同构**，共用本类。
+ */
+@Serializable
+data class GcgTime(
+    @SerialName("year") val year: Int? = null,
+    @SerialName("month") val month: Int? = null,
+    @SerialName("day") val day: Int? = null,
+    @SerialName("hour") val hour: Int? = null,
+    @SerialName("minute") val minute: Int? = null,
+    @SerialName("second") val second: Int? = null,
+)
+
+/** 我的卡组（game_record gcg/deckList） */
+@Serializable
+data class GcgDeckListData(
+    @SerialName("deck_list") val deckList: List<GcgDeck>? = null,
+    @SerialName("level") val level: Int? = null,
+    @SerialName("nickname") val nickname: String? = null,
+    @SerialName("role_id") val roleId: String? = null,
+)
+
+/**
+ * 一副牌组。键集合实测恒为 `{id, name, is_valid, share_code, avatar_cards, action_cards}`
+ * （deckList 11/11、challengeRecord 39/39 逐字一致）⇒ [GcgChallengeDeck.deck] 直接复用本类。
+ */
+@Serializable
+data class GcgDeck(
+    /** 牌组 id：实测 1..11 不连续、按创建序，不能当索引或假定连续 */
+    @SerialName("id") val id: Int? = null,
+    @SerialName("name") val name: String? = null,
+    @SerialName("is_valid") val isValid: Boolean? = null,
+    /** 分享码（约 72 字符 base64 样串），「复制牌组」的唯一可用出口 */
+    @SerialName("share_code") val shareCode: String? = null,
+    /** 角色牌（实测恒 3 张） */
+    @SerialName("avatar_cards") val avatarCards: List<GcgDeckCard>? = null,
+    /** 行动牌（实测 22–25 张） */
+    @SerialName("action_cards") val actionCards: List<GcgDeckCard>? = null,
+)
+
+/**
+ * 牌组内的一张卡：`avatar_cards` 与 `action_cards` **同构**（20 键完全一致），共用本类。
+ *
+ * 🔴 只建模本页要消费的字段。样本里另有 desc/tags/card_skills/card_sources/deck_recommend/
+ * card_wiki/icon/large_icon/rank_id/build_num 未建模——它们与已接入的 cardList 卡牌对象同源、
+ * 本页用不到；生产 Json 配置 `ignoreUnknownKeys = true`（见 di.AppContainer），多余键不影响解析。
+ */
+@Serializable
+data class GcgDeckCard(
+    /** 卡牌 id：角色牌 4 位（1407）、行动牌 6 位（214071） */
+    @SerialName("id") val id: Int? = null,
+    @SerialName("name") val name: String? = null,
+    /** 卡面图 URL，已带 `x-resource-process` 缩放参数，直取即可 */
+    @SerialName("image") val image: String? = null,
+    @SerialName("card_type") val cardType: String? = null,
+    /** 牌组内张数 */
+    @SerialName("num") val num: Int? = null,
+    /** 角色牌生命；行动牌实测恒 0 */
+    @SerialName("hp") val hp: Int? = null,
+    @SerialName("proficiency") val proficiency: Int? = null,
+    @SerialName("use_count") val useCount: Int? = null,
+    @SerialName("category") val category: String? = null,
+    /** 元素骰消耗：角色牌实测恒 [] */
+    @SerialName("action_cost") val actionCost: List<GcgActionCost>? = null,
+)
+
+/** 一种骰子消耗，如 `{CostTypeElectro, 3}` / `{CostTypeEnergy, 2}` */
+@Serializable
+data class GcgActionCost(
+    @SerialName("cost_type") val costType: String? = null,
+    @SerialName("cost_value") val costValue: Int? = null,
+)
+
+/** 卡背收集（game_record gcg/cardBackList） */
+@Serializable
+data class GcgCardBackListData(
+    /** 🔴 实测返回**全部**卡背（含未收集），靠 [GcgCardBack.hasObtained] 区分 */
+    @SerialName("card_back_list") val cardBackList: List<GcgCardBack>? = null,
+)
+
+@Serializable
+data class GcgCardBack(
+    /** 0 是默认卡背 */
+    @SerialName("id") val id: Int? = null,
+    /** 旧格式图：实测 28 份里只有 21 份有 ⇒ 不可靠 */
+    @SerialName("image") val image: String? = null,
+    /** 新格式图：28/28 全有 ⇒ 优先用它 */
+    @SerialName("image_v2") val imageV2: String? = null,
+    @SerialName("has_obtained") val hasObtained: Boolean? = null,
+    @SerialName("category") val category: String? = null,
+)
+
+/** 最近对局 + 收藏对局（game_record gcg/matchList） */
+@Serializable
+data class GcgMatchListData(
+    @SerialName("recent_matches") val recentMatches: List<GcgMatch>? = null,
+    /** 实测未收藏时恒 []；结构按同响应兄弟字段的常规设计与 recent 同构（尚未取到非空样本） */
+    @SerialName("favourite_matches") val favouriteMatches: List<GcgMatch>? = null,
+)
+
+@Serializable
+data class GcgMatch(
+    /** 🔴 实测是**字符串**（"10"），不是数字 ⇒ 类型必须 String?，改成 Int? 会解析崩 */
+    @SerialName("game_id") val gameId: String? = null,
+    @SerialName("is_win") val isWin: Boolean? = null,
+    /** 实测为中文赛名（"胜冠之试"），服务端本地化字段，别当枚举判定 */
+    @SerialName("match_type") val matchType: String? = null,
+    @SerialName("match_time") val matchTime: GcgTime? = null,
+    @SerialName("self") val self: GcgMatchSide? = null,
+    @SerialName("opposite") val opposite: GcgMatchSide? = null,
+)
+
+/** 对局一方。🔴 Match 没有卡组名/卡组 id，只有 3 张角色牌头像 URL */
+@Serializable
+data class GcgMatchSide(
+    @SerialName("name") val name: String? = null,
+    /**
+     * 🔴 键名照抄接口的拼写错误 `linups`（正确拼写是 lineups）——实测两服样本一致，
+     * 改成 lineups 会静默解析成 null。
+     */
+    @SerialName("linups") val linups: List<String>? = null,
+    /** 阵容是否被服务端折叠 */
+    @SerialName("is_overflow") val isOverflow: Boolean? = null,
+)
+
+/** 胜冠之试旬列表（game_record gcg/challenge/schedule） */
+@Serializable
+data class GcgChallengeScheduleData(
+    /** 实测按 id 倒序（最新在前） */
+    @SerialName("schedule_list") val scheduleList: List<GcgSchedule>? = null,
+)
+
+@Serializable
+data class GcgSchedule(
+    /** 旬 id = challenge/record 的 schedule_id 入参 */
+    @SerialName("id") val id: Int? = null,
+    @SerialName("name") val name: String? = null,
+    @SerialName("begin") val begin: GcgTime? = null,
+    @SerialName("end") val end: GcgTime? = null,
+)
+
+/** 单旬战绩（game_record gcg/challenge/record） */
+@Serializable
+data class GcgChallengeRecordData(
+    @SerialName("basic") val basic: GcgChallengeBasic? = null,
+    @SerialName("deck_list") val deckList: List<GcgChallengeDeck>? = null,
+    /**
+     * 🔴 11 份样本恒为 `[]` ⇒ 元素结构未知，用 [JsonElement] 无损保留（不消费），
+     * 拿到真实样本再展开成具体类型。声明成 Any? 会让 kotlinx.serialization 直接报错。
+     */
+    @SerialName("honor_character") val honorCharacter: List<JsonElement>? = null,
+    @SerialName("recommend_url") val recommendUrl: String? = null,
+)
+
+@Serializable
+data class GcgChallengeBasic(
+    /** 内联的完整旬对象（含 id/name/begin/end），无需再回查 schedule 列表 */
+    @SerialName("schedule") val schedule: GcgSchedule? = null,
+    @SerialName("nickname") val nickname: String? = null,
+    @SerialName("uid") val uid: String? = null,
+    @SerialName("win_cnt") val winCnt: Int? = null,
+    /** 奖牌图 URL（challenge_medal_{0..3}.png） */
+    @SerialName("medal") val medal: String? = null,
+    /** 该旬是否有战绩；false 时 [GcgChallengeRecordData.deckList] 为空数组 */
+    @SerialName("has_data") val hasData: Boolean? = null,
+)
+
+@Serializable
+data class GcgChallengeDeck(
+    /** 与 deckList 的 [GcgDeck] 完全同构（跨 9 份样本 39/39 键集合逐字相同）⇒ 复用同一类 */
+    @SerialName("deck") val deck: GcgDeck? = null,
+    /** 该牌组在该旬的胜场（实测取值 {0,1,2,3}） */
+    @SerialName("win_cnt") val winCnt: Int? = null,
 )
 
 /** 卡牌图鉴（米游社 Wiki，公开接口）：频道树节点 */

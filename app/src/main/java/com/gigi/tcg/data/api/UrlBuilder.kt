@@ -87,3 +87,54 @@ fun cardListUrl(uid: String, server: ServerId): String =
 fun gcgBasicInfoUrl(uid: String, server: ServerId): String =
     "${ServerApi.recordOrigin}${ServerApi.RECORD_PATH_PREFIX}/gcg/basicInfo?" +
         "server=${server.id}&role_id=$uid"
+
+/**
+ * record 域 gcg 端点的公共形状：与 [cardListUrl]/[gcgBasicInfoUrl] 同主机、同前缀、
+ * 同鉴权口径（只注入 Cookie、不发 DS），查询参数恒为 `server` + `role_id`（真机实测）。
+ */
+private fun gcgRecordUrl(uid: String, server: ServerId, endpoint: String, extraQuery: String = ""): String =
+    "${ServerApi.recordOrigin}${ServerApi.RECORD_PATH_PREFIX}/gcg/$endpoint?" +
+        "server=${server.id}&role_id=$uid" +
+        if (extraQuery.isEmpty()) "" else "&$extraQuery"
+
+/**
+ * 我的卡组（需凭据）：`gcg/deckList`。
+ *
+ * 🔴 实测（2026-09-28，`.task/p1-gcg-samples/FINDINGS.md` §0/§1）：除 `server`/`role_id` 外的参数
+ * （`need_deck_detail` / `need_avatar` / `need_action`）**全部无效**——传与不传返回完全一致 ⇒ 不传，
+ * 别按 web SDK 的签名"顺手补齐"。
+ */
+fun gcgDeckListUrl(uid: String, server: ServerId): String = gcgRecordUrl(uid, server, "deckList")
+
+/**
+ * 已收集卡背（需凭据）：`gcg/cardBackList`。
+ *
+ * 🔴 实测返回**全部**卡背（含未收集），靠 `has_obtained` 区分（样本 28 张 = 25 已得 / 3 未得）⇒
+ * 无"只回已收集"的开关参数，置灰逻辑读字段即可。
+ */
+fun gcgCardBackListUrl(uid: String, server: ServerId): String = gcgRecordUrl(uid, server, "cardBackList")
+
+/**
+ * 最近对局 + 收藏对局（需凭据）：`gcg/matchList`。
+ *
+ * 🔴 实测 `limit` / `offset` / `need_favourite` **全部无效**（传 20 / 50 / 不传都返回同样条数）⇒ 不要加。
+ * 收藏列表在未收藏任何对局时恒 `[]`，消费端必须容忍空。
+ */
+fun gcgMatchListUrl(uid: String, server: ServerId): String = gcgRecordUrl(uid, server, "matchList")
+
+/**
+ * 胜冠之试旬列表（需凭据）：`gcg/challenge/schedule`。实测按 id 倒序（最新在前）。
+ * 返回的 `schedule_list[].id` 即 [gcgChallengeRecordUrl] 的 `scheduleId` 入参。
+ */
+fun gcgChallengeScheduleUrl(uid: String, server: ServerId): String = gcgRecordUrl(uid, server, "challenge/schedule")
+
+/**
+ * 单旬战绩（需凭据）：`gcg/challenge/record`。
+ *
+ * 🔴 参数名是 **`schedule_id`**——不是 `season_id`。传错时服务端不回 404、也不回空数据，而是
+ * `retcode=-1` + `"param schedule_id error: value must be greater than 0"`（实测），
+ * 该 retcode 落在 RETRYABLE 集合内 ⇒ 会白白重试一次，参数名写错时更难归因，故在此钉死。
+ * 旬 id 来自 [gcgChallengeScheduleUrl] 的 `schedule_list[].id`。
+ */
+fun gcgChallengeRecordUrl(uid: String, server: ServerId, scheduleId: Int): String =
+    gcgRecordUrl(uid, server, "challenge/record", "schedule_id=$scheduleId")
