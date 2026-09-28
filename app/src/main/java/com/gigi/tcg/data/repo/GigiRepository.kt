@@ -24,6 +24,11 @@ import com.gigi.tcg.data.api.RETRYABLE_RETCODES
 import com.gigi.tcg.data.api.cardDetailUrl
 import com.gigi.tcg.data.api.cardListUrl
 import com.gigi.tcg.data.api.gcgBasicInfoUrl
+import com.gigi.tcg.data.api.gcgCardBackListUrl
+import com.gigi.tcg.data.api.gcgChallengeRecordUrl
+import com.gigi.tcg.data.api.gcgChallengeScheduleUrl
+import com.gigi.tcg.data.api.gcgDeckListUrl
+import com.gigi.tcg.data.api.gcgMatchListUrl
 import com.gigi.tcg.i18n.LocaleStrings
 import com.gigi.tcg.i18n.apiLangParam
 import com.gigi.tcg.data.api.competitionRankUrl
@@ -36,7 +41,12 @@ import com.gigi.tcg.data.api.userInfoUrl
 import com.gigi.tcg.data.model.EntryPageData
 import com.gigi.tcg.data.model.GameRecordsData
 import com.gigi.tcg.data.model.GcgBasicInfoData
+import com.gigi.tcg.data.model.GcgCardBackListData
 import com.gigi.tcg.data.model.GcgCardListData
+import com.gigi.tcg.data.model.GcgChallengeRecordData
+import com.gigi.tcg.data.model.GcgChallengeScheduleData
+import com.gigi.tcg.data.model.GcgDeckListData
+import com.gigi.tcg.data.model.GcgMatchListData
 import com.gigi.tcg.data.model.LoginInfoData
 import com.gigi.tcg.data.model.MyHomePageData
 import com.gigi.tcg.data.model.OtherHomePageData
@@ -160,6 +170,30 @@ class GigiRepository(
     suspend fun fetchGcgCardList(uid: String, server: ServerId): GcgCardListData =
         get(cardListUrl(uid, server), GcgCardListData.serializer(), "")
 
+    // 「我的」页 4 组 record 域端点：与 cardList 同主机同鉴权口径（Cookie only，无 DS），
+    // 参数口径见各 URL 构造器 KDoc（deckList/cardBackList/matchList 只带 server+role_id；
+    // challenge/record 另带 schedule_id）。tag 传空串 = 不节流，与 fetchGcgBasicInfo 同款。
+
+    /** 我的卡组 */
+    suspend fun fetchGcgDeckList(uid: String, server: ServerId): GcgDeckListData =
+        get(gcgDeckListUrl(uid, server), GcgDeckListData.serializer(), "")
+
+    /** 卡背收集（含未收集项） */
+    suspend fun fetchGcgCardBackList(uid: String, server: ServerId): GcgCardBackListData =
+        get(gcgCardBackListUrl(uid, server), GcgCardBackListData.serializer(), "")
+
+    /** 最近对局 + 收藏对局 */
+    suspend fun fetchGcgMatchList(uid: String, server: ServerId): GcgMatchListData =
+        get(gcgMatchListUrl(uid, server), GcgMatchListData.serializer(), "")
+
+    /** 胜冠之试旬列表 */
+    suspend fun fetchGcgChallengeSchedule(uid: String, server: ServerId): GcgChallengeScheduleData =
+        get(gcgChallengeScheduleUrl(uid, server), GcgChallengeScheduleData.serializer(), "")
+
+    /** 单旬战绩（scheduleId 取自旬列表的 id） */
+    suspend fun fetchGcgChallengeRecord(uid: String, server: ServerId, scheduleId: Int): GcgChallengeRecordData =
+        get(gcgChallengeRecordUrl(uid, server, scheduleId), GcgChallengeRecordData.serializer(), "")
+
     /** 卡面详情（公开接口）：LRU 200 命中即复用（键含 lang，切语言不串缓存），未命中打 TAG_DETAIL 交 client 节流 */
     suspend fun fetchCardDetail(entryPageId: Int): EntryPageData {
         val lang = LocaleStrings.currentLanguage()
@@ -241,6 +275,50 @@ class GigiRepository(
             if (tab == RankTab.Peak) fetchPeakRank(uid, server) else fetchCompetitionRank(uid, server)
         }
 
+    // ---- 「我的」页（卡组/卡背/收藏对局/胜冠之试）：私有数据，只进内存，TTL 对齐 card-stats ----
+
+    /** 我的卡组（5 分钟） */
+    suspend fun fetchGcgDeckListCached(uid: String, server: ServerId, force: Boolean = false): GcgDeckListData =
+        cachedPrivate(uid, server, MY_DECK_SUFFIX, MY_PAGE_CACHE_TTL_MS, force) {
+            fetchGcgDeckList(uid, server)
+        }
+
+    /** 卡背收集（5 分钟） */
+    suspend fun fetchGcgCardBackListCached(uid: String, server: ServerId, force: Boolean = false): GcgCardBackListData =
+        cachedPrivate(uid, server, MY_CARDBACK_SUFFIX, MY_PAGE_CACHE_TTL_MS, force) {
+            fetchGcgCardBackList(uid, server)
+        }
+
+    /** 最近对局 + 收藏对局（5 分钟） */
+    suspend fun fetchGcgMatchListCached(uid: String, server: ServerId, force: Boolean = false): GcgMatchListData =
+        cachedPrivate(uid, server, MY_FAVORITES_SUFFIX, MY_PAGE_CACHE_TTL_MS, force) {
+            fetchGcgMatchList(uid, server)
+        }
+
+    /** 胜冠之试旬列表（5 分钟） */
+    suspend fun fetchGcgChallengeScheduleCached(
+        uid: String,
+        server: ServerId,
+        force: Boolean = false,
+    ): GcgChallengeScheduleData =
+        cachedPrivate(uid, server, MY_CHALLENGE_SUFFIX, MY_PAGE_CACHE_TTL_MS, force) {
+            fetchGcgChallengeSchedule(uid, server)
+        }
+
+    /**
+     * 单旬战绩（5 分钟）：🔴 键必须含 scheduleId——不同旬是不同数据，共用一键会串旬。
+     * 后缀含变量 ⇒ 不进 [invalidateMyPageCache]（那里只清固定键），切旬由调用方带 force 或自然过期。
+     */
+    suspend fun fetchGcgChallengeRecordCached(
+        uid: String,
+        server: ServerId,
+        scheduleId: Int,
+        force: Boolean = false,
+    ): GcgChallengeRecordData =
+        cachedPrivate(uid, server, "$MY_CHALLENGE_RECORD_PREFIX$scheduleId:v1", MY_PAGE_CACHE_TTL_MS, force) {
+            fetchGcgChallengeRecord(uid, server, scheduleId)
+        }
+
     // ---- 失效（对齐 pageCache.ts invalidate*；登出时 clearPrivateCache） ----
 
     fun invalidateWikiCache() {
@@ -259,6 +337,14 @@ class GigiRepository(
     fun invalidateRankCache(uid: String, server: ServerId) {
         memoryCache.cacheDelete(privateKey(uid, server, "rank:peak:v1"))
         memoryCache.cacheDelete(privateKey(uid, server, "rank:competition:v1"))
+    }
+
+    /** 「我的」页 4 个固定键；单旬战绩键含 scheduleId，不在此枚举（见 fetchGcgChallengeRecordCached） */
+    fun invalidateMyPageCache(uid: String, server: ServerId) {
+        memoryCache.cacheDelete(privateKey(uid, server, MY_DECK_SUFFIX))
+        memoryCache.cacheDelete(privateKey(uid, server, MY_CARDBACK_SUFFIX))
+        memoryCache.cacheDelete(privateKey(uid, server, MY_FAVORITES_SUFFIX))
+        memoryCache.cacheDelete(privateKey(uid, server, MY_CHALLENGE_SUFFIX))
     }
 
     /** 登出/凭据失效：清全部私有内存缓存（磁盘只有公开图鉴数据，保留） */
@@ -379,6 +465,19 @@ class GigiRepository(
         /** 官方总手牌数缓存键后缀（TTL 与 card-stats 对齐，见 fetchGcgBasicInfo） */
         const val BASIC_INFO_SUFFIX: String = "gcg-basic-info:v1"
         const val BASIC_INFO_CACHE_TTL_MS: Long = CARD_STATS_CACHE_TTL_MS
+
+        // 「我的」页缓存键后缀（卡组 / 卡背 / 收藏对局 / 旬列表）。
+        // 单旬战绩是 `my-challenge-record:<scheduleId>:v1`（含变量，见 fetchGcgChallengeRecordCached），
+        // 故只登记前缀常量。clearPrivateCache()（TtlCache）按 gigi:private: 前缀遍历清理 ⇒
+        // 这些新键登出时自动被清，无需逐键登记。
+        const val MY_DECK_SUFFIX: String = "my-deck:v1"
+        const val MY_CARDBACK_SUFFIX: String = "my-cardback:v1"
+        const val MY_FAVORITES_SUFFIX: String = "my-favorites:v1"
+        const val MY_CHALLENGE_SUFFIX: String = "my-challenge:v1"
+        const val MY_CHALLENGE_RECORD_PREFIX: String = "my-challenge-record:"
+
+        /** 「我的」页 TTL：与 basicInfo / card-stats 同一节奏（5 分钟） */
+        const val MY_PAGE_CACHE_TTL_MS: Long = CARD_STATS_CACHE_TTL_MS
 
         /** 对齐 CardCoverDialog 的 DETAIL_CACHE_MAX */
         const val DETAIL_CACHE_MAX: Int = 200
