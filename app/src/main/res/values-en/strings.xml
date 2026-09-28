@@ -57,7 +57,7 @@
     <string name="my_empty_challenges">No Champions\' Trial records</string>
     <string name="my_cardback_count">Collected %1$d / %2$d</string>
     <string name="my_cardback_locked">Not collected</string>
-    <string name="my_deck_card_summary">%1$d character · %2$d action</string>
+    <string name="my_deck_card_summary">%1$d character cards · %2$d action cards</string>
     <string name="my_deck_card_group_avatar">Character cards</string>
     <string name="my_deck_card_group_action">Action cards</string>
     <string name="my_summary_decks">%1$d decks</string>
@@ -90,6 +90,7 @@
     <string name="error_throttled">Too many requests, please try again later</string>
     <string name="error_api_generic">The API returned an error, please try again later</string>
     <string name="error_api_retcode">API returned retcode=%1$d</string>
+    <string name="error_captcha_required">miHoYo requires human verification. Open the miHoYo app, go to Me → My Characters and complete the check, then retry.</string>
     <string name="error_invalid_json">Response is not valid JSON</string>
     <string name="error_format">Unexpected response format</string>
     <string name="error_http_code">Network request failed (HTTP %1$d)</string>

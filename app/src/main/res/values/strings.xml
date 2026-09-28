@@ -90,6 +90,7 @@
     <string name="error_throttled">请求过于频繁，请稍后重试</string>
     <string name="error_api_generic">接口返回异常，请稍后重试</string>
     <string name="error_api_retcode">接口返回 retcode=%1$d</string>
+    <string name="error_captcha_required">米游社要求完成人机验证，请打开米游社 App →「我的」→「我的角色」按提示验证后重试</string>
     <string name="error_invalid_json">响应不是有效的 JSON</string>
     <string name="error_format">返回数据格式异常</string>
     <string name="error_http_code">网络请求失败（HTTP %1$d）</string>

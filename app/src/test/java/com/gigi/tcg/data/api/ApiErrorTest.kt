@@ -39,4 +39,22 @@ class ApiErrorTest {
         assertEquals(setOf(-100, -101), AUTH_FAILED_RETCODES)
         assertFalse(RETRYABLE_RETCODES.contains(-100))
     }
+
+    // 1034 = 米游社人机验证风控（实测 gcg/basicInfo 恒返回，改请求形态/重试均无效，
+    // 见 .task/p1-gcg-samples/FINDINGS.md §7/§8）。三条断言各钉一头，别合并。
+    @Test
+    fun `1034 独立成套且不进重试与登出`() {
+        assertEquals(setOf(1034), CAPTCHA_REQUIRED_RETCODES)
+        assertFalse("1034 不代表凭据失效，不得据此登出", AUTH_FAILED_RETCODES.contains(1034))
+        assertFalse("1034 重试不可能成功", RETRYABLE_RETCODES.contains(1034))
+        assertFalse(isAuthFailureError(retcodeError(1034)))
+    }
+
+    @Test
+    fun `1034 显示可操作指引而非裸错误码`() {
+        val text = describeApiError(ApiError(API_ERROR_KIND_RETCODE, "接口返回 retcode=1034", 1034))
+        assertTrue(text, text.isNotBlank())
+        assertFalse(text, text.contains("retcode=1034"))
+        assertTrue(text, text.contains("人机验证"))
+    }
 }

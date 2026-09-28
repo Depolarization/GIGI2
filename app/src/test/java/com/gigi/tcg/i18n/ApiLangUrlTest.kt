@@ -81,6 +81,20 @@ class ApiLangUrlTest {
         assertNull(apiErrorMessageRes(ApiError(API_ERROR_KIND_RETCODE, "服务端消息", -100)))
     }
 
+    // 1034 风控：服务端 message 为空串，但 MihoyoClient 兜底成「接口返回 retcode=1034」⇒ 非空。
+    // 两行分别钉「兜底后非空」与「原始空串」两种到达路径，都必须命中专属资源而非透传/通用文案。
+    @Test
+    fun `1034 映射到人机验证专属文案，不受 message 兜底影响`() {
+        assertEquals(
+            R.string.error_captcha_required,
+            apiErrorMessageRes(ApiError(API_ERROR_KIND_RETCODE, "接口返回 retcode=1034", 1034)),
+        )
+        assertEquals(
+            R.string.error_captcha_required,
+            apiErrorMessageRes(ApiError(API_ERROR_KIND_RETCODE, "", 1034)),
+        )
+    }
+
     @Test
     fun `桥未就绪时回落简中，就绪后走三语，服务端消息始终透传`() {
         val throttled = ApiError(API_ERROR_KIND_RETCODE, "x", -500004)

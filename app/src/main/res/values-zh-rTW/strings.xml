@@ -90,6 +90,7 @@
     <string name="error_throttled">請求過於頻繁，請稍後重試</string>
     <string name="error_api_generic">介面回傳異常，請稍後重試</string>
     <string name="error_api_retcode">介面回傳 retcode=%1$d</string>
+    <string name="error_captcha_required">米遊社要求完成人機驗證，請開啟米遊社 App →「我的」→「我的角色」依提示驗證後重試</string>
     <string name="error_invalid_json">回傳不是有效的 JSON</string>
     <string name="error_format">回傳資料格式異常</string>
     <string name="error_http_code">網路請求失敗（HTTP %1$d）</string>

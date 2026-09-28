@@ -6,6 +6,7 @@ import com.gigi.tcg.data.api.API_ERROR_KIND_NETWORK
 import com.gigi.tcg.data.api.API_ERROR_KIND_RETCODE
 import com.gigi.tcg.data.api.API_ERROR_KIND_THROTTLED
 import com.gigi.tcg.data.api.ApiError
+import com.gigi.tcg.data.api.CAPTCHA_REQUIRED_RETCODES
 import com.gigi.tcg.data.api.RETRYABLE_RETCODES
 import com.gigi.tcg.data.api.describeApiError
 
@@ -21,6 +22,9 @@ fun apiErrorMessageRes(t: Throwable): Int? = when {
     t !is ApiError -> R.string.error_check_network
     RETRYABLE_RETCODES.contains(t.retcode ?: 0) || t.kind == API_ERROR_KIND_THROTTLED ->
         R.string.error_throttled
+    // 1034 必须在 message.isNullOrBlank() 之前判：风控时服务端 message 为空串，但 MihoyoClient
+    // 兜底成「接口返回 retcode=1034」⇒ 非空，放到后面永远命中不到（FINDINGS §8.2）
+    CAPTCHA_REQUIRED_RETCODES.contains(t.retcode ?: 0) -> R.string.error_captcha_required
     t.kind == API_ERROR_KIND_NETWORK -> R.string.error_check_network
     t.message.isNullOrBlank() -> R.string.error_api_generic
     else -> null // 服务端原样消息，无本地化资源

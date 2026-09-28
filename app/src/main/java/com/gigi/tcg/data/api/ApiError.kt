@@ -21,6 +21,20 @@ const val API_ERROR_KIND_THROTTLED: String = "throttled"
 val AUTH_FAILED_RETCODES: Set<Int> = setOf(-100, -101)
 val RETRYABLE_RETCODES: Set<Int> = setOf(-500004, -1, -110)
 
+/**
+ * 需要人机验证（CAPTCHA），目前已知唯一取值 1034。
+ *
+ * 🔴 实测（2026-09-28，见 .task/p1-gcg-samples/FINDINGS.md §7/§8）：`gcg/basicInfo` 在真实登录态下
+ * 恒返回该码，服务端 message 为空串 ⇒ 被 MihoyoClient 兜底成「接口返回 retcode=1034」原样透传。
+ * 7 组请求头变体（client_type 1/2/4/5、去 x-rpc-*、加 lang、换 UA）与 DS 签名**全部仍为 1034**
+ * ⇒ 这是**账号/凭据级风控**，重试与改请求形态都无效；唯一解法是用户去米游社 App
+ * 「我的 → 我的角色」按提示完成人机验证。
+ *
+ * 因此它**既不进** [AUTH_FAILED_RETCODES]（不代表凭据失效，不得据此登出），
+ * 也**不进** [RETRYABLE_RETCODES]（重试不可能成功，别浪费一次请求）。
+ */
+val CAPTCHA_REQUIRED_RETCODES: Set<Int> = setOf(1034)
+
 class ApiError(
     val kind: String,
     message: String,
@@ -41,6 +55,7 @@ fun describeApiError(t: Throwable): String {
     if (t is ApiError) {
         if (RETRYABLE_RETCODES.contains(t.retcode ?: 0)) return "请求过于频繁，请稍后重试"
         if (t.kind == API_ERROR_KIND_THROTTLED) return "请求过于频繁，请稍后重试"
+        if (CAPTCHA_REQUIRED_RETCODES.contains(t.retcode ?: 0)) return "米游社要求完成人机验证，请在米游社 App 中验证后重试"
         if (t.kind == API_ERROR_KIND_RETCODE) return t.message ?: "接口返回异常，请稍后重试"
     }
     return "请检查网络重试"
