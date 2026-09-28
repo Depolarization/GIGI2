@@ -2,7 +2,8 @@
 // 单条 LazyColumn 四个分区卡片 —— ①账号管理（列表/点选切换/添加/登出，复用 LocalAccountActions
 // 的现有多账号底座）②个人信息（昵称/游戏 UID/牌手等级，接口失败降级为账户本地数据）
 // ③卡牌资产（我的卡组/卡背图鉴入口）④对局记录（收藏对局/胜冠之试入口）。
-// ③④ 的二级页在 P0 为占位（接口已确认存在，P1 抓样本 → P2 接真实数据，见设计 §4.3）。
+// ③④ 的入口行带数值摘要（卡组数 / 已收集卡背 / 收藏条数 / 旬数），数据缺失时整段不显示；
+// 内容本身在四个二级页（MyDecksPage 等，设计 §3.3）。
 // 一级页只做导航枢纽，重内容一律进二级页（设计 §3.2「为什么用分区列表而不是嵌套 Tab」）。
 
 package com.gigi.tcg.ui.screens.my
@@ -65,12 +66,35 @@ fun MyRoute(
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val activeUid by viewModel.activeUid.collectAsStateWithLifecycle()
     val profile by viewModel.profile.collectAsStateWithLifecycle()
+    val deckList by viewModel.deckList.collectAsStateWithLifecycle()
+    val cardBackList by viewModel.cardBackList.collectAsStateWithLifecycle()
+    val matchList by viewModel.matchList.collectAsStateWithLifecycle()
+    val challengeSchedule by viewModel.challengeSchedule.collectAsStateWithLifecycle()
     val actions = LocalAccountActions.current
     var logoutConfirmOpen by remember { mutableStateOf(false) }
     val activeAccount = accounts.firstOrNull { it.uid == activeUid }
 
-    // 进入页面 / 切换账户后拉个人信息（切账号时 VM 先清旧值，不会残留上一账户的等级）
-    LaunchedEffect(activeUid) { viewModel.loadProfile() }
+    // 进入页面 / 切换账户后拉个人信息 + 分区③④ 摘要（切账号时 VM 先清旧值，不会残留上一账户数据）
+    LaunchedEffect(activeUid) {
+        viewModel.loadProfile()
+        viewModel.loadDeckList()
+        viewModel.loadCardBackList()
+        viewModel.loadMatchList()
+        viewModel.loadChallengeSchedule()
+    }
+
+    // 摘要口径：数据没到 / 列表为空 ⇒ 整段不显示（显示 0 会把「还没拉到」误报成「真的没有」）
+    val deckSummary = deckList?.deckList?.size?.takeIf { it > 0 }
+        ?.let { stringResource(R.string.my_summary_decks, it) }
+    val cardBacks = cardBackList?.cardBackList.orEmpty()
+    val cardBackSummary = cardBacks.takeIf { it.isNotEmpty() }?.let { backs ->
+        stringResource(R.string.my_cardback_count, backs.count { it.hasObtained == true }, backs.size)
+    }
+    // favouriteMatches 实测恒为 []（未收藏任何一局）⇒ 条数 0 属正常，同样不显示
+    val matchSummary = matchList?.favouriteMatches?.size?.takeIf { it > 0 }
+        ?.let { stringResource(R.string.my_summary_matches, it) }
+    val scheduleSummary = challengeSchedule?.scheduleList?.size?.takeIf { it > 0 }
+        ?.let { stringResource(R.string.my_summary_schedules, it) }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -98,14 +122,30 @@ fun MyRoute(
         }
         item(key = "assets") {
             SectionCard(title = stringResource(R.string.my_section_assets)) {
-                EntryRow(label = stringResource(R.string.my_deck_entry), onClick = onOpenDeck)
-                EntryRow(label = stringResource(R.string.my_cardback_entry), onClick = onOpenCardBack)
+                EntryRow(
+                    label = stringResource(R.string.my_deck_entry),
+                    trailing = deckSummary,
+                    onClick = onOpenDeck,
+                )
+                EntryRow(
+                    label = stringResource(R.string.my_cardback_entry),
+                    trailing = cardBackSummary,
+                    onClick = onOpenCardBack,
+                )
             }
         }
         item(key = "records") {
             SectionCard(title = stringResource(R.string.my_section_records)) {
-                EntryRow(label = stringResource(R.string.my_favorites_entry), onClick = onOpenFavorites)
-                EntryRow(label = stringResource(R.string.my_challenge_entry), onClick = onOpenChallenge)
+                EntryRow(
+                    label = stringResource(R.string.my_favorites_entry),
+                    trailing = matchSummary,
+                    onClick = onOpenFavorites,
+                )
+                EntryRow(
+                    label = stringResource(R.string.my_challenge_entry),
+                    trailing = scheduleSummary,
+                    onClick = onOpenChallenge,
+                )
             }
         }
     }
@@ -294,9 +334,12 @@ private fun InfoRow(label: String, value: String) {
     }
 }
 
-/** 二级页入口行：文案 + 尾部 chevron */
+/**
+ * 二级页入口行：文案 + 弱化摘要（可空）+ 尾部 chevron。
+ * 摘要为 null（数据未就绪 / 列表为空）时整段不渲染，行退化成纯文案 —— 一级页不因缺数据出现「0 组」。
+ */
 @Composable
-private fun EntryRow(label: String, onClick: () -> Unit) {
+private fun EntryRow(label: String, onClick: () -> Unit, trailing: String? = null) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -309,6 +352,16 @@ private fun EntryRow(label: String, onClick: () -> Unit) {
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.weight(1f),
         )
+        if (trailing != null) {
+            Text(
+                trailing,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(end = 8.dp),
+            )
+        }
         Icon(
             imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
             contentDescription = null,

@@ -51,6 +51,21 @@
     <string name="my_favorites_entry">收藏對局</string>
     <string name="my_challenge_entry">勝冠之試</string>
     <string name="my_placeholder_note">此功能將於後續版本開放。</string>
+    <!-- 「我的」頁四個二級頁（P2 真實資料） -->
+    <string name="my_empty_decks">暫無牌組</string>
+    <string name="my_empty_cardbacks">暫無卡背</string>
+    <string name="my_empty_favorites">暫無收藏對局</string>
+    <string name="my_empty_challenges">暫無勝冠之試紀錄</string>
+    <string name="my_cardback_count">已收集 %1$d / %2$d</string>
+    <string name="my_cardback_locked">未收集</string>
+    <string name="my_deck_card_summary">角色牌 %1$d · 行動牌 %2$d</string>
+    <string name="my_deck_card_group_avatar">角色牌</string>
+    <string name="my_deck_card_group_action">行動牌</string>
+    <string name="my_summary_decks">%1$d 組</string>
+    <string name="my_summary_matches">%1$d 條</string>
+    <string name="my_summary_schedules">%1$d 旬</string>
+    <string name="my_challenge_no_data">該旬暫無戰績</string>
+    <string name="my_challenge_win_count">勝場 %1$d</string>
 
     <!-- 伺服器 -->
     <string name="server_cn_gf01">天空島</string>

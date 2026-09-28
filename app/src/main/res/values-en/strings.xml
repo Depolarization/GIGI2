@@ -51,6 +51,21 @@
     <string name="my_favorites_entry">Favorite matches</string>
     <string name="my_challenge_entry">Champions\' Trial</string>
     <string name="my_placeholder_note">This feature is coming in a later release.</string>
+    <!-- 「我的」页四个二级页（P2 真实数据） -->
+    <string name="my_empty_decks">No decks yet</string>
+    <string name="my_empty_cardbacks">No card backs</string>
+    <string name="my_empty_favorites">No favorite matches</string>
+    <string name="my_empty_challenges">No Champions\' Trial records</string>
+    <string name="my_cardback_count">Collected %1$d / %2$d</string>
+    <string name="my_cardback_locked">Not collected</string>
+    <string name="my_deck_card_summary">%1$d character · %2$d action</string>
+    <string name="my_deck_card_group_avatar">Character cards</string>
+    <string name="my_deck_card_group_action">Action cards</string>
+    <string name="my_summary_decks">%1$d decks</string>
+    <string name="my_summary_matches">%1$d matches</string>
+    <string name="my_summary_schedules">%1$d periods</string>
+    <string name="my_challenge_no_data">No records for this period</string>
+    <string name="my_challenge_win_count">%1$d wins</string>
 
     <!-- Servers -->
     <string name="server_cn_gf01">Sky Island</string>
