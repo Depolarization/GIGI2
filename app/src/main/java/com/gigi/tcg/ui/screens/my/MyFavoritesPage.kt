@@ -1,0 +1,136 @@
+// 收藏对局（设计 §3.3）：gcg/matchList 的 favourite_matches 列表。
+// 🔴 实测该字段在未收藏任何一局时**恒为 []**（两份样本都是），空态是正常状态、不是错误。
+// 对局对象没有卡组名/卡组 id，只有 3 张角色牌头像 URL（键名是接口拼错的 `linups`，勿改）。
+// 胜负色走 LocalSemanticColors（设计红线 8：胜/负语义色固定，不参与动态取色、不新造 hex）。
+
+package com.gigi.tcg.ui.screens.my
+
+import android.app.Application
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gigi.tcg.R
+import com.gigi.tcg.data.model.GcgMatch
+import com.gigi.tcg.ui.components.Avatar
+import com.gigi.tcg.ui.components.EmptyState
+import com.gigi.tcg.ui.theme.LocalSemanticColors
+
+@Composable
+fun MyFavoritesPage(modifier: Modifier = Modifier) {
+    val app = LocalContext.current.applicationContext as Application
+    val viewModel: MyViewModel = viewModel(factory = MyViewModel.factory(app))
+    val activeUid by viewModel.activeUid.collectAsStateWithLifecycle()
+    val matchData by viewModel.matchList.collectAsStateWithLifecycle()
+
+    LaunchedEffect(activeUid) { viewModel.loadMatchList() }
+
+    val matches = matchData?.favouriteMatches.orEmpty()
+    MySubpageScaffold(title = stringResource(R.string.my_favorites_entry), modifier = modifier) {
+        if (matches.isEmpty()) {
+            EmptyState(
+                modifier = Modifier.padding(top = 32.dp),
+                title = stringResource(R.string.my_empty_favorites),
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                // game_id 实测是字符串且可能重复/缺失，按下标兜底避免重复 key 崩溃
+                itemsIndexed(matches, key = { index, item -> item.gameId ?: "noid-$index" }) { _, item ->
+                    MatchRow(match = item)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MatchRow(match: GcgMatch) {
+    val semantic = LocalSemanticColors.current
+    val isWin = match.isWin == true
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isWin) semantic.win else semantic.lose),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        stringResource(if (isWin) R.string.home_result_win else R.string.home_result_lose),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.inverseOnSurface,
+                    )
+                }
+                Text(
+                    match.opposite?.name ?: stringResource(R.string.state_empty_response),
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 8.dp),
+                )
+            }
+            Text(
+                listOfNotNull(
+                    match.matchType?.takeIf { it.isNotBlank() },
+                    formatGcgDateTime(match.matchTime),
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            // 两行头像：上行己方、下行对手（同一行内只有 3 张角色牌头像，接口不给卡组名）
+            LineupRow(avatars = match.self?.linups)
+            LineupRow(avatars = match.opposite?.linups)
+        }
+    }
+}
+
+@Composable
+private fun LineupRow(avatars: List<String>?) {
+    val urls = avatars.orEmpty()
+    if (urls.isEmpty()) return
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        urls.forEach { url ->
+            Avatar(url = url, size = 32.dp)
+        }
+    }
+}
