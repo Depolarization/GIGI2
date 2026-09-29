@@ -47,6 +47,9 @@ class AppContainer(private val appContext: Context) {
     private val okHttp: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
+            // 连接层自愈（DNS/TCP/TLS 换路由重试）：只覆盖 socket 段，与 MihoyoClient
+            // 业务层退避（信封 retcode / 解析）语义不同、各管一段，不会重复计数。
+            .retryOnConnectionFailure(true)
             .build()
     }
 

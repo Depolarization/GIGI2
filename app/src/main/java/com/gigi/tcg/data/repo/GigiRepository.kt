@@ -132,7 +132,7 @@ class GigiRepository(
     private val wikiDiskCache: WikiDiskStore,
     private val json: Json,
     private val memoryCache: TtlCache = TtlCache(),
-    private val retryDelayMs: Long = MihoyoClient.RETRY_DELAY_MS,
+    private val retryDelayMs: Long = MihoyoClient.RETRY_BASE_DELAY_MS,
     private val retryJitterMs: Long = MihoyoClient.RETRY_JITTER_SPAN_MS,
     private val now: () -> Long = { System.currentTimeMillis() },
     private val detailCache: DetailCacheStore = LruDetailCache(DETAIL_CACHE_MAX),

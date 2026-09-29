@@ -39,7 +39,8 @@ class ApiError(
     val kind: String,
     message: String,
     val retcode: Int? = null,
-) : Exception(message)
+    cause: Throwable? = null,
+) : Exception(message, cause)
 
 /** 是否属于"凭据失效"（唯一应当触发重新登录的情形） */
 fun isAuthFailureError(t: Throwable): Boolean =
