@@ -29,6 +29,47 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 
+/**
+ * [AppContainer.refreshAccounts] 的纯决策结果（内存态要写的激活 uid / 服务器 / 需回写盘的 uid）。
+ */
+internal data class AccountRefreshPlan(
+    val activeUid: String?,
+    val server: ServerId,
+    val uidToPersist: String?,
+)
+
+/**
+ * 账户内存态决策，从 [AppContainer.refreshAccounts] 抽出为顶层 internal 纯函数：
+ * 不碰 Context / CredentialStore，JVM 单测能直接复现冷启动崩溃路径（AppContainerTest）。
+ *
+ * 判据（🔴 V36-0 审计 P1：原实现 `storedAccounts.first { it.uid == activeUid }` 无兜底）：
+ * - `storedActiveUid == null` → 回落首个账户，并要求回写盘（既有行为，保持不变）；
+ * - `storedActiveUid != null` 却**在账户表里查不到**（凭据被部分清除、DataStore 写入中断、
+ *   多账号切换时序异常都会造成落盘 activeUid 与账户表错配）⇒ 判定为**脏值**：`first { }` 当时直接抛
+ *   `NoSuchElementException`，而 `refreshAccounts()` 由 `init` 调用 ⇒ **冷启动即崩**。
+ *   现在复位为 null + 服务器兜到 [ServerId.DEFAULT]。**不回落首个账户**：那个账户的凭据未必还有效，
+ *   替用户悄悄切号会让「当前在用哪个号」不可预期，不如回到未登录态由用户自己选。
+ *   脏值的落盘纠正留在内存复位这一步：`CredentialStore.setActiveUid(uid: String)` 只能写非空 uid、
+ *   写不回 null，加清除口要动 CredentialStore（不在本棒独占文件内），故此处不越界。
+ * - 命中账户 → 服务器取该账户 [StoredAccount.server]（与 null 分支同为「拿不到就 DEFAULT」的兜底语义）。
+ */
+internal fun planAccountRefresh(
+    storedAccounts: List<StoredAccount>,
+    storedActiveUid: String?,
+): AccountRefreshPlan {
+    val activeUid = storedActiveUid ?: storedAccounts.firstOrNull()?.uid
+    if (activeUid == null) {
+        return AccountRefreshPlan(activeUid = null, server = ServerId.DEFAULT, uidToPersist = null)
+    }
+    val matched = storedAccounts.firstOrNull { it.uid == activeUid }
+        ?: return AccountRefreshPlan(activeUid = null, server = ServerId.DEFAULT, uidToPersist = null)
+    return AccountRefreshPlan(
+        activeUid = activeUid,
+        server = matched.server(),
+        uidToPersist = activeUid.takeIf { storedActiveUid == null },
+    )
+}
+
 class AppContainer(private val appContext: Context) {
     val json: Json = Json {
         ignoreUnknownKeys = true
@@ -87,20 +128,17 @@ class AppContainer(private val appContext: Context) {
         refreshAccounts()
     }
 
+    /**
+     * 从凭据区刷新账户内存态（🔴 只读不落盘）。决策本体在纯函数 [planAccountRefresh]
+     * （含脏 activeUid 的兜底，AppContainerTest 锁死），这里只做「读盘 → 写内存态 → 必要的回写」。
+     */
     fun refreshAccounts() {
         val storedAccounts = credentialStore.accounts()
         _accounts.value = storedAccounts
-        val storedActiveUid = credentialStore.activeUid()
-        val activeUid = storedActiveUid ?: storedAccounts.firstOrNull()?.uid
-        if (storedActiveUid == null && activeUid != null) {
-            credentialStore.setActiveUid(activeUid)
-        }
-        _activeAccountUid.value = activeUid
-        if (activeUid == null) {
-            _currentServer.value = ServerId.DEFAULT
-        } else {
-            _currentServer.value = storedAccounts.first { it.uid == activeUid }.server()
-        }
+        val plan = planAccountRefresh(storedAccounts, credentialStore.activeUid())
+        plan.uidToPersist?.let { credentialStore.setActiveUid(it) }
+        _activeAccountUid.value = plan.activeUid
+        _currentServer.value = plan.server
     }
 
     fun activateAccount(uid: String): Boolean {
