@@ -219,7 +219,10 @@ private fun HeaderRow(
         )
         Spacer(Modifier.width(12.dp))
         Column {
-            Row(verticalAlignment = Alignment.Bottom) {
+            // V36 红线 1：昵称(16sp)/段位(14sp)靠 alignByBaseline() 对齐基线即可，
+            // Row 不得再设 verticalAlignment = Alignment.Bottom —— Bottom 会把基线
+            // parentData 二次下压，小字号段位反而比昵称视觉更低（A5 同款病，一并修）。
+            Row {
                 Text(
                     text = nickname ?: stringResource(R.string.common_unknown),
                     style = MaterialTheme.typography.titleMedium,
@@ -266,7 +269,8 @@ private fun ScoresRow(ladder: Int, peak: Int, semantic: SemanticColors) {
 
 @Composable
 private fun ScoreItem(label: String, value: Int, color: Color, modifier: Modifier = Modifier) {
-    Column(modifier) {
+    // V36 任务 H：补齐表头↔数值 4dp 间距，与 HomeRoute.ScoreItem（SCORE_LABEL_VALUE_GAP_DP）同口径
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
@@ -383,14 +387,26 @@ private fun SectionTitle(title: String, count: Int) {
     }
 }
 
-/** 胜负语义着色：对 competition_result 文案做胜/负判定（红绿成败约定，不参与动态取色） */
-private fun resultColor(result: String?, semantic: SemanticColors): Color {
-    if (result == null) return Color.Unspecified
+/**
+ * 赛事结果 → 胜/负判定（V36 任务 I：从 resultColor 抽出的纯函数，可 JVM 单测）。
+ * 原实现只认中文字符 + equals("win"/"lose")，英文赛事结果（Champion / Lost / 1st …）
+ * 判不出色。子串匹配、大小写不敏感；判不出返回 null（不染色，不是猜色）。
+ */
+internal enum class ContestOutcome { Win, Lose }
+
+internal fun contestOutcome(result: String?): ContestOutcome? {
+    if (result == null) return null
+    val r = result.lowercase()
     return when {
-        result.contains("胜") || result.contains("冠") || result.contains("第一") ||
-            result.equals("win", ignoreCase = true) -> semantic.win
-        result.contains("负") || result.contains("败") || result.contains("最后") ||
-            result.equals("lose", ignoreCase = true) -> semantic.lose
-        else -> Color.Unspecified
+        listOf("胜", "冠", "第一", "win", "champion", "1st").any { r.contains(it) } -> ContestOutcome.Win
+        listOf("负", "败", "最后", "lose", "lost", "last").any { r.contains(it) } -> ContestOutcome.Lose
+        else -> null
     }
+}
+
+/** 胜负语义着色：判定走 [contestOutcome]（红绿成败约定，不参与动态取色） */
+private fun resultColor(result: String?, semantic: SemanticColors): Color = when (contestOutcome(result)) {
+    ContestOutcome.Win -> semantic.win
+    ContestOutcome.Lose -> semantic.lose
+    null -> Color.Unspecified
 }
