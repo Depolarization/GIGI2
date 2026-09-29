@@ -230,8 +230,9 @@ class HomeProfileLayoutTest {
         assertTrue("「最近对局」标题必须保留", home.contains("R.string.home_recent_games"))
         assertTrue("刷新按钮必须保留", home.contains("Icons.Outlined.Refresh"))
         assertTrue("刷新按钮仍接 viewModel::refresh", home.contains("onClick = viewModel::refresh"))
-        // V36 任务 B：首页个人信息区照抄统计页 = 直接复用 PlayerInfoHeader
-        assertTrue("首页资料卡应复用共享 PlayerInfoHeader", home.contains("PlayerInfoHeader("))
+        // V36 任务 B：首页个人信息区照抄统计页 = ProfileCard 直接复用 PlayerInfoHeader
+        // （断言落在 ProfileCard 体内：HomeRoute 段止于 ProfileCard 签名，不含卡片实现）
+        assertTrue("首页资料卡应复用共享 PlayerInfoHeader", profileBody.contains("PlayerInfoHeader("))
     }
 
     /** V29-B：图片导出的源码与测试都不应再回来（列表展示保留、导出能力移除） */
