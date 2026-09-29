@@ -12,12 +12,14 @@ captures/
 
 # 签名密钥与本机配置，绝不入库
 gigi_release.keystore
+gigi_release.keystore.bak-*
 local.properties
 
 # 子代理协作运行时数据（勿提交）
 tools/.agent_monitor/
 .agent_work/
 .task/
+.task-shots/
 __pycache__/
 
 # AI 协作元数据（工作日志 / 记忆 / 派单记录），不属于产品源码，不入开源仓库

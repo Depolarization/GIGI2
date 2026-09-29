@@ -1,6 +1,7 @@
-// 卡组导出图的纯逻辑回归锁（V37-F 任务 E，纯 JVM、无 Robolectric）。
-// 锁三件事：① 官方 375/90/76/54/15·15·20/10·11·16 这套数值的 ×2 换算口径；
+// 卡组导出图的纯逻辑回归锁（V37-F 任务 E，V38-B 按官方参考图重做版式；纯 JVM、无 Robolectric）。
+// 锁三件事：① 参考图（20260929181737.png，面板 900 → 画布 750，系数 5/6）推出的牌尺/6 列网格/页脚算术；
 // ② 空牌组 / 超长牌组名 / 40 张牌三类边界不崩、不溢出画布；③ 文件名清洗与反馈/默认文案通道。
+// 🔴 V38-B 新增：顶部 banner（米游社 logo + 七圣召唤）移除的源码闸门、角色牌恒 3 张钳制、采样配色。
 // 假 measurer 与 TableLayoutTest 同一口径：CJK=1.0×字号、拉丁≈0.55×字号（真机字宽只小不大 ⇒ 保守上界）。
 package com.gigi.tcg.ui.export
 
@@ -9,6 +10,7 @@ import com.gigi.tcg.data.model.GcgDeck
 import com.gigi.tcg.data.model.GcgDeckCard
 import com.gigi.tcg.i18n.LocaleStrings
 import java.io.File
+import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -40,18 +42,21 @@ class DeckImageExportTest {
         actionCards = List(actionCount) { DeckCardFace("行动$it", "https://cdn/action$it.jpg") },
     )
 
-    // ---- ① 官方尺寸换算 ----
+    // ---- ① 参考图换算（V38-B：面板 900 → 画布 750，系数 5/6） ----
 
     @Test
     fun canvasAndPartSizes_matchOfficialSpec() {
-        assertEquals("画布宽 = 375 设计宽 × DPR 2", 750, DECK_CANVAS_WIDTH_PX)
-        assertEquals("share-header 90dp → 180px", 180, DECK_HEADER_HEIGHT_PX)
-        assertEquals("share-body 左右 padding 15 → 30px", 30, DECK_BODY_PADDING_SIDE_PX)
-        assertEquals("share-body 底 padding 20 → 40px", 40, DECK_BODY_PADDING_BOTTOM_PX)
-        assertEquals("牌组区 padding 10/11/16 → 20/22/32px", 22, DECK_GROUP_PADDING_SIDE_PX)
-        assertEquals("角色牌图 76 → 152px", 152, DECK_ROLE_CARD_WIDTH_PX)
-        assertEquals("行动牌图 54 → 108px", 108, DECK_ACTION_CARD_WIDTH_PX)
-        assertEquals("152 宽按卡面 160:275 立框", 261, deckCardHeightPx(152))
+        assertEquals("画布宽 = 375 设计宽 × DPR 2（派单硬指标，V38 不改）", 750, DECK_CANVAS_WIDTH_PX)
+        assertEquals("body 左右 padding 15 → 30px", 30, DECK_BODY_PADDING_SIDE_PX)
+        assertEquals("牌组区 padding 11 → 22px", 22, DECK_GROUP_PADDING_SIDE_PX)
+        assertEquals("角色牌 144×240@900 → 120×200@750", 120, DECK_ROLE_CARD_WIDTH_PX)
+        assertEquals("角色牌更竖长（1:1.667）", 200, DECK_ROLE_CARD_HEIGHT_PX)
+        assertEquals("行动牌 6 列铺满内容宽：6×96+5×14 = 646", 96, DECK_ACTION_CARD_WIDTH_PX)
+        assertEquals("行动牌高按参考图 96:160", 160, DECK_ACTION_CARD_HEIGHT_PX)
+        assertEquals("行列间距单一常量 14", 14, DECK_CARD_GRID_GAP_PX)
+        assertEquals("行动牌恒 6 列", 6, DECK_ACTION_GRID_COLUMNS)
+        assertEquals("角色牌恒 3 张", 3, DECK_ROLE_CARD_COUNT)
+        assertEquals("152 宽按卡面 160:275 立框（接口图口径不变）", 261, deckCardHeightPx(152))
         assertEquals("108 宽按卡面 160:275 立框", 186, deckCardHeightPx(108))
     }
 
@@ -62,18 +67,18 @@ class DeckImageExportTest {
         assertEquals(690, layout.textContentWidthPx)
         assertEquals("牌面区左缘 = body 15 + 牌组区 11", 52, layout.cardsLeftPx)
         assertEquals(646, layout.cardsContentWidthPx)
-        assertEquals("标题顶 = header 180 + body 顶 padding 30", 210, layout.titleTopPx)
+        assertEquals("顶部 banner 移除：标题流不再压在 180px header 之下", 30, layout.titleTopPx)
     }
 
     @Test
-    fun layout_realDeck_rolesThreeColumnsActionsFive() {
+    fun layout_realDeck_rolesThreeColumnsActionsSix() {
         val layout = computeDeckImageLayout(spec(roleCount = 3, actionCount = 24), fakeMeasurer)
         assertEquals(3, layout.roleSlots.size)
-        assertEquals("角色牌一行三列（3×152+2×16 ≤ 646）", 3, layout.roleSlots.map { it.xPx }.distinct().size)
+        assertEquals("角色牌一行三列居中（3×120+2×14 ≤ 750）", 3, layout.roleSlots.map { it.xPx }.distinct().size)
         assertEquals(1, layout.roleSlots.map { it.yPx }.distinct().size)
         assertEquals(24, layout.actionSlots.size)
-        assertEquals("行动牌一行五列（5×108+4×16 ≤ 646）", 5, layout.actionSlots.take(5).map { it.xPx }.distinct().size)
-        assertEquals("24 张 → 5 行", 5, layout.actionSlots.map { it.yPx }.distinct().size)
+        assertEquals("行动牌一行六列（6×96+5×14 = 646 恰好铺满内容宽）", 6, layout.actionSlots.take(6).map { it.xPx }.distinct().size)
+        assertEquals("24 张 → 4 行", 4, layout.actionSlots.map { it.yPx }.distinct().size)
     }
 
     // ---- ② 边界：空牌组 / 超多牌 / 超长名 ----
@@ -92,7 +97,7 @@ class DeckImageExportTest {
     @Test
     fun layout_fortyCards_growsVerticallyButNeverOverflowsWidth() {
         val layout = computeDeckImageLayout(spec(actionCount = 40), fakeMeasurer)
-        assertEquals("40 张 5 列 → 8 行", 8, layout.actionSlots.map { it.yPx }.distinct().size)
+        assertEquals("40 张 6 列 → 7 行", 7, layout.actionSlots.map { it.yPx }.distinct().size)
         val rightEdge = layout.actionSlots.maxOf { it.xPx + it.widthPx }
         assertTrue("最右牌面不得越过右内边距：$rightEdge > 750-52", rightEdge <= 750 - 52)
         assertTrue("末行底不得越过画布高：${layout.actionSlots.last().yPx}", layout.actionSlots.last().yPx + layout.actionCardHeightPx <= layout.heightPx)
@@ -240,7 +245,9 @@ class DeckImageExportTest {
         assertFalse("占满全宽的按钮已改 icon", code.contains("OutlinedButton"))
         assertTrue("复制/导出改 trailing icon", code.contains("Icons.Outlined.ContentCopy") && code.contains("Icons.Outlined.IosShare"))
         assertTrue("icon 必须带 contentDescription", code.contains("contentDescription = copyLabel") && code.contains("contentDescription = exportLabel"))
-        assertFalse("张数文字已删（card.num 恒 1 无信息量）", code.contains("card.num"))
+        // V38-B 裁决（.task/progress/V38-B-ADJUDICATION.md）：V37「card.num 恒 1」只对角色牌成立，
+        // 行动牌实测 70/70 例有 2 张（ctrl-deckList.json）⇒ 张数徽标已恢复，闸门倒转为正面断言。
+        assertTrue("行动牌张数徽标已恢复（V38 用户指令：只移除角色牌张数）", code.contains("card.num"))
     }
 
     @Test
@@ -269,5 +276,83 @@ class DeckImageExportTest {
             val actual = Regex("""<string name="$id">(.*?)</string>""").find(text)?.groupValues?.get(1)
             assertEquals("$id 默认值与资源不一致", expected, actual)
         }
+    }
+
+    // ---- ⑤ V38-B：顶部 banner 移除 + 参考图版式 ----
+
+    @Test
+    fun renderer_topBannerRemoved_mihoyoLogoAndZhiShengTextGone() {
+        // 🔴 用户原话「无需米游社logo和其下方的七圣召唤文本（移除顶部banner）」——本条是最高优先闸门。
+        // 只看代码行：注释里允许出现「七圣召唤」等字样（KDoc 要写清删了什么）。
+        val code = File("src/main/java/com/gigi/tcg/ui/export/DeckImageRenderer.kt").readText()
+            .lines().filterNot { it.trim().startsWith("//") || it.trim().startsWith("*") }.joinToString("\n")
+        assertFalse("渲染层不得再引用米游社 logo 素材", code.contains("export_logo"))
+        assertFalse("渲染层不得再画七圣召唤品牌文本", code.contains("七圣召唤"))
+        assertFalse("渲染层不得残留 header 绘制", code.contains("drawHeader"))
+        assertFalse("渲染层不得 import 米游社相关", code.lowercase().contains("mihoyo"))
+        val layout = computeDeckImageLayout(spec(), fakeMeasurer)
+        assertTrue("顶部 banner（180px header）已移除：标题流起点回到 body 顶 padding", layout.titleTopPx <= 30)
+    }
+
+    @Test
+    fun characterCardCount_alwaysClampedToThree() {
+        assertEquals(3, characterCardCount(3))
+        assertEquals("异常输入（4 张/几十张）钳到 3，多出的牌不进图", 3, characterCardCount(4))
+        assertEquals(3, characterCardCount(Int.MAX_VALUE))
+        assertEquals(2, characterCardCount(2))
+        assertEquals(0, characterCardCount(0))
+        assertEquals("负数不炸版式", 0, characterCardCount(-5))
+    }
+
+    @Test
+    fun layout_moreThanThreeRoleCards_onlyThreeSlotsDrawn() {
+        val layout = computeDeckImageLayout(spec(roleCount = 5, actionCount = 12), fakeMeasurer)
+        assertEquals("恒 3 张判据落到槽位：5 张只排 3 个槽", 3, layout.roleSlots.size)
+        assertEquals(120, layout.roleSlots.first().widthPx)
+        assertEquals(200, layout.roleSlots.first().heightPx)
+        // 居中：块宽 3×120+2×14=388 ⇒ 左缘 (750-388)/2=181
+        assertEquals(181, layout.roleSlots.first().xPx)
+    }
+
+    @Test
+    fun layout_actionGridSixColumnsCenteredAndFooterReserved() {
+        val layout = computeDeckImageLayout(spec(actionCount = 7), fakeMeasurer)
+        assertEquals("7 张 → 6+1 两行", 2, layout.actionSlots.map { it.yPx }.distinct().size)
+        // 居中：块宽 6×96+5×14=646 ⇒ 左缘 (750-646)/2=52（与 cardsLeft 重合，恰好铺满）
+        assertEquals(52, layout.actionSlots.first().xPx)
+        val lastBottom = layout.actionSlots.last().yPx + layout.actionCardHeightPx
+        assertTrue("页脚给 UID/昵称两行 + 游戏 logo 留了位", layout.heightPx - lastBottom >= 90)
+        assertEquals("footerTop 即 UID 行起点", lastBottom + 30, layout.footerTopPx)
+    }
+
+    @Test
+    fun deckFooterLines_uidFirstThenNickname() {
+        assertEquals(
+            listOf("UID:261958214", "Oscuro"),
+            deckFooterLines("分享人：Oscuro", "261958214"),
+        )
+        assertEquals("UID 缺失只画一行昵称", listOf("Oscuro"), deckFooterLines("分享人：Oscuro", null))
+        assertEquals("全空不画", emptyList<String>(), deckFooterLines("", "  "))
+    }
+
+    @Test
+    fun sectionColors_sampledFromReferenceScreenshot() {
+        // 🔴 数值取自 PIL 对 20260929181737.png 的采样（纸面众数 219,213,206 / 标题笔画众数 132,96,61），
+        // 判据用通道距离 ≤12，防手滑改数而不是防采样误差。
+        fun rgb(p: Int) = Triple(p shr 16 and 0xFF, p shr 8 and 0xFF, p and 0xFF)
+        fun closeTo(c: Int, r: Int, g: Int, b: Int): Boolean {
+            val (cr, cg, cb) = rgb(c)
+            return abs(cr - r) <= 12 && abs(cg - g) <= 12 && abs(cb - b) <= 12
+        }
+        assertTrue("纸面米白要贴参考图采样值", closeTo(DECK_COLOR_PAPER_BG, 219, 213, 206))
+        assertTrue("分区标题金棕要贴参考图采样值", closeTo(DECK_COLOR_SECTION_TITLE, 132, 96, 61))
+    }
+
+    @Test
+    fun renderer_usesCardFrameAssetFromNodpi() {
+        // 卡框素材必须落 drawable-nodpi（否则 Android 按 dpi 缩放会糊），且资源真实存在
+        val src = File("src/main/java/com/gigi/tcg/ui/export/DeckImageRenderer.kt").readText()
+        assertTrue("渲染层要叠官方卡框", src.contains("v38_card_frame"))
+        assertTrue("素材必须放 nodpi 目录", File("src/main/res/drawable-nodpi/v38_card_frame.png").exists())
     }
 }

@@ -58,6 +58,10 @@
     <string name="my_deck_card_summary">角色牌 %1$d · 行動牌 %2$d</string>
     <string name="my_deck_card_group_avatar">角色牌</string>
     <string name="my_deck_card_group_action">行動牌</string>
+    <!-- 導出圖兩個分區標題：照官方參考圖文案（V38 使用者要求嚴格對齊官方截圖） -->
+    <string name="export_deck_section_role">出戰陣容</string>
+    <string name="export_deck_section_action">出戰牌組</string>
+    <string name="my_deck_card_count_prefix">×</string>
     <string name="my_summary_decks">%1$d 組</string>
     <string name="my_summary_matches">%1$d 條</string>
     <string name="my_summary_schedules">%1$d 旬</string>
@@ -241,6 +245,9 @@
 
     <!-- 卡面下載 -->
     <string name="cover_title_fallback">卡面</string>
+    <!-- 卡背下載（V38-D）：卡背介面只有 id、沒有名字欄位，故稱謂與檔名前綴都用它 -->
+    <string name="cardback_name_fallback">卡背</string>
+    <string name="cardback_empty_image">該卡背暫無圖片</string>
     <string name="cover_empty_format">該格式暫無卡面圖片</string>
     <string name="cover_format_png">普通卡面(PNG)</string>
     <string name="cover_format_gif">動態卡面(GIF)</string>
@@ -267,6 +274,7 @@
     <string name="export_dir_action">行動牌</string>
     <string name="export_dir_qr">二維碼</string>
     <string name="export_dir_deck">牌組</string>
+    <string name="export_dir_cardback">卡背</string>
 
     <!-- 匯出圖頁首 / 頁尾 -->
     <string name="export_level">牌手等級 %1$d</string>

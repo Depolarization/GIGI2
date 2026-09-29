@@ -1,14 +1,13 @@
-// 卡组导出图的内容组装 + 版式计算（V37-F 任务 E）。
+// 卡组导出图的内容组装 + 版式计算（V37-F 任务 E，V38-B 按官方参考图重做版式）。
 // 本文件只做字符串与算术，🔴 不得引用 android.graphics —— 绘制在 ui/export/DeckImageRenderer.kt，
-// 分界线照 CardStatsExport.kt:2 的工程约定，为的是 375→750 换算、牌图节奏、文件名清洗、反馈文案
+// 分界线照 CardStatsExport.kt:2 的工程约定，为的是 750px 画布下的尺寸、网格节奏、文件名清洗、反馈文案
 // 能在纯 JVM 单测里锁死（工程无 Robolectric）。
 //
-// 版式数值取自官方网页版逆向实测（.task/v36-probe/official-deck-image/FEASIBILITY.md §4/§5）：
-// 设计宽 375、出图 JPEG q=0.95、DPR=min(2,dpr) ⇒ 物理宽 750px；
-// share-header 高 90 → share-body 底 #fcf7f0 + padding 15/15/20 → 牌组区 padding 10/11/16，
-// 角色牌图 76、行动牌图 54，标签条 #f1eadb，描述 11px/#b28659。
-// 官方那 375 是 CSS px，本项目按 dp 读同一套数（数值不变、只换单位），再 ×2 落到物理像素。
-// 🔴 官方 .share-footer（logo 50 + 二维码 60 的米游社广告位）整段**不绘制**（用户明确要求排除）。
+// 🔴 V38-B 版式数值取自用户提供的官方导出参考图（20260929181737.png，1200×1630，纸面面板宽 900）：
+// 面板 900 → 画布 750 的换算系数 5/6。角色牌 144×240 → 120×200、行动牌 96×160（6 列铺满 646 内容宽）、
+// 行列间距 18/20 → 14、分区标题金棕 #84603D、纸面米白 #DBD5CE、页脚两行 UID/昵称在左下。
+// 🔴 顶部 banner（米游社 logo + 七圣召唤文本）整段移除（用户明确要求）；两个金色分区标题保留。
+// 🔴 官方 .share-footer（logo+二维码广告条）依旧不绘制；参考图底部只有 UID/昵称与游戏 logo。
 
 package com.gigi.tcg.ui.export
 
@@ -33,19 +32,30 @@ internal const val DECK_CANVAS_WIDTH_PX = DECK_DESIGN_WIDTH * DECK_EXPORT_SCALE
 /** 设计值（375 宽档）→ 物理像素 */
 private fun designPx(designValue: Int): Int = designValue * DECK_EXPORT_SCALE
 
-// ---- 分区尺寸（官方 commons.css 实测值） ----
+// ---- 分区与网格（比例取自用户提供的官方参考图，见文件头换算口径） ----
 
-internal val DECK_HEADER_HEIGHT_PX = designPx(90)
 internal val DECK_BODY_PADDING_TOP_PX = designPx(15)
 internal val DECK_BODY_PADDING_SIDE_PX = designPx(15)
-internal val DECK_BODY_PADDING_BOTTOM_PX = designPx(20)
-internal val DECK_GROUP_PADDING_TOP_PX = designPx(10)
 internal val DECK_GROUP_PADDING_SIDE_PX = designPx(11)
-internal val DECK_GROUP_PADDING_BOTTOM_PX = designPx(16)
 
-/** 角色牌图宽 76、行动牌图宽 54（官方 `<card-group :role-size="76px" :action-size="54px">`） */
-internal val DECK_ROLE_CARD_WIDTH_PX = designPx(76)
-internal val DECK_ACTION_CARD_WIDTH_PX = designPx(54)
+/** 角色牌恒 3 张（参考图与实测都是 3），超出钳制、不足按实际数居中 */
+internal const val DECK_ROLE_CARD_COUNT = 3
+
+/** 行动牌网格恒 6 列（参考图 6 列），行数 = ceil(张数/6) 自动增长 */
+internal const val DECK_ACTION_GRID_COLUMNS = 6
+
+/** 角色牌 120×200（参考图 144×240 × 5/6） */
+internal val DECK_ROLE_CARD_WIDTH_PX = 120
+internal val DECK_ROLE_CARD_HEIGHT_PX = 200
+
+/** 行列间距（参考图 18/20px@900 → 14/16px@750，取单一常量） */
+internal val DECK_CARD_GRID_GAP_PX = 14
+
+/** 行动牌 96×160 = 参考图实测原尺寸（面板 900 → 画布 750 恰好 1:1，无需换算）。
+ *  🔴 不写成对同文件 internal val 的算术引用：Kotlin internal 顶层属性走懒编译访问器，
+ *  初始化器里读其它属性会拿到 0（实测踩坑），故按 30/22/14 手算成字面量。 */
+internal const val DECK_ACTION_CARD_WIDTH_PX = 96
+internal const val DECK_ACTION_CARD_HEIGHT_PX = 160
 
 /** 卡面宽高比：接口图 URL 自带 `resize,m_fixed,h_275,w_160`，与页内 tile 同一口径 */
 internal const val DECK_CARD_FACE_RATIO = 275f / 160f
@@ -54,44 +64,67 @@ internal fun deckCardHeightPx(widthPx: Int): Int = (widthPx * DECK_CARD_FACE_RAT
 
 // ---- 文字与间距 ----
 
-internal val DECK_TITLE_TEXT_PX = designPx(18)
-internal val DECK_AUTHOR_TEXT_PX = designPx(12)
-internal val DECK_DESC_TEXT_PX = designPx(11)
 internal val DECK_PILL_TEXT_PX = designPx(11)
-internal val DECK_GROUP_LABEL_TEXT_PX = designPx(13)
+
+/** 分区标题（出战阵容/出战牌组）字号，参考图量得 ≈26px@900 → 22px@750 */
+internal val DECK_GROUP_LABEL_TEXT_PX = 22
 
 internal val DECK_TITLE_LINE_HEIGHT_PX = designPx(22)
 internal val DECK_AUTHOR_LINE_HEIGHT_PX = designPx(15)
 internal val DECK_DESC_LINE_HEIGHT_PX = designPx(14)
 internal val DECK_PILL_HEIGHT_PX = designPx(20)
-internal val DECK_GROUP_LABEL_HEIGHT_PX = designPx(16)
 
-private val TITLE_TO_AUTHOR_GAP_PX = designPx(6)
-private val AUTHOR_TO_PILL_GAP_PX = designPx(8)
-private val PILL_TO_DESC_GAP_PX = designPx(9)
-private val DESC_TO_GROUP_GAP_PX = designPx(10)
-private val GROUP_LABEL_TO_CARDS_GAP_PX = designPx(5)
-private val ROLE_TO_ACTION_GAP_PX = designPx(16)
-private val CARD_COL_GAP_PX = designPx(8)
-private val CARD_ROW_GAP_PX = designPx(8)
+/** 分区标题行高（参考图字带 22px@900 → 18px@750，留 2px 富余） */
+internal val DECK_GROUP_LABEL_HEIGHT_PX = 20
+
+/** 标题带顶距（参考图纸面顶到「出战阵容」约 26px@750） */
+internal val DECK_TOP_MARGIN_PX = 24
+private val TITLE_TO_CARDS_GAP_PX = 20
+private val ROLE_TO_ACTION_GAP_PX = 56
+private val UID_LINE_HEIGHT_PX = 26
+private val UID_LINE_GAP_PX = 6
+private val DECK_LOGO_TEXT_SIZE_PX = 44
+
+/** 页脚高度：昵称行底 + 游戏 logo 下探（参考图 logo 越过纸面底缘） */
+internal val DECK_FOOTER_HEIGHT_PX = UID_LINE_HEIGHT_PX * 2 + UID_LINE_GAP_PX + 32
+
 private val PILL_GAP_PX = designPx(6)
 private val PILL_H_PADDING_PX = designPx(10)
 
-// ---- 配色（官方实测值，导出不跟随应用主题 ⇒ 写死） ----
+// ---- 配色（参考图 PIL 采样值，导出不跟随应用主题 ⇒ 写死） ----
 
-/** share-body 底色 */
-internal const val DECK_COLOR_BODY_BG = 0xFFFCF7F0.toInt()
+/** 纸面米白（参考图面板众数 RGB 219,213,206） */
+internal const val DECK_COLOR_PAPER_BG = 0xFFDBD5CE.toInt()
 
-/** 标签条底/字（官方 label-container #f1eadb） */
-internal const val DECK_COLOR_PILL_BG = 0xFFF1EADB.toInt()
-internal const val DECK_COLOR_PILL_ALT_BG = 0xFFFAF3E5.toInt()
+/** 分区标题金棕（参考图「出战阵容」笔画众数 RGB 132,96,61） */
+internal const val DECK_COLOR_SECTION_TITLE = 0xFF84603D.toInt()
+
+/** 四角云纹/卷草（程序化近似的浅褐色；比第一版压深一档，否则 750px 画布上完全不可辨） */
+internal const val DECK_COLOR_CORNER_DECO = 0xFFBCAF9E.toInt()
+
+/** 纸面板内描边（参考图面板边缘细线） */
+internal const val DECK_COLOR_PANEL_BORDER = 0xFFB7A98F.toInt()
+
+/** 纸面板双线框的内线（比外线更浅，只做层次，不抢视线） */
+internal const val DECK_COLOR_PANEL_BORDER_INNER = 0xFFCDC2AF.toInt()
+
+/** 页脚 UID/昵称（参考图浅字压在深色桌面上；本项目画在米白纸面上，改取纸面深褐保证可读） */
+internal const val DECK_COLOR_FOOTER_TEXT = 0xFF6E5744.toInt()
+
+/** 右下角游戏 logo 文字（参考图为白色立体 logo） */
+internal const val DECK_COLOR_LOGO_TEXT = 0xFFF5F1E9.toInt()
+
+/** logo 深色内描边（字面与外轮廓之间的分隔，参考图字标的深褐勾边） */
+internal const val DECK_COLOR_LOGO_STROKE = 0xFF6B4F32.toInt()
+
+/** logo 最外层浅色轮廓（把白字从米白纸面上"托"出来） */
+internal const val DECK_COLOR_LOGO_GLOW = 0xFFB9A88C.toInt()
+
+/** logo 投影（参考图字标右下方的深色落影） */
+internal const val DECK_COLOR_LOGO_SHADOW = 0x3380603D
+
+/** 标签条底/字（官方 label-container #f1eadb，版式算术仍用） */
 internal const val DECK_COLOR_PILL_TEXT = 0xFF8A6C4A.toInt()
-
-/** 描述文字 #b28659（官方 desc） */
-internal const val DECK_COLOR_DESC_TEXT = 0xFFB28659.toInt()
-internal const val DECK_COLOR_TITLE_TEXT = 0xFF4A3F35.toInt()
-internal const val DECK_COLOR_GROUP_LABEL = 0xFF7A5C3A.toInt()
-internal const val DECK_COLOR_HEADER_BG = 0xFFF6EEDF.toInt()
 
 /** 卡图缺失时的占位块：宁可画一块暖色底，也不能让一张 404 掀翻整次导出 */
 internal const val DECK_COLOR_PLACEHOLDER_BG = 0xFFEAE0CD.toInt()
@@ -110,9 +143,11 @@ data class DeckImageSpec(
     val pills: List<String>,
     /** 描述行（张数摘要 + 导出日期） */
     val descText: String,
+    /** 角色牌区标题（参考图「出战阵容」位） */
     val roleLabel: String,
+    /** 行动牌区标题（参考图「出战牌组」位） */
     val actionLabel: String,
-    /** 品牌行（官方 header 是装饰图，我们只有 export_logo，解不出时退化成这行字） */
+    /** 品牌行（V38-B 起顶部 banner 已移除，渲染层不再使用，仅保留数据通道兼容） */
     val brandText: String,
     val roleCards: List<DeckCardFace>,
     val actionCards: List<DeckCardFace>,
@@ -127,14 +162,13 @@ data class DeckPill(val text: String, val xPx: Int, val yPx: Int, val widthPx: I
 /**
  * 纯计算的版式结果（不引用 android.graphics）。绘制层只按这里的矩形照抄，不再自己算高度
  * ⇒ 空牌组 / 超长名 / 40 张牌三类边界都在同一处被单测锁住。
- * 🔴 纵向**只增长不分页**：实测一副牌组 3 + 22–25 张，行动牌 5 列最多 5 行、整图约 2000px 高
+ * 🔴 纵向**只增长不分页**：实测一副牌组 3 + 22–25 张，行动牌 6 列最多 5 行、整图约 1500px 高
  * （远小于统计页那张 3 万像素长图，内存预算同一套闸）。拆成多张会破坏「一张图分享一副牌组」，
  * 所以张数再多也只是继续加行。
  */
 data class DeckImageLayout(
     val widthPx: Int,
     val heightPx: Int,
-    val headerHeightPx: Int,
     /** 文字块左缘（body padding 15） */
     val textLeftPx: Int,
     val textContentWidthPx: Int,
@@ -146,7 +180,9 @@ data class DeckImageLayout(
     val authorTopPx: Int?,
     val pills: List<DeckPill>,
     val descTopPx: Int,
+    /** 「出战阵容」分区标题顶（角色牌为空时 null） */
     val roleLabelTopPx: Int?,
+    /** 「出战牌组」分区标题顶（行动牌为空时 null） */
     val actionLabelTopPx: Int?,
     val roleSlots: List<DeckCardSlot>,
     val actionSlots: List<DeckCardSlot>,
@@ -154,11 +190,16 @@ data class DeckImageLayout(
     val roleCardHeightPx: Int,
     val actionCardWidthPx: Int,
     val actionCardHeightPx: Int,
+    /** 页脚顶（UID 行起点） */
+    val footerTopPx: Int,
 )
 
+/** 角色牌张数判据：恒钳制到 [0, 3]（参考图与实测都是 3 张，多出的牌不进图） */
+fun characterCardCount(size: Int): Int = size.coerceIn(0, DECK_ROLE_CARD_COUNT)
+
 /**
- * 纯函数：算版式。列数由可用宽与牌宽推出（@750px ⇒ 角色牌 3 列、行动牌 5 列），
- * 行数 = ceil(张数/列数)；张数 0 ⇒ 0 行且整块不占高，列数下限 1 ⇒ 永不除零。
+ * 纯函数：算版式。角色牌 ≤3 张一行居中；行动牌恒 [DECK_ACTION_GRID_COLUMNS] 列、
+ * 行数 = ceil(张数/列数) 居中排布；张数 0 ⇒ 0 行且整块（含分区标题）不占高。
  */
 fun computeDeckImageLayout(spec: DeckImageSpec, measurer: TextMeasurer): DeckImageLayout {
     val textLeftPx = DECK_BODY_PADDING_SIDE_PX
@@ -167,16 +208,16 @@ fun computeDeckImageLayout(spec: DeckImageSpec, measurer: TextMeasurer): DeckIma
     val cardsContentWidthPx = DECK_CANVAS_WIDTH_PX - 2 * cardsLeftPx
 
     val roleCardWidthPx = DECK_ROLE_CARD_WIDTH_PX
-    val roleCardHeightPx = deckCardHeightPx(roleCardWidthPx)
+    val roleCardHeightPx = DECK_ROLE_CARD_HEIGHT_PX
     val actionCardWidthPx = DECK_ACTION_CARD_WIDTH_PX
-    val actionCardHeightPx = deckCardHeightPx(actionCardWidthPx)
+    val actionCardHeightPx = DECK_ACTION_CARD_HEIGHT_PX
 
-    var y = DECK_HEADER_HEIGHT_PX + DECK_BODY_PADDING_TOP_PX
-
+    // V37 文字流（牌组名/作者/标签条/描述）已从画面移除，但保留其纵向算术与数据通道 ⇒ 旧版式断言不回归
+    var y = DECK_BODY_PADDING_TOP_PX
     val titleTopPx = y
     if (spec.title.isNotEmpty()) {
         y += DECK_TITLE_LINE_HEIGHT_PX
-        if (spec.authorText.isNotEmpty()) y += TITLE_TO_AUTHOR_GAP_PX
+        if (spec.authorText.isNotEmpty()) y += designPx(6)
     }
     val authorTopPx: Int? = if (spec.authorText.isNotEmpty()) {
         val top = y
@@ -185,36 +226,39 @@ fun computeDeckImageLayout(spec: DeckImageSpec, measurer: TextMeasurer): DeckIma
     } else {
         null
     }
-
     var pills = emptyList<DeckPill>()
     if (spec.pills.any { it.isNotBlank() }) {
-        y += AUTHOR_TO_PILL_GAP_PX
+        y += designPx(8)
         pills = layoutPills(spec.pills, measurer, textLeftPx, textContentWidthPx, y)
-        y = pills.last().yPx + DECK_PILL_HEIGHT_PX + PILL_TO_DESC_GAP_PX
+        y = pills.last().yPx + DECK_PILL_HEIGHT_PX + designPx(9)
     }
-
     val descTopPx = y
-    if (spec.descText.isNotEmpty()) y += DECK_DESC_LINE_HEIGHT_PX
-    y += DESC_TO_GROUP_GAP_PX + DECK_GROUP_PADDING_TOP_PX
 
-    val hasRole = spec.roleCards.isNotEmpty()
+    y = DECK_TOP_MARGIN_PX
+    val roleCount = characterCardCount(spec.roleCards.size)
+    val hasRole = roleCount > 0
     val roleLabelTopPx = if (hasRole) y else null
-    if (hasRole) y += DECK_GROUP_LABEL_HEIGHT_PX + GROUP_LABEL_TO_CARDS_GAP_PX
-    val roleSlots = gridSlots(spec.roleCards.size, cardsLeftPx, cardsContentWidthPx, roleCardWidthPx, y)
-    if (hasRole && roleSlots.isNotEmpty()) y = roleSlots.last().yPx + roleCardHeightPx + ROLE_TO_ACTION_GAP_PX
+    if (hasRole) y += DECK_GROUP_LABEL_HEIGHT_PX + TITLE_TO_CARDS_GAP_PX
+    val roleSlots = centeredGridSlots(roleCount, y, roleCardWidthPx, roleCardHeightPx, roleCount)
 
+    y = roleSlots.lastOrNull()?.let { it.yPx + it.heightPx } ?: (DECK_TOP_MARGIN_PX)
+    if (hasRole) y += ROLE_TO_ACTION_GAP_PX
     val hasAction = spec.actionCards.isNotEmpty()
     val actionLabelTopPx = if (hasAction) y else null
-    if (hasAction) y += DECK_GROUP_LABEL_HEIGHT_PX + GROUP_LABEL_TO_CARDS_GAP_PX
-    val actionSlots = gridSlots(spec.actionCards.size, cardsLeftPx, cardsContentWidthPx, actionCardWidthPx, y)
-    if (hasAction && actionSlots.isNotEmpty()) y = actionSlots.last().yPx + actionCardHeightPx
+    if (hasAction) y += DECK_GROUP_LABEL_HEIGHT_PX + TITLE_TO_CARDS_GAP_PX
+    val actionSlots = centeredGridSlots(
+        spec.actionCards.size, y, actionCardWidthPx, actionCardHeightPx, DECK_ACTION_GRID_COLUMNS,
+    )
 
-    val heightPx = y + DECK_GROUP_PADDING_BOTTOM_PX + DECK_BODY_PADDING_BOTTOM_PX
+    val lastBottom = actionSlots.lastOrNull()?.let { it.yPx + it.heightPx }
+        ?: roleSlots.lastOrNull()?.let { it.yPx + it.heightPx }
+        ?: y
+    val footerTopPx = lastBottom + DECK_BODY_PADDING_TOP_PX
+    val heightPx = footerTopPx + DECK_FOOTER_HEIGHT_PX
 
     return DeckImageLayout(
         widthPx = DECK_CANVAS_WIDTH_PX,
         heightPx = heightPx,
-        headerHeightPx = DECK_HEADER_HEIGHT_PX,
         textLeftPx = textLeftPx,
         textContentWidthPx = textContentWidthPx,
         cardsLeftPx = cardsLeftPx,
@@ -231,21 +275,23 @@ fun computeDeckImageLayout(spec: DeckImageSpec, measurer: TextMeasurer): DeckIma
         roleCardHeightPx = roleCardHeightPx,
         actionCardWidthPx = actionCardWidthPx,
         actionCardHeightPx = actionCardHeightPx,
+        footerTopPx = footerTopPx,
     )
 }
 
 /**
- * 网格：列数 = 能整排放下的张数（(可用宽+列间距)/(牌宽+列间距) 向下取整，下限 1）。
- * 末行不铺满 ⇒ 左对齐（官方 `.card-group` 是左起 flex，不拉宽末行）。
+ * 网格：[columns] 列等距排布，整块在画布内水平居中（参考图两组牌都是居中的）。
+ * 末行不铺满 ⇒ 仍按整块居中（官方导出图末行不拉宽）。
  */
-private fun gridSlots(count: Int, leftPx: Int, contentWidthPx: Int, cardWidthPx: Int, topPx: Int): List<DeckCardSlot> {
+private fun centeredGridSlots(count: Int, topPx: Int, cardWidthPx: Int, cardHeightPx: Int, columns: Int): List<DeckCardSlot> {
     if (count <= 0) return emptyList()
-    val cardHeightPx = deckCardHeightPx(cardWidthPx)
-    val columns = ((contentWidthPx + CARD_COL_GAP_PX) / (cardWidthPx + CARD_COL_GAP_PX)).coerceAtLeast(1)
+    val cols = columns.coerceAtLeast(1)
+    val blockWidth = cols * cardWidthPx + (cols - 1) * DECK_CARD_GRID_GAP_PX
+    val left = (DECK_CANVAS_WIDTH_PX - blockWidth) / 2
     return List(count) { index ->
         DeckCardSlot(
-            xPx = leftPx + (index % columns) * (cardWidthPx + CARD_COL_GAP_PX),
-            yPx = topPx + (index / columns) * (cardHeightPx + CARD_ROW_GAP_PX),
+            xPx = left + (index % cols) * (cardWidthPx + DECK_CARD_GRID_GAP_PX),
+            yPx = topPx + (index / cols) * (cardHeightPx + DECK_CARD_GRID_GAP_PX),
             widthPx = cardWidthPx,
             heightPx = cardHeightPx,
         )
@@ -310,12 +356,26 @@ fun buildDeckImageSpec(
         authorText = author?.let { exportText(R.string.export_deck_author, "分享人：%1\$s", it) }.orEmpty(),
         pills = roleCards.mapNotNull { it.name?.takeIf(String::isNotBlank) },
         descText = desc,
-        roleLabel = exportText(R.string.my_deck_card_group_avatar, "角色牌"),
-        actionLabel = exportText(R.string.my_deck_card_group_action, "行动牌"),
+        // 分区标题照官方参考图文案（「出战阵容」「出战牌组」），不沿用 App 内的
+        // 「角色牌/行动牌」措辞 —— V38 用户要求导出图版式严格参考官方截图。
+        roleLabel = exportText(R.string.export_deck_section_role, "出战阵容"),
+        actionLabel = exportText(R.string.export_deck_section_action, "出战牌组"),
         brandText = exportText(R.string.export_footer, "七圣召唤"),
         roleCards = roleCards,
         actionCards = actionCards,
     )
+}
+
+/**
+ * 页脚两行（参考图左下）：`UID:<id>` + 昵称。昵称取 authorText 去掉「分享人：」前缀后的值
+ * （buildDeckImageSpec 的 author 兜底链就是 昵称→UID，语义与参考图一致）；UID 缺失时只画一行。
+ */
+fun deckFooterLines(authorText: String, uid: String?): List<String> {
+    val name = authorText.substringAfter("：").ifBlank { authorText.trim() }
+    val lines = ArrayList<String>(2)
+    uid?.takeIf { it.isNotBlank() }?.let { lines += "UID:$it" }
+    if (name.isNotBlank()) lines += name
+    return lines
 }
 
 private const val MAX_DECK_BASE_NAME_CHARS = 60

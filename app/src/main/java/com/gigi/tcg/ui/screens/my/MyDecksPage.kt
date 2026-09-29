@@ -56,6 +56,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -212,7 +213,7 @@ private fun DeckRow(deck: GcgDeck, title: String, onClick: () -> Unit) {
 
 /**
  * 牌组详情内容：两组卡面三等分 + 右上角两个 icon 动作（复制分享码 / 导出渲染图）。
- * 行动牌 22–25 张，整页 verticalScroll（量小，不上 LazyGrid）。
+ * 行动牌 22–25 张（同一张牌可携带 2 份，见 [DeckCardTile] 的张数徽标），整页 verticalScroll（量小，不上 LazyGrid）。
  * 🔴 标题行已删除（V37-F 任务 A）：牌组名与返回都在主壳顶栏，页内再画一行就是第二条标题栏。
  */
 @Composable
@@ -283,8 +284,16 @@ private fun DeckDetail(
                     }
                 }
             }
-            CardGroup(title = stringResource(R.string.my_deck_card_group_avatar), cards = deck.avatarCards.orEmpty())
-            CardGroup(title = stringResource(R.string.my_deck_card_group_action), cards = deck.actionCards.orEmpty())
+            CardGroup(
+                title = stringResource(R.string.my_deck_card_group_avatar),
+                cards = deck.avatarCards.orEmpty(),
+                showCount = false,
+            )
+            CardGroup(
+                title = stringResource(R.string.my_deck_card_group_action),
+                cards = deck.actionCards.orEmpty(),
+                showCount = true,
+            )
         }
     }
 }
@@ -335,9 +344,11 @@ private fun rememberDeckExporter(
  * 🔴 此前是 FlowRow + 固定 104.dp tile 宽 —— 那是按 360dp 屏推算出来的常量，
  * 换到实际屏宽就凑不满一行、末尾留下不等宽的空隙（用户第 9 项"不是 3 等分"）。
  * 末行不足 3 张时补空 Spacer 占位，否则 weight 会把剩下的两张拉宽、列不对齐。
+ *
+ * `showCount` 由分组类型决定：行动牌组传 true（同一张牌可携带多份），角色牌组传 false（见 [DeckCardTile]）。
  */
 @Composable
-private fun CardGroup(title: String, cards: List<GcgDeckCard>) {
+private fun CardGroup(title: String, cards: List<GcgDeckCard>, showCount: Boolean) {
     MySectionTitle(title)
     if (cards.isEmpty()) {
         Text(
@@ -355,7 +366,7 @@ private fun CardGroup(title: String, cards: List<GcgDeckCard>) {
                 horizontalArrangement = Arrangement.spacedBy(DECK_GRID_GAP),
             ) {
                 rowCards.forEach { card ->
-                    Box(Modifier.weight(1f)) { DeckCardTile(card) }
+                    Box(Modifier.weight(1f)) { DeckCardTile(card = card, showCount = showCount) }
                 }
                 repeat(DECK_GRID_COLUMNS - rowCards.size) {
                     Spacer(Modifier.weight(1f))
@@ -366,35 +377,74 @@ private fun CardGroup(title: String, cards: List<GcgDeckCard>) {
     }
 }
 
+/** 张数只在 num > 1 时才值得画：num == 1 是绝大多数牌，画出来纯噪音（用户要的是"这张带了几份"）。 */
+internal fun shouldShowCardCount(num: Int?): Boolean = (num ?: 0) > 1
+
 /**
- * 一张牌：卡面 + 牌名。**不再显示张数**（V37-F 任务 B）——
- * 🔴 `card.num` 在牌组详情语义下恒为 1（一副牌组每张牌唯一携带一份），无信息量、纯占一行高度。
- * 列表页 `DeckRow` 也只取 `avatars.size` / `actionCards.size`，工程里没有第二处消费 `num`。
+ * 张数徽标文案；返回 null 表示不画。前缀走 string（`×`），中英繁三套同一形态，
+ * 避免"数字 + 量词"在英文下需要复数变形。
+ */
+internal fun cardCountLabel(num: Int?, countPrefix: String): String? =
+    if (shouldShowCardCount(num)) "$countPrefix$num" else null
+
+/**
+ * 一张牌：卡面（可选张数徽标）+ 牌名，牌名居中单行省略。
+ * 🔴 张数只对**行动牌**画（`showCount` 由 [CardGroup] 按分组传入）：
+ * 真机 `gcg/deckList` 11 副牌组实测（`.task/v36-probe/basicinfo/raw/ctrl-deckList.json` 与 `-2nd.json`），
+ * 行动牌 `num` 出现 2（如第 1 副末段 `[..,2,1,2,2,2]`、第 2 副 `[..,2,2,2,..]`）⇒ 同一张行动牌可携带多份；
+ * 角色牌 `num` 实测恒等于 1（三张都唯一）⇒ 画徽标无信息量。
+ * V37-F 曾据此把张数整个删掉，那是把角色牌的实测结论错误推广到了行动牌（本轮 bug 根因）。
+ * 工程里 `num` 的其它消费点：无（`ui/export` 包不读 num，列表页只取两个 size）。
  */
 @Composable
-private fun DeckCardTile(card: GcgDeckCard) {
+private fun DeckCardTile(card: GcgDeckCard, showCount: Boolean) {
+    val countLabel = cardCountLabel(card.num, stringResource(R.string.my_deck_card_count_prefix))
     Column(modifier = Modifier.fillMaxWidth()) {
         Box(
-            Modifier
+            modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(CARD_FACE_ASPECT_RATIO)
-                .clip(DeckCardShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .clip(DeckCardShape),
+            contentAlignment = Alignment.Center,
         ) {
+            // 图在框内居中：AppImage 内层 Image 是 fillMaxSize + contentScale，Fit 本身即等比居中；
+            // 外层 Box 再显式 Center，防 aspectRatio 与图片实际比例不合时贴到左上。
             // image 可能缺失：传 null 让 AppImage 走自己的占位/兜底，空串会被 coil 当合法地址去请求
             AppImage(
                 model = card.image?.takeIf { it.isNotBlank() },
                 contentDescription = card.name,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentScale = ContentScale.Fit,
             )
+            if (countLabel != null) {
+                // 卡面左上角小标签：配色照 MyCardBacksPage 卡面角标同一范式（scrim 半透明黑底 +
+                // inverseOnSurface 白字，压在图片上两主题都可读；V37 实测 inverseSurface 会被 MIUI 动态取色
+                // 解析成浅底 ⇒ 不能当容器用）。刻意不做成费用圈那种 48dp 大圆底——那是"费用"的视觉语义，混用会误读。
+                Text(
+                    text = countLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(3.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f))
+                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                )
+            }
         }
         Text(
             card.name ?: stringResource(R.string.state_empty_response),
             style = MaterialTheme.typography.bodySmall,
+            textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp),
         )
     }
 }

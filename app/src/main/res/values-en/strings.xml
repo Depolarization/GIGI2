@@ -58,6 +58,10 @@
     <string name="my_deck_card_summary">%1$d character cards · %2$d action cards</string>
     <string name="my_deck_card_group_avatar">Character cards</string>
     <string name="my_deck_card_group_action">Action cards</string>
+    <!-- 导出图两个分区标题：照官方参考图文案（V38 用户要求严格对齐官方截图） -->
+    <string name="export_deck_section_role">Battle lineup</string>
+    <string name="export_deck_section_action">Battle deck</string>
+    <string name="my_deck_card_count_prefix">×</string>
     <string name="my_summary_decks">%1$d decks</string>
     <string name="my_summary_matches">%1$d matches</string>
     <string name="my_summary_schedules">%1$d periods</string>
@@ -242,6 +246,9 @@
 
     <!-- Card image sheet -->
     <string name="cover_title_fallback">Card Image</string>
+    <!-- Card back download (V38-D): the API only carries an id, no name field -->
+    <string name="cardback_name_fallback">Card Back</string>
+    <string name="cardback_empty_image">No card back image available</string>
     <string name="cover_empty_format">No card image available in this format</string>
     <string name="cover_format_png">Standard (PNG)</string>
     <string name="cover_format_gif">Animated (GIF)</string>
@@ -269,6 +276,7 @@
     <string name="export_dir_action">Action Cards</string>
     <string name="export_dir_qr">QR Code</string>
     <string name="export_dir_deck">Decks</string>
+    <string name="export_dir_cardback">Card Backs</string>
 
     <!-- Export image header / footer -->
     <string name="export_level">Player Level %1$d</string>

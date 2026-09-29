@@ -5,9 +5,22 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-// V9-A: 签名凭据全部走环境变量；未配置时 release 产出未签名包，配置后重新构建即自动签名
+// 🔴 release 签名口令只从环境变量取，不回退默认值：缺失时配置阶段直接失败并给出设置方法。
+// ⚠️ Windows 下用 setx 写的是用户级环境变量，只对「之后新启动」的进程生效——改完必须重启终端/Android Studio。
+// 详见 docs/RELEASE-SIGNING.md。密码本身严禁写入任何入库文件。
 val gigiStorePassword = System.getenv("GIGI_STORE_PASSWORD")
-val gigiSigningConfigured = !gigiStorePassword.isNullOrEmpty()
+val gigiKeyPassword = System.getenv("GIGI_KEY_PASSWORD")
+if (gigiStorePassword.isNullOrEmpty() || gigiKeyPassword.isNullOrEmpty()) {
+    throw GradleException(
+        "缺少 release 签名所需环境变量 GIGI_STORE_PASSWORD / GIGI_KEY_PASSWORD（或为空）。\n" +
+            "修复（Windows 用户级，无需管理员，cmd 执行）：\n" +
+            "    setx GIGI_STORE_PASSWORD \"<keystore 口令>\"\n" +
+            "    setx GIGI_KEY_PASSWORD   \"<keystore 口令>\"\n" +
+            "    setx GIGI_KEY_ALIAS      gigi_key\n" +
+            "⚠️ setx 只对之后新启动的进程生效——设置完必须重启终端 / Android Studio 再构建。\n" +
+            "详见 docs/RELEASE-SIGNING.md。禁止以空口令或默认口令产出未签名/错签名的 release 包。"
+    )
+}
 
 android {
     namespace = "com.gigi.tcg"
@@ -37,9 +50,9 @@ android {
     signingConfigs {
         create("release") {
             storeFile = file("../gigi_release.keystore")
-            storePassword = gigiStorePassword ?: ""
+            storePassword = gigiStorePassword
             keyAlias = System.getenv("GIGI_KEY_ALIAS") ?: "gigi_key"
-            keyPassword = System.getenv("GIGI_KEY_PASSWORD") ?: ""
+            keyPassword = gigiKeyPassword
         }
     }
 
@@ -68,10 +81,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // 环境变量未配置时不挂签名，避免空密码导致构建失败
-            if (gigiSigningConfigured) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

@@ -76,6 +76,7 @@ import com.gigi.tcg.R
 import com.gigi.tcg.i18n.LocaleStrings
 import com.gigi.tcg.i18n.displayNameSync
 import com.gigi.tcg.ui.components.LocalToast
+import com.gigi.tcg.ui.components.LocalToastAction
 import com.gigi.tcg.ui.components.ToastController
 import com.gigi.tcg.ui.components.ToastHost
 import com.gigi.tcg.ui.components.openInGallery
@@ -208,6 +209,10 @@ fun GigiNavHost() {
 
     CompositionLocalProvider(
         LocalToast provides { toastController.show(it) },
+        // V38-D：LocalToastAction 在 GigiToast 里早已声明（含 no-op 默认值），但全仓无人 provide、
+        // 也无人消费 ⇒ 这里接上同一个 ToastController。卡背下载成功要用「已保存到相册 + 查看」，
+        // 与上方 showExportResult / 统计页导出共用 openInGallery 那条链路，页面侧不再自写 startActivity。
+        LocalToastAction provides { text, label, action -> toastController.showWithAction(text, label, action) },
         LocalActivityContext provides activityContext,
     ) {
         // ⚠️ N2（**已知产品取舍，本轮只记录不改行为**，已登记待用户裁决）：key 含 sessionUid ⇒

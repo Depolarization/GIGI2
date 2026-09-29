@@ -165,10 +165,23 @@ class CardImageSaver(private val context: Context) {
             .build()
     }
 
-    suspend fun save(url: String, name: String, format: CoverFormat) = withContext(Dispatchers.IO) {
+    /**
+     * 直链下载 + 落相册（卡面 / 卡背共用）。
+     *
+     * @param subDir 类型子目录（`exportDirName(EXPORT_DIR_*)` 的本地化文案），null 时落相册根 Pictures/GIGI
+     * @param accountUid 再挂一级 UID 目录；null/空串逐级省略（与 [saveBitmap] 同一口径）。
+     *   默认两者都不传 ⇒ 行为与旧签名逐字相同（卡面那条调用链不变）
+     */
+    suspend fun save(
+        url: String,
+        name: String,
+        format: CoverFormat,
+        subDir: String? = null,
+        accountUid: String? = null,
+    ): Uri? = withContext(Dispatchers.IO) {
         val bytes = downloadBytes(url)
         val fileName = coverFileName(name, format)
-        persist(bytes, fileName, format.mimeType)
+        persist(bytes, fileName, format.mimeType, subDir, accountUid)
     }
 
     /**

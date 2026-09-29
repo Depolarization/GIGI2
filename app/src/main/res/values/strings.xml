@@ -59,6 +59,11 @@
     <string name="my_deck_card_summary">角色牌 %1$d · 行动牌 %2$d</string>
     <string name="my_deck_card_group_avatar">角色牌</string>
     <string name="my_deck_card_group_action">行动牌</string>
+    <!-- 导出图两个分区标题：严格照官方参考图文案（V38 用户要求"严格参考官方截图的主体部分"），
+         不用 App 内的「角色牌/行动牌」措辞。 -->
+    <string name="export_deck_section_role">出战阵容</string>
+    <string name="export_deck_section_action">出战牌组</string>
+    <string name="my_deck_card_count_prefix">×</string>
     <string name="my_summary_decks">%1$d 组</string>
     <string name="my_summary_matches">%1$d 条</string>
     <string name="my_summary_schedules">%1$d 旬</string>
@@ -242,6 +247,9 @@
 
     <!-- 卡面下载 -->
     <string name="cover_title_fallback">卡面</string>
+    <!-- 卡背下载（V38-D）：卡背接口只有 id、没有名字字段，故称谓与文件名前缀都用它 -->
+    <string name="cardback_name_fallback">卡背</string>
+    <string name="cardback_empty_image">该卡背暂无图片</string>
     <string name="cover_empty_format">该格式暂无卡面图片</string>
     <string name="cover_format_png">普通卡面(PNG)</string>
     <string name="cover_format_gif">动态卡面(GIF)</string>
@@ -268,6 +276,7 @@
     <string name="export_dir_action">行动牌</string>
     <string name="export_dir_qr">二维码</string>
     <string name="export_dir_deck">卡组</string>
+    <string name="export_dir_cardback">卡背</string>
 
     <!-- 导出图页眉 / 页脚 -->
     <string name="export_level">牌手等级 %1$d</string>
