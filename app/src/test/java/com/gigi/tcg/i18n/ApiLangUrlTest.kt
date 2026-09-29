@@ -11,6 +11,7 @@ import com.gigi.tcg.data.api.cardDetailUrl
 import com.gigi.tcg.data.api.gameRecordsUrl
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -79,6 +80,27 @@ class ApiLangUrlTest {
         assertEquals(R.string.error_check_network, apiErrorMessageRes(ApiError(API_ERROR_KIND_NETWORK, "x")))
         assertEquals(R.string.error_api_generic, apiErrorMessageRes(ApiError(API_ERROR_KIND_RETCODE, "", -100)))
         assertNull(apiErrorMessageRes(ApiError(API_ERROR_KIND_RETCODE, "服务端消息", -100)))
+    }
+
+    // V36-3c 回归闸门：-1 ∈ RETRYABLE，但数据层已保证它不被折算成 kind=throttled ⇒
+    // 文案层绝不能出「请求过于频繁」。钉死「按 kind + THROTTLED_FALLBACK 判」，
+    // 防止下一轮把判据改回 RETRYABLE_RETCODES.contains(retcode)（会把 -1 误标成限流）。
+    @Test
+    fun `-1 参数错误不得显示限流文案，真限流码照常`() {
+        val paramErr = ApiError(API_ERROR_KIND_RETCODE, "param role_id error: value must be greater than 0", -1)
+        assertNotEquals(R.string.error_throttled, apiErrorMessageRes(paramErr))
+        assertNull(apiErrorMessageRes(paramErr)) // 服务端原文透传，无本地化资源
+        // 真限流/繁忙码（∈ THROTTLED_FALLBACK）即便未折算也走限流文案
+        assertEquals(R.string.error_throttled, apiErrorMessageRes(ApiError(API_ERROR_KIND_RETCODE, "x", -500004)))
+        assertEquals(R.string.error_throttled, apiErrorMessageRes(ApiError(API_ERROR_KIND_RETCODE, "x", -110)))
+        assertEquals(R.string.error_throttled, apiErrorMessageRes(ApiError(API_ERROR_KIND_THROTTLED, "x")))
+        // 1034 不得被限流文案抢走
+        assertEquals(
+            R.string.error_captcha_required,
+            apiErrorMessageRes(ApiError(API_ERROR_KIND_RETCODE, "接口返回 retcode=1034", 1034)),
+        )
+        // 网络错误走检查网络
+        assertEquals(R.string.error_check_network, apiErrorMessageRes(ApiError(API_ERROR_KIND_NETWORK, "x")))
     }
 
     // 1034 风控：服务端 message 为空串，但 MihoyoClient 兜底成「接口返回 retcode=1034」⇒ 非空。
