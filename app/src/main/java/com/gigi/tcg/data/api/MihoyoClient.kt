@@ -58,6 +58,39 @@ internal fun isRetryableError(error: ApiError): Boolean =
     }
 
 
+/**
+ * 重试耗尽后的兜底文案：**保留服务端原始 message**（不再硬编码「请求过于频繁」），
+ * 只追加「已重试 N 次仍失败」——上层 `apiErrorMessageRes` 仍按 kind=throttled 出限流指引，
+ * 日志里则能看出真实原因（原始 message 缺失/空白时退回 retcode 描述）。
+ */
+internal fun throttledFallbackMessage(
+    originalMessage: String?,
+    retcode: Int,
+    attempts: Int,
+): String {
+    val orig = originalMessage?.takeIf { it.isNotBlank() } ?: "接口返回 retcode=$retcode"
+    return "$orig（已重试 $attempts 次仍失败）"
+}
+
+/**
+ * 参数错误码：实测服务端对非法入参返回它
+ * （`{"retcode":-1,"message":"param role_id error: value must be greater than 0"}`、
+ * `param limit error: ...`，V36-5 取证多次复现）。
+ * 它仍留在 [RETRYABLE_RETCODES] 里（偶发同码值得一试），但**不参与耗尽→throttled 的折算**，
+ * 见 [THROTTLED_FALLBACK_RETCODES]。
+ */
+internal const val PARAM_ERROR_RETCODE: Int = -1
+
+/**
+ * 重试耗尽后**可**折算为 kind=throttled 的码集合 = [RETRYABLE_RETCODES] 扣掉 [PARAM_ERROR_RETCODE]。
+ *
+ * 理由：`-1` 是参数错误，重试同样无意义，但**不该被贴上「请求过于频繁」的标签** ⇒ 原样按 retcode
+ * 路径上抛，让上层给出真实指引（否则「参数写错」会被误报成「限流」，用户看到的指引完全错位）。
+ * 用集合差而非在判断处硬编码：往 [RETRYABLE_RETCODES] 里新增真限流码时不必再改这里。
+ */
+internal val THROTTLED_FALLBACK_RETCODES: Set<Int> = RETRYABLE_RETCODES - PARAM_ERROR_RETCODE
+
+
 class MihoyoClient(
     http: OkHttpClient,
     private val json: Json,
@@ -84,7 +117,8 @@ class MihoyoClient(
      * retcode == 0 且 data != null → data；命中可重试错误（限流/繁忙码、network、throttled）
      * 按 [retryDelayMsFor] 指数退避 + 抖动最多重试 [MAX_RETRY_ATTEMPTS] 次（流量防抖）；
      * 鉴权码 / CAPTCHA / 其余业务码 → 立即可判错误，不再重发；
-     * 重试耗尽后限流类上抛 kind=throttled（文案「请求过于频繁」语义），CAPTCHA 透传 retcode
+     * 重试耗尽后**限流类**（[THROTTLED_FALLBACK_RETCODES]）上抛 kind=throttled 并保留 retcode，
+     * 参数错误码（[PARAM_ERROR_RETCODE]）不折算、原样按 retcode 上抛；CAPTCHA 透传 retcode
      * 供 i18n 出专属文案；网络/解析失败 → kind=network。
      */
     suspend inline fun <reified T> get(
@@ -118,6 +152,8 @@ class MihoyoClient(
      * 三种「再试」的入口都归一到 [isRetryableError]：
      * ① 响应信封的可重试 retcode；② 传输/解析抛出的 kind=network；③ 本地节流 kind=throttled。
      * 不可重试错误（鉴权 / CAPTCHA / 其它业务码）当轮即出循环，由调用方按 retcode 抛错。
+     * 耗尽出循环时：[THROTTLED_FALLBACK_RETCODES] 里的限流码折算 kind=throttled，其余可重试码
+     * （参数错误 -1）原样返回信封，交 [get] 按 retcode + 服务端原文抛错。
      * 用 while + break 而非 repeat：`return@repeat` 只是结束本次 lambda，不会跳出循环。
      */
     @PublishedApi
@@ -155,9 +191,15 @@ class MihoyoClient(
         val pair = lastPair
         if (pair != null) {
             val code = pair.first
-            // 可重试码耗尽 → 折算 kind=throttled（「请求过于频繁」语义），并保留 retcode 供上层判据
-            if (RETRYABLE_RETCODES.contains(code)) {
-                throw ApiError(API_ERROR_KIND_THROTTLED, "请求过于频繁，请稍后重试", code)
+            // 可重试码耗尽 → 折算 kind=throttled（限流语义），并保留 retcode 供上层判据。
+            // 🔴 用 THROTTLED_FALLBACK_RETCODES 而非 RETRYABLE_RETCODES：-1（参数错误）不在其中，
+            // 走下面的 return pair 由 get() 按原 retcode + 服务端原文上抛，避免「参数写错」被误报成「请求过于频繁」。
+            if (THROTTLED_FALLBACK_RETCODES.contains(code)) {
+                throw ApiError(
+                    API_ERROR_KIND_THROTTLED,
+                    throttledFallbackMessage(pair.second, code, MAX_RETRY_ATTEMPTS),
+                    code,
+                )
             }
             return pair
         }
