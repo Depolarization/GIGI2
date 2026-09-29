@@ -1,6 +1,5 @@
 package com.gigi.tcg.ui.components
 
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -94,8 +93,11 @@ fun ToastHost(controller: ToastController, modifier: Modifier = Modifier) {
                 duration = if (toast.actionLabel != null) SnackbarDuration.Long else SnackbarDuration.Short,
             )
             // ActionPerformed 是唯一该跑回调的返回值；Dismissed/超时都视为用户放弃。
+            // runCatching：action 由调用方注入（如 openInGallery 拉起系统应用），
+            // 它抛任何异常都不该掀翻 ToastHost 所在的 LaunchedEffect——协程一死，
+            // 整个 Snackbar 队列就再也不消费了（V36 闪退修复）。
             if (result == SnackbarResult.ActionPerformed) {
-                toast.onAction?.invoke()
+                runCatching { toast.onAction?.invoke() }
             }
         }
     }
@@ -109,18 +111,23 @@ fun ToastHost(controller: ToastController, modifier: Modifier = Modifier) {
  * `CardImageSaver` 在 Q+ 上落盘时就是经 MediaStore insert 建的条目、
  * 直接持有其 uri，交给系统相册即可定位并高亮该文件。
  *
- * 设备上没有能处理该 action 的相册应用时静默失败（不崩、不弹异常）——
+ * 设备上没有能处理该 action 的相册应用、或 URI 无读权限时静默失败（不崩、不弹异常）——
  * 提示已经显示过「已保存」，用户仍可自己去相册找。
  */
+// Intent.FLAG_* 是编译期内联常量，JVM 单测可直接断言（构造 Intent 则需要 android.jar，测试不走这条路）
+internal const val GALLERY_VIEW_INTENT_FLAGS: Int =
+    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+
 fun openInGallery(context: Context, uri: Uri?) {
     if (uri == null) return
     val intent = Intent(Intent.ACTION_VIEW).apply {
         setDataAndType(uri, "image/*")
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        // 🔴 NEW_TASK 必加：调用方可能传 Application context（GigiNavHost 曾经就是），
+        // 非 Activity Context 启动 Activity 缺它必抛 AndroidRuntimeException——
+        // 它**不是** ActivityNotFoundException，原先的窄 catch 抓不到 ⇒ 直接闪退（V36 修复）。
+        addFlags(GALLERY_VIEW_INTENT_FLAGS)
     }
-    try {
-        context.startActivity(intent)
-    } catch (e: ActivityNotFoundException) {
-        // 无可用相册应用：静默降级
-    }
+    // runCatching 覆盖 ActivityNotFoundException / SecurityException / AndroidRuntimeException，
+    // 任何一条都不该让 Snackbar「查看」按钮变成崩溃点。
+    runCatching { context.startActivity(intent) }
 }
