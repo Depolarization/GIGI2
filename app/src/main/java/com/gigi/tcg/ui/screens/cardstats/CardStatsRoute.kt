@@ -114,16 +114,20 @@ private val StatPercentWidth: Dp = 60.dp
 private val ListRowVerticalPadding = 8.dp
 
 /**
- * 序号列宽（V29 需求 8）：两页表头/行都带 # 列，固定宽度右对齐 ⇒ 个位数与两位数左缘都齐。
- * 32dp 够放 "100+" 里的三位数（labelSmall 约 6dp/字）。
+ * 序号列宽与对齐（V36 任务 C，用户第 6 项）：原先 32dp 右对齐 ⇒ 数字左缘浮到 38–44dp，
+ * 牌名列再叠 8dp ⇒ 牌名左缘 56dp，整列表看着右坠、左右边距不对称。
+ * 现改**起始对齐 + 收窄到 24dp**（labelMedium 三位数名次 ≈21dp 放得下），牌名列不再补
+ * padding(start)：牌名左缘 = ContentHorizontalPadding + RankColumnWidth = 40dp，
+ * 首列文字左缘 = 16dp = contentPadding = 右侧留白 ⇒ 左右对称。
+ * internal 供 StatsRowMetricsTest 断言左缘算式，不靠截图。
  */
-private val RankColumnWidth: Dp = 32.dp
+internal val RankColumnWidth: Dp = 24.dp
 
 /** 行动牌「类型」列宽（V29：与角色牌表头同构，类型名最长 3 字：修改/支援/事件） */
 private val ActionTypeColumnWidth: Dp = 52.dp
 
-/** 列表行左右/上下留白：LazyColumn 的 contentPadding（横向 16dp 与页面边距一致） */
-private val ContentHorizontalPadding = 16.dp
+/** 列表行左右/上下留白：LazyColumn 的 contentPadding（横向 16dp 与页面边距一致；internal 同理由测试引用） */
+internal val ContentHorizontalPadding = 16.dp
 private val ContentVerticalPadding = 12.dp
 
 /** 列表滚到底的额外留白（避免最后一行贴导航栏；同样落在 contentPadding 上） */
@@ -491,12 +495,11 @@ private fun CharTableHeader() {
             .padding(top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // V29 需求 8：# 列表头（与行内的名次列同宽右对齐）
+        // V36 任务 C：# 列表头起始对齐（与行内名次列同宽左对齐，首列文字左缘=contentPadding）
         Text(
             stringResource(R.string.stat_rank),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.End,
             maxLines = 1,
             modifier = ComposeModifier.width(RankColumnWidth),
         )
@@ -506,7 +509,7 @@ private fun CharTableHeader() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = ComposeModifier.weight(1f).padding(start = 8.dp),
+            modifier = ComposeModifier.weight(1f),
         )
         CHAR_STAT_COLUMNS.forEach { col ->
             Text(
@@ -543,7 +546,6 @@ private fun CharCardRow(card: GcgCard, charTotalUse: Int, rank: Int) {
             rank.toString(),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.End,
             maxLines = 1,
             modifier = ComposeModifier.width(RankColumnWidth),
         )
@@ -552,7 +554,7 @@ private fun CharCardRow(card: GcgCard, charTotalUse: Int, rank: Int) {
             style = MaterialTheme.typography.bodyLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = ComposeModifier.weight(1f).padding(start = 8.dp),
+            modifier = ComposeModifier.weight(1f),
         )
         values.forEachIndexed { index, value ->
             Text(
@@ -586,7 +588,6 @@ private fun ActionTableHeader() {
             stringResource(R.string.stat_rank),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.End,
             maxLines = 1,
             modifier = ComposeModifier.width(RankColumnWidth),
         )
@@ -596,7 +597,7 @@ private fun ActionTableHeader() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = ComposeModifier.weight(1f).padding(start = 8.dp),
+            modifier = ComposeModifier.weight(1f),
         )
         Text(
             stringResource(R.string.stats_col_type),
@@ -629,7 +630,6 @@ private fun ActionCardRow(card: GcgCard, rank: Int) {
             rank.toString(),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.End,
             maxLines = 1,
             modifier = ComposeModifier.width(RankColumnWidth),
         )
@@ -639,7 +639,7 @@ private fun ActionCardRow(card: GcgCard, rank: Int) {
             style = MaterialTheme.typography.bodyLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = ComposeModifier.weight(1f).padding(start = 8.dp),
+            modifier = ComposeModifier.weight(1f),
         )
         Text(
             stringResource(actionTypeLabelRes(card.cardType)),
@@ -685,6 +685,72 @@ private fun NoMatchHint(@StringRes messageRes: Int) {
     )
 }
 
+/**
+ * ---- 玩家信息头几何（V36 任务 B：首页 ProfileCard 与统计页信息卡共用一套口径）----
+ * 间距只有这四枚常量，页内不再各自硬编码：
+ * 原先首页昵称↔段位 8dp、统计页 6dp，且统计页外层 spacedBy(8dp) 与内层 Spacer(4dp)
+ * 口径打架（红线 3：同一容器不得 verticalArrangement 与显式 Spacer 叠加），一并归一。
+ */
+internal const val PLAYER_INFO_AVATAR_DP = 64
+internal const val PLAYER_INFO_TEXT_COLUMN_GAP_DP = 12
+internal const val PLAYER_INFO_NICK_TIER_GAP_DP = 8
+internal const val PLAYER_INFO_UID_LINE_GAP_DP = 4
+
+/**
+ * 玩家信息头：64dp 头像 + 文本列（第一行「昵称 + 段位」同行按**基线**对齐，第二行 UID）。
+ * 首页个人信息卡照抄本结构（用户第 1 项），段位无值时整段不渲染（不是渲染占位）。
+ *
+ * 🔴 基线 vs 底部对齐互斥（V36 红线 1）：昵称 titleMedium(16sp)、段位 titleSmall(14sp)，
+ * 字号不同必须按基线对齐才看着齐；外层 Column 用 CenterVertically 把文本块整体居中在
+ * 头像高度里，昵称/段位所在 Row **不得**再设 verticalAlignment = Alignment.Bottom——
+ * Bottom 会把 alignByBaseline() 改写过的 parentData 二次下压，小字号段位反而视觉更低。
+ * UID 与昵称/段位同处一列、列左缘即对齐轴起点，段位不加任何额外 padding(start)。
+ */
+@Composable
+internal fun PlayerInfoHeader(
+    avatarUrl: String?,
+    nickname: String,
+    tier: String,
+    uid: String,
+    modifier: ComposeModifier = ComposeModifier,
+) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Avatar(url = avatarUrl, size = PLAYER_INFO_AVATAR_DP.dp, contentDescription = nickname)
+        Column(ComposeModifier.weight(1f).padding(start = PLAYER_INFO_TEXT_COLUMN_GAP_DP.dp)) {
+            Row {
+                Text(
+                    nickname,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = ComposeModifier.weight(1f, fill = false).alignByBaseline(),
+                )
+                if (tier.isNotEmpty()) {
+                    Spacer(ComposeModifier.width(PLAYER_INFO_NICK_TIER_GAP_DP.dp))
+                    Text(
+                        tier,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Medium,
+                        color = tierColor(tier),
+                        maxLines = 1,
+                        modifier = ComposeModifier.alignByBaseline(),
+                    )
+                }
+            }
+            Spacer(ComposeModifier.height(PLAYER_INFO_UID_LINE_GAP_DP.dp))
+            // UID 与昵称左缘天然对齐（不额外缩进）；字号走 bodySmall，卡内最小档
+            Text(
+                uid,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
 @Composable
 private fun PlayerInfoCard(
     summary: GcgSummary,
@@ -698,45 +764,14 @@ private fun PlayerInfoCard(
 ) {
     Card(ComposeModifier.fillMaxWidth()) {
         Column(ComposeModifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            // V29 需求 6：个人信息区版式对齐首页 ProfileCard ——
-            // 64dp 头像 + 12dp 间距 + 文本列（第一行「昵称 + 段位」同行按基线对齐、第二行 UID）。
-            // 段位为空串时整段不渲染（不是渲染成占位），层级靠字号字重拉开。
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Avatar(url = avatarUrl, size = 64.dp, contentDescription = summary.nickname)
-                Spacer(ComposeModifier.width(12.dp))
-                Column(ComposeModifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(
-                            summary.nickname,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = ComposeModifier.weight(1f, fill = false).alignByBaseline(),
-                        )
-                        if (tier.isNotEmpty()) {
-                            Spacer(ComposeModifier.width(6.dp))
-                            Text(
-                                tier,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Medium,
-                                color = tierColor(tier),
-                                maxLines = 1,
-                                modifier = ComposeModifier.alignByBaseline(),
-                            )
-                        }
-                    }
-                    Spacer(ComposeModifier.height(4.dp))
-                    // UID 与昵称左缘天然对齐（不额外缩进）；字号走 bodySmall，卡内最小档
-                    Text(
-                        uid,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
+            // V29 需求 6 / V36 任务 B：个人信息区与首页 ProfileCard 同一套结构，
+            // 两侧都收敛为共享的 PlayerInfoHeader（几何常量单一来源，见其 KDoc）。
+            PlayerInfoHeader(
+                avatarUrl = avatarUrl,
+                nickname = summary.nickname,
+                tier = tier,
+                uid = uid,
+            )
             Row(ComposeModifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Metric(R.string.stats_total_games, summary.totalGames.toString())
                 Metric(R.string.stats_win_games, summary.winGames.toString())

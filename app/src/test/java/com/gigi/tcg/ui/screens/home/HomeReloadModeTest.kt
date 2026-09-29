@@ -94,15 +94,15 @@ class HomeReloadModeTest {
         )
     }
 
-    /** 缺陷 C：ProfileCard 昵称 maxLines=1 必须配 ellipsis，禁止硬裁切 */
+    /** 缺陷 C：昵称 maxLines=1 必须配 ellipsis，禁止硬裁切（V36/3 起信息头在 cardstats/PlayerInfoHeader） */
     @Test
     fun profileNickname_usesEllipsis() {
-        val src = readSource("HomeRoute.kt")
-        assertTrue("应引入 TextOverflow", src.contains("import androidx.compose.ui.text.style.TextOverflow"))
-        val nicknameBlock = src.substringAfter("text = profile.nickname ?:")
+        val stats = readSource("../cardstats/CardStatsRoute.kt")
+        assertTrue("PlayerInfoHeader 应引入 TextOverflow", stats.contains("import androidx.compose.ui.text.style.TextOverflow"))
+        val nicknameBlock = stats.substringAfter("\n                    nickname,")
         assertTrue(
             "昵称 Text 应带 overflow = TextOverflow.Ellipsis",
-            nicknameBlock.substringBefore(")").contains("overflow = TextOverflow.Ellipsis"),
+            nicknameBlock.substringBefore("Spacer").contains("overflow = TextOverflow.Ellipsis"),
         )
     }
 }

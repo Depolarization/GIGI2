@@ -13,6 +13,7 @@ import android.app.Application
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -72,45 +73,28 @@ import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
 import com.gigi.tcg.ui.components.LocalToast
 import com.gigi.tcg.ui.components.tierLabel
+import com.gigi.tcg.ui.screens.cardstats.PLAYER_INFO_AVATAR_DP
+import com.gigi.tcg.ui.screens.cardstats.PLAYER_INFO_TEXT_COLUMN_GAP_DP
+import com.gigi.tcg.ui.screens.cardstats.PlayerInfoHeader
 import com.gigi.tcg.ui.theme.LocalSemanticColors
 import com.gigi.tcg.ui.theme.SemanticColors
-import com.gigi.tcg.ui.theme.tierColor
 
-// ---- ProfileCard 版式常量（V28）----
-// 这套几何原本是照着「最近对局」导出图渲染器的 dp×3 换算值对齐的；
-// V29 导出功能移除后渲染器已删，但这些数值本身经视觉复核是合适的，原样保留。
+// ---- ProfileCard 版式常量（V28 起，V36 任务 B 后个人信息区几何归 PlayerInfoHeader）----
+// 头像/昵称/段位/UID 的版式常量收敛到 cardstats/PlayerInfoHeader（PLAYER_INFO_*），
+// 首页与统计页同一事实源；这里只剩卡片留白与积分区/对局卡的几何。
 // 刻意用 const Int + `.dp`：JVM 单测（HomeProfileLayoutTest 对源码文本断言）能直接解析数值做区间校验。
 
 /** 卡片内边距（四边同值，导出图 PROFILE_PADDING_PX = 16×3） */
 private const val PROFILE_CARD_PADDING_DP = 16
 
-/** 头像直径（导出图 PROFILE_AVATAR_PX = 64×3）；行 1 的高度由它撑开，文本块在其中垂直居中 */
-private const val PROFILE_AVATAR_SIZE_DP = 64
-
-/**
- * 头像 ↔ 文本列：导出图 PROFILE_TEXT_GAP_PX。这 12dp 同时定义了卡片内唯一的竖向对齐轴
- * （昵称左缘 = UID 左缘 = 积分区左缘），故积分区也按「头像直径 + 本间距」缩进。
- */
-private const val PROFILE_TEXT_COLUMN_GAP_DP = 12
-
-/** 昵称 ↔ 段位同行间距（导出图 PROFILE_NICK_TIER_GAP_PX） */
-private const val PROFILE_NICK_TIER_GAP_DP = 8
-
-/**
- * 组内留白：昵称/段位 → UID。M3 行高已自带约 4dp 余量（titleMedium 24 行 / 16 字），
- * 显式再加 4dp 让「同属身份层的相邻两行」读起来是一组，而不是三段散开的文本。
- */
-private const val PROFILE_IDENTITY_LINE_GAP_DP = 4
-
 /**
  * 跨组留白：身份块 → 积分区（导出图 PROFILE_ROW_GAP_PX = 12×3）。
- * 行 1 高 64dp（头像撑开）、文本块垂直居中 ⇒ UID 下缘到积分表头上缘的实际留白
- * ≈ (64 − 44)/2 + 12 = 22dp（文本块 24 + 4 + 16 = 44dp），约是组内 4dp 的 5 倍，
- * 「头像 / 昵称+段位 / UID / 积分」四层节奏一眼可辨、又不至于散开。
+ * 行 1 高 64dp（头像撑开）、文本块垂直居中 ⇒ UID 下缘到积分表头上缘有实测留白支撑，
+ * 约是身份组内 4dp 的 3 倍以上，「头像 / 昵称+段位 / UID / 积分」四层节奏一眼可辨。
  */
 private const val PROFILE_SCORES_GAP_DP = 12
 
-/** 积分表头 ↔ 数值：两列共用同一间距（与组内留白同值，保持"同一层内 4dp"的一致性） */
+/** 积分表头 ↔ 数值：两列共用同一间距（与身份组内留白同值，保持"同一层内 4dp"的一致性） */
 private const val SCORE_LABEL_VALUE_GAP_DP = 4
 
 /** 对局卡内边距 / 头像直径 / 积分列↔胜负列间距（导出图 CARD_PADDING_PX、AVATAR_SIZE_PX、RESULT_GAP_PX） */
@@ -150,79 +134,115 @@ fun HomeRoute(
         onRefresh = viewModel::refresh,
         modifier = modifier.fillMaxSize(),
     ) {
-        if (state.profile is Async.Loading && state.records is Async.Loading) {
-            // 首屏两块同在加载：整屏居中，与排行榜/图鉴/卡牌统计三页一致。
-            // 不再套外层滚动 Column——CenteredScrollableContainer 内部自带 verticalScroll，
-            // PullToRefreshBox 依然收得到 nestedScroll，下拉刷新不失效。
-            CenteredScrollableContainer { LoadingView(label = stringResource(R.string.state_home_first_loading)) }
-        } else {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-            ) {
-                when (val profile = state.profile) {
-                    is Async.Loading -> LoadingView(label = stringResource(R.string.state_home_profile_loading))
-                    is Async.Content -> ProfileCard(
-                        profile = profile.value,
-                        uid = sessionUid.orEmpty(),
-                        // 本人卡片：详情接口必定可访问，无需入口头像兜底
-                        onClick = { onOpenPlayerDetail(sessionUid.orEmpty(), null) },
-                    )
-                    is Async.Error -> ErrorState(
-                        message = profile.message ?: stringResource(R.string.state_home_profile_empty),
-                        onRetry = viewModel::retryProfile,
+        // V36 任务 D/E：三态排布统一为「整屏一个视图」——
+        // 首屏两块同在加载 → 整屏 LoadingView；任一块失败 → 整屏一个 ErrorState（二合一，
+        // 不再「个人信息区一套错、对局区一套错」）；两块都有结果但列表为空 → 空态在剩余
+        // 高度里居中（不滚动容器 + weight(1f) + Center，公开组件签名不动）。
+        val profile = state.profile
+        val records = state.records
+        val profileError = profile as? Async.Error
+        val recordsError = records as? Async.Error
+        val recordsEmpty = (records as? Async.Content)?.value?.isEmpty() == true
+        when {
+            profile is Async.Loading && records is Async.Loading -> {
+                // 首屏两块同在加载：整屏居中，与排行榜/图鉴/卡牌统计三页一致。
+                // 不再套外层滚动 Column——CenteredScrollableContainer 内部自带 verticalScroll，
+                // PullToRefreshBox 依然收得到 nestedScroll，下拉刷新不失效。
+                CenteredScrollableContainer { LoadingView(label = stringResource(R.string.state_home_first_loading)) }
+            }
+
+            profileError != null || recordsError != null -> {
+                // 错误二合一（用户第 13 项）：位置与加载态一致，重试整页重拉两块。
+                // message 为 null 只可能来自 profile（合法响应但数据缺失），兜底资料卡空文案。
+                CenteredScrollableContainer {
+                    ErrorState(
+                        message = profileError?.message ?: recordsError?.message
+                            ?: stringResource(R.string.state_home_profile_empty),
+                        onRetry = viewModel::refresh,
                     )
                 }
+            }
 
-                // IconButton 触摸目标高 48dp，行内文字上下自带约 12dp 视觉空白，
-                // 故上留 8dp（≈原 16dp 观感）、下留 4dp（标题贴列表不悬空）
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = stringResource(R.string.home_recent_games),
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.weight(1f),
-                    )
-                    IconButton(onClick = viewModel::refresh) {
-                        Icon(Icons.Outlined.Refresh, contentDescription = stringResource(R.string.cd_refresh))
+            else -> {
+                // 空态不套 verticalScroll：Column 有界高里 weight(1f) 才成立（滚动容器里
+                // weight 非法且高度=内容高，居中无从谈起）。此时页面必然不足一屏
+                // （资料卡 + 标题行 + 空态占位），放弃滚动没有副作用。
+                val scrollable = !recordsEmpty
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier,
+                        )
+                        .padding(16.dp),
+                ) {
+                    when (profile) {
+                        // Loading 只可能是「另一块先落定」的过渡态；Error 已在上面整屏接管
+                        is Async.Loading -> LoadingView(label = stringResource(R.string.state_home_profile_loading))
+                        is Async.Content -> ProfileCard(
+                            profile = profile.value,
+                            uid = sessionUid.orEmpty(),
+                            // 本人卡片：详情接口必定可访问，无需入口头像兜底
+                            onClick = { onOpenPlayerDetail(sessionUid.orEmpty(), null) },
+                        )
+
+                        else -> Unit
                     }
-                }
-                Spacer(Modifier.height(4.dp))
 
-                when (val records = state.records) {
-                    is Async.Loading -> LoadingView(label = stringResource(R.string.state_home_records_loading))
-                    is Async.Error -> ErrorState(
-                        message = records.message ?: stringResource(R.string.state_home_records_empty),
-                        onRetry = viewModel::retryRecords,
-                    )
-                    is Async.Content -> {
-                        if (records.value.isEmpty()) {
+                    // IconButton 触摸目标高 48dp，行内文字上下自带约 12dp 视觉空白，
+                    // 故上留 8dp（≈原 16dp 观感）、下留 4dp（标题贴列表不悬空）
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = stringResource(R.string.home_recent_games),
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = viewModel::refresh) {
+                            Icon(Icons.Outlined.Refresh, contentDescription = stringResource(R.string.cd_refresh))
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+
+                    if (recordsEmpty) {
+                        // 空态居中（任务 D）：吃掉剩余高度后 Box 居中，与加载/错误整屏态同一观感
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            contentAlignment = Alignment.Center,
+                        ) {
                             EmptyState(title = stringResource(R.string.home_empty_records))
-                        } else {
-                            // 服务端最多返回 10 条：外层整页已可滚，直接顺序渲染。
-                            // 不再嵌套 LazyColumn——原"视口高 − 列表顶部偏移"方案把两个
-                            // onSizeChanged 挂在同一个 Box 上，测的都是 Box 自身，
-                            // 差值恒为 0，列表被裁成 0 高不可见（取证报告 偏离-1 根因）
-                            Column(
-                                Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                records.value.forEachIndexed { index, record ->
-                                    key("${record.transNo ?: "na"}-$index") {
-                                        RecordItem(
-                                            record = record,
-                                            uid = sessionUid.orEmpty(),
-                                            semantic = semantic,
-                                            // 对局记录的 nickname/avatar_url 就是对手的
-                                            // （解析见 GameRecordsParseTest："对手1"），
-                                            // 故可直接作为对手详情弹窗的头像兜底。
-                                            onOpenOpponent = { uid -> onOpenPlayerDetail(uid, record.avatarUrl) },
-                                        )
+                        }
+                    } else {
+                        when (records) {
+                            is Async.Loading -> LoadingView(label = stringResource(R.string.state_home_records_loading))
+                            is Async.Content -> {
+                                // 服务端最多返回 10 条：外层整页已可滚，直接顺序渲染。
+                                // 不再嵌套 LazyColumn——原"视口高 − 列表顶部偏移"方案把两个
+                                // onSizeChanged 挂在同一个 Box 上，测的都是 Box 自身，
+                                // 差值恒为 0，列表被裁成 0 高不可见（取证报告 偏离-1 根因）
+                                Column(
+                                    Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    records.value.forEachIndexed { index, record ->
+                                        key("${record.transNo ?: "na"}-$index") {
+                                            RecordItem(
+                                                record = record,
+                                                uid = sessionUid.orEmpty(),
+                                                semantic = semantic,
+                                                // 对局记录的 nickname/avatar_url 就是对手的
+                                                // （解析见 GameRecordsParseTest："对手1"），
+                                                // 故可直接作为对手详情弹窗的头像兜底。
+                                                onOpenOpponent = { uid -> onOpenPlayerDetail(uid, record.avatarUrl) },
+                                            )
+                                        }
                                     }
                                 }
                             }
+
+                            else -> Unit
                         }
                     }
                 }
@@ -252,59 +272,23 @@ private fun ProfileCard(
                 .fillMaxWidth()
                 .padding(PROFILE_CARD_PADDING_DP.dp),
         ) {
-            // 四层之 1「头像」+ 层 2「昵称/段位」+ 层 3「UID」：文本块整体在 64dp 头像里垂直居中
-            // （与导出图 blockTop = row1Top + (avatar − block)/2 同一口径）
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Avatar(
-                    url = profile.avatarUrl,
-                    size = PROFILE_AVATAR_SIZE_DP.dp,
-                    contentDescription = profile.nickname,
-                )
-                Column(Modifier.weight(1f).padding(start = PROFILE_TEXT_COLUMN_GAP_DP.dp)) {
-                    // 层级靠「字号 + 字重」拉开：昵称 titleMedium 粗体最大、段位 titleSmall 中粗次之，
-                    // 两者同行按基线对齐（字号不同时顶端不齐、基线才齐），段位色走 C 路 tierColor
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(
-                            text = profile.nickname ?: unknownLabel,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false).alignByBaseline(),
-                        )
-                        if (tier.isNotEmpty()) {
-                            Spacer(Modifier.width(PROFILE_NICK_TIER_GAP_DP.dp))
-                            Text(
-                                text = tier,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Medium,
-                                color = tierColor(tier),
-                                maxLines = 1,
-                                modifier = Modifier.alignByBaseline(),
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(PROFILE_IDENTITY_LINE_GAP_DP.dp))
-                    // 去掉 "UID:" 文字标签（位置即语义，与 RecordItem 对手 UID 行同一套设计语言）；
-                    // 字号降到 bodySmall（12sp，与积分表头同档"最小层"），不再与段位抢字号。
-                    // 左缘不额外缩进 ⇒ 天然与昵称左缘对齐
-                    Text(
-                        text = uid,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
+            // V36 任务 B（用户第 1、2 项）：个人信息区照抄统计页版式——共用 PlayerInfoHeader，
+            // 昵称/段位同行按基线对齐（Row 不再叠 Alignment.Bottom，两者互斥，V36 红线 1），
+            // 段位左缘不额外缩进、UID 左缘即卡片内容左缘，几何常量单一来源（PLAYER_INFO_*）。
+            PlayerInfoHeader(
+                avatarUrl = profile.avatarUrl,
+                nickname = profile.nickname ?: unknownLabel,
+                tier = tier,
+                uid = uid,
+            )
             Spacer(Modifier.height(PROFILE_SCORES_GAP_DP.dp))
-            // 四层之 4「积分区」：等宽两列、各占一半；整块缩进「头像直径 + 列间距」，
-            // 让表头左缘落进昵称/UID 那条竖向对齐轴（导出图 drawScoreColumn 用同一个 colLeft）。
-            // 积分区在个人信息下方，纵向口径同 PlayerDetailDialog.ScoresRow
+            // 四层之 4「积分区」：等宽两列、各占一半、整块左对齐（ScoreItem 内容起始即列左缘，
+            // 无居中/右对齐——用户拍板参考 PlayerDetailDialog 的左对齐范式）；
+            // 整块缩进「头像直径 + 列间距」，让表头左缘落进昵称/UID 那条竖向对齐轴。
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(start = (PROFILE_AVATAR_SIZE_DP + PROFILE_TEXT_COLUMN_GAP_DP).dp),
+                    .padding(start = (PLAYER_INFO_AVATAR_DP + PLAYER_INFO_TEXT_COLUMN_GAP_DP).dp),
             ) {
                 ScoreItem(
                     label = stringResource(R.string.score_ladder),
