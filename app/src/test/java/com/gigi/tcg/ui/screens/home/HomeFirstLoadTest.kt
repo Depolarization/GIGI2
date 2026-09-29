@@ -47,15 +47,16 @@ class HomeFirstLoadTest {
 
     /** V36/3 任务 F：页面层静默重试必须删干净（与 MihoyoClient 退避重试叠加 = 最坏等待翻倍） */
     @Test
-    fun `page-level silent retry is gone; retry belongs to MihoyoClient`() {
+    fun `page-level silent retry is gone, retry belongs to MihoyoClient`() {
         val src = File("src/main/java/com/gigi/tcg/ui/screens/home/HomeViewModel.kt").readText()
-        assertFalse("fetchWithSilentRetry 不得再存在", src.contains("fetchWithSilentRetry"))
+        // 按调用形态断言（注释里允许提及这个名字说明历史，代码里不得再出现）
+        assertFalse("fetchWithSilentRetry 不得再存在", src.contains("fetchWithSilentRetry("))
         assertFalse("页面层不得再自行判定 RETRYABLE retcode（红线 2）", src.contains("RETRYABLE_RETCODES"))
     }
 
     /** V36/3 任务 G：下拉圈由在途计数把关，静默刷新时慢块未落定不收圈 */
     @Test
-    fun `refresh spinner end is gated by in-flight count not only state`() {
+    fun `refresh spinner end is gated by in-flight count, not only state`() {
         val src = File("src/main/java/com/gigi/tcg/ui/screens/home/HomeViewModel.kt").readText()
         assertTrue("loadProfile/loadRecords 应各自进出在途计数（+=1 / -=1 各两处）",
             Regex("pendingLoads \\+= 1").findAll(src).count() == 2 &&
