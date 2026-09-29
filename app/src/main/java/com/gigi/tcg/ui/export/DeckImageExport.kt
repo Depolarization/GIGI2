@@ -14,6 +14,7 @@ package com.gigi.tcg.ui.export
 import androidx.annotation.StringRes
 import com.gigi.tcg.R
 import com.gigi.tcg.data.model.GcgDeck
+import com.gigi.tcg.data.model.GcgDeckCard
 import com.gigi.tcg.i18n.LocaleStrings
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -43,6 +44,24 @@ internal const val DECK_ROLE_CARD_COUNT = 3
 
 /** 行动牌网格恒 6 列（参考图 6 列），行数 = ceil(张数/6) 自动增长 */
 internal const val DECK_ACTION_GRID_COLUMNS = 6
+
+/**
+ * 🔴 **一副合法卡组的行动牌张数**（V38 用户规则纠正）。
+ *
+ * 七圣召唤的对战规则：必须 **3 角色牌 + 30 行动牌** 才能出战，不满 30 不能配��。
+ * 实测 `157777921` 的 11 副牌组**全部**满足：`action_cards` 数组长度（= 种类数）只有 22~25，
+ * 但 `sum(num)` **恒为 30** ⇒ 接口给的是**按种类去重**的列表。
+ *
+ * 官方参考图正是 **6 列 × 5 行 = 30 格**，重复的牌**各占一格**（可见成对并排的同图），
+ * 官方**不画任何张数徽标**。⇒ 版式按本常量铺满 5 行；玩家没填满时（`sum(num) < 30`）
+ * **末行留空占位**，而不是把网格压缩 —— 压缩会让「这牌组不合法」这件事被视觉掩盖。
+ */
+internal const val DECK_ACTION_FULL_DECK_COUNT = 30
+
+/** 行动牌网格行数：合法卡组恒 5 行；不满 30 时向上取整并留空占位 */
+internal fun actionGridRows(actionCount: Int): Int =
+    ((actionCount.coerceAtLeast(0) + DECK_ACTION_GRID_COLUMNS - 1) / DECK_ACTION_GRID_COLUMNS)
+        .coerceAtLeast(1)
 
 /** 角色牌 120×200（参考图 144×240 × 5/6） */
 internal val DECK_ROLE_CARD_WIDTH_PX = 120
@@ -83,9 +102,8 @@ private val TITLE_TO_CARDS_GAP_PX = 20
 private val ROLE_TO_ACTION_GAP_PX = 56
 private val UID_LINE_HEIGHT_PX = 26
 private val UID_LINE_GAP_PX = 6
-private val DECK_LOGO_TEXT_SIZE_PX = 44
 
-/** 页脚高度：昵称行底 + 游戏 logo 下探（参考图 logo 越过纸面底缘） */
+/** 页脚高度：UID + 昵称两行 + 下面留白（V38 起右下**不再画 logo**，留白仅作纸面呼吸区） */
 internal val DECK_FOOTER_HEIGHT_PX = UID_LINE_HEIGHT_PX * 2 + UID_LINE_GAP_PX + 32
 
 private val PILL_GAP_PX = designPx(6)
@@ -110,18 +128,6 @@ internal const val DECK_COLOR_PANEL_BORDER_INNER = 0xFFCDC2AF.toInt()
 
 /** 页脚 UID/昵称（参考图浅字压在深色桌面上；本项目画在米白纸面上，改取纸面深褐保证可读） */
 internal const val DECK_COLOR_FOOTER_TEXT = 0xFF6E5744.toInt()
-
-/** 右下角游戏 logo 文字（参考图为白色立体 logo） */
-internal const val DECK_COLOR_LOGO_TEXT = 0xFFF5F1E9.toInt()
-
-/** logo 深色内描边（字面与外轮廓之间的分隔，参考图字标的深褐勾边） */
-internal const val DECK_COLOR_LOGO_STROKE = 0xFF6B4F32.toInt()
-
-/** logo 最外层浅色轮廓（把白字从米白纸面上"托"出来） */
-internal const val DECK_COLOR_LOGO_GLOW = 0xFFB9A88C.toInt()
-
-/** logo 投影（参考图字标右下方的深色落影） */
-internal const val DECK_COLOR_LOGO_SHADOW = 0x3380603D
 
 /** 标签条底/字（官方 label-container #f1eadb，版式算术仍用） */
 internal const val DECK_COLOR_PILL_TEXT = 0xFF8A6C4A.toInt()
@@ -249,10 +255,20 @@ fun computeDeckImageLayout(spec: DeckImageSpec, measurer: TextMeasurer): DeckIma
     val actionSlots = centeredGridSlots(
         spec.actionCards.size, y, actionCardWidthPx, actionCardHeightPx, DECK_ACTION_GRID_COLUMNS,
     )
+    // 🔴 画布高度按**合法卡组的 5 行**（3+30 规则）算，不按实际张数 ——
+    //    玩家没填满 30 时末行留空占位，视觉上就能看出「这牌组还差几张」，
+    //    而压缩网格会把「不合法」这件事掩盖掉（V38 用户明确要求留占位空间）。
+    val actionRows = maxOf(actionGridRows(spec.actionCards.size), actionGridRows(DECK_ACTION_FULL_DECK_COUNT))
+    val actionBlockHeightPx = actionRows * actionCardHeightPx +
+        (actionRows - 1).coerceAtLeast(0) * DECK_CARD_GRID_GAP_PX
 
-    val lastBottom = actionSlots.lastOrNull()?.let { it.yPx + it.heightPx }
-        ?: roleSlots.lastOrNull()?.let { it.yPx + it.heightPx }
-        ?: y
+    // 行动牌区底缘：按固定行数算（末行空占位也占高），而不是「最后一张牌的实际底缘」
+    val lastBottom = if (hasAction) {
+        // hasAction ⇒ actionLabelTopPx 必非空（同一次判定），用 Elvis 兜底只为满足空安全
+        (actionLabelTopPx ?: y) + DECK_GROUP_LABEL_HEIGHT_PX + TITLE_TO_CARDS_GAP_PX + actionBlockHeightPx
+    } else {
+        roleSlots.lastOrNull()?.let { it.yPx + it.heightPx } ?: y
+    }
     val footerTopPx = lastBottom + DECK_BODY_PADDING_TOP_PX
     val heightPx = footerTopPx + DECK_FOOTER_HEIGHT_PX
 
@@ -332,6 +348,27 @@ private fun exportText(@StringRes id: Int, default: String, vararg args: Any): S
     LocaleStrings.getOrDefault(id, default, *args)
 
 /**
+ * 🔴 **按 `num` 展开成独立格**（V38 用户纠正）。
+ *
+ * 接口的 `action_cards` 是**按卡牌种类去重**的：`num` 才是「牌组内携带几张」。
+ * 实测 `157777921` 的 11 副牌组**全部**是「角色牌 3 + 行动牌携带总数 30」——
+ * 七圣召唤的对战规则要求 3 角色牌 + 30 行动牌，不满 30 不能出战；
+ * 而同一批数据的 `action_cards` 数组长度只有 22~25（种类数），**携带总数恒为 30**。
+ *
+ * 官方参考图正是 **6 列 × 5 行 = 30 格**：重复的牌**各占一格**（可见成对并排的同图），
+ * 官方**不画任何张数徽标**。⇒ 必须展开，否则：
+ * ① 格子数少于官方（22 格 vs 30 格，末行也不齐）；
+ * ② 逼迫版式去画 `×N` 徽标，而官方根本没有这个东西。
+ *
+ * `num` 缺失/≤0 视为 1（保守：宁可多画一格同图，也不少画导致总数对不上）。
+ */
+internal fun expandActionCardsByCount(cards: List<GcgDeckCard>): List<DeckCardFace> =
+    cards.flatMap { card ->
+        val copies = (card.num ?: 1).coerceAtLeast(1)
+        List(copies) { DeckCardFace(card.name, card.image) }
+    }
+
+/**
  * 由 [GcgDeck] 组装导出内容。张数摘要与页面文案同源（`my_deck_card_summary`）；
  * 标签条取角色牌名 —— 牌组最可辨识的标识，与 `deckDisplayName` 的二级兜底同一口径。
  *
@@ -345,7 +382,7 @@ fun buildDeckImageSpec(
     dateText: String,
 ): DeckImageSpec {
     val roleCards = deck.avatarCards.orEmpty().map { DeckCardFace(it.name, it.image) }
-    val actionCards = deck.actionCards.orEmpty().map { DeckCardFace(it.name, it.image) }
+    val actionCards = expandActionCardsByCount(deck.actionCards.orEmpty())
     val author = nickname?.takeIf { it.isNotBlank() } ?: uid?.takeIf { it.isNotBlank() }
     val desc = listOf(
         exportText(R.string.my_deck_card_summary, "角色牌 %1\$d · 行动牌 %2\$d", roleCards.size, actionCards.size),

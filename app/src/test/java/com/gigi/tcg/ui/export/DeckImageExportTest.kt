@@ -105,6 +105,62 @@ class DeckImageExportTest {
         assertTrue("纵向只增长不分页：40 张比 5 张高", layout.heightPx > small.heightPx)
     }
 
+    /**
+     * V38 用户规则纠正：七圣召唤必须 **3 角色牌 + 30 行动牌** 才能出战。
+     * ⇒ 画布高度按合法卡组的 5 行（6×5=30）铺满，玩家没填满时**末行留空占位**，
+     * 不能压缩网格 —— 压缩会把「这牌组不合法」掩盖掉。
+     */
+    @Test
+    fun layout_incompleteDeck_reservesFullFiveRowsWithTrailingPlaceholders() {
+        val full = computeDeckImageLayout(spec(actionCount = 30), fakeMeasurer)
+        assertEquals("合法卡组：6 列 × 5 行 = 30 格", 30, full.actionSlots.size)
+        assertEquals("行数恒 5", 5, full.actionSlots.map { it.yPx }.distinct().size)
+
+        // 不满 30（玩家没填满）⇒ 格子数照实，但高度必须仍按 5 行留占位
+        val partial = computeDeckImageLayout(spec(actionCount = 22), fakeMeasurer)
+        assertEquals("22 张只画 22 格（不补假牌）", 22, partial.actionSlots.size)
+        assertEquals(
+            "高度仍按合法 5 行留占位（与 30 张同高）",
+            full.heightPx,
+            partial.heightPx,
+        )
+        // 占位确实存在：22 格的底缘以上还有整行空间
+        val lastCardBottom = partial.actionSlots.maxOf { it.yPx + it.heightPx }
+        assertTrue(
+            "末行留了空位：最后一张牌底缘($lastCardBottom) 距画布底(${partial.heightPx}) 还差一整行",
+            partial.heightPx - lastCardBottom > partial.actionCardHeightPx,
+        )
+    }
+
+    /**
+     * 官方参考图是 **6 列 × 5 行 = 30 格**，重复的牌**各占一格**（成对并排），**不画张数徽标**。
+     * ⇒ 导出图必须按 `num` 展开成独立格，而不是按种类数画。
+     */
+    @Test
+    fun actionCards_expandByNumSoDuplicatesGetTheirOwnSlot() {
+        val cards = listOf(
+            GcgDeckCard(name = "普通的牌", image = "https://cdn/a.jpg", num = 1),
+            GcgDeckCard(name = "两张的牌", image = "https://cdn/b.jpg", num = 2),
+            GcgDeckCard(name = "没写张数", image = "https://cdn/c.jpg", num = null),
+            GcgDeckCard(name = "写了 0", image = "https://cdn/d.jpg", num = 0),
+        )
+        val expanded = expandActionCardsByCount(cards)
+        assertEquals("1+2+1+1（num 缺失/0 保守按 1）= 5 格", 5, expanded.size)
+        assertEquals("第 2、3 格是同一张牌（'两张的牌' 展开两份）", "两张的牌", expanded[1].name)
+        assertEquals("第 3 格仍是它", "两张的牌", expanded[2].name)
+        assertEquals("第 4 格是缺 num 的那张", "没写张数", expanded[3].name)
+        assertEquals("num=0 保守画一格（宁可多画同图，也不少画导致总数对不上）", "写了 0", expanded[4].name)
+    }
+
+    /** 实测：11 副牌组的 `sum(num)` 恒为 30，数组长度（种类数）只有 22~25 ⇒ 展开后必须正好 30 格 */
+    @Test
+    fun actionGridRows_thirtyCardsIsFiveRows() {
+        assertEquals("30 张 = 5 行", 5, actionGridRows(DECK_ACTION_FULL_DECK_COUNT))
+        assertEquals("22 张向上取整 4 行", 4, actionGridRows(22))
+        assertEquals("0 张至少 1 行（保底，防除零）", 1, actionGridRows(0))
+        assertEquals("合法卡组张数常量 = 30", 30, DECK_ACTION_FULL_DECK_COUNT)
+    }
+
     @Test
     fun layout_veryLongDeckName_doesNotChangeHeightArithmetic() {
         val longName = "很长的牌组名字".repeat(30)
@@ -320,9 +376,13 @@ class DeckImageExportTest {
         assertEquals("7 张 → 6+1 两行", 2, layout.actionSlots.map { it.yPx }.distinct().size)
         // 居中：块宽 6×96+5×14=646 ⇒ 左缘 (750-646)/2=52（与 cardsLeft 重合，恰好铺满）
         assertEquals(52, layout.actionSlots.first().xPx)
-        val lastBottom = layout.actionSlots.last().yPx + layout.actionCardHeightPx
-        assertTrue("页脚给 UID/昵称两行 + 游戏 logo 留了位", layout.heightPx - lastBottom >= 90)
-        assertEquals("footerTop 即 UID 行起点", lastBottom + 30, layout.footerTopPx)
+        // 🔴 V38：页脚**不再跟最后一张实际牌走**，而是按合法卡组固定 5 行（6×5=30）的底缘算 ——
+        //    7 张只画 2 行，但末行空位仍占高，否则「这牌组不合法」会被压缩掉看不出来。
+        val legalRows = DECK_ACTION_FULL_DECK_COUNT / DECK_ACTION_GRID_COLUMNS
+        val legalBottom = layout.actionSlots.first().yPx +
+            legalRows * layout.actionCardHeightPx + (legalRows - 1) * DECK_CARD_GRID_GAP_PX
+        assertTrue("页脚给 UID/昵称两行留了位", layout.heightPx - legalBottom >= 90)
+        assertEquals("footerTop 即 UID 行起点（按合法 5 行底缘，非最后一张牌底缘）", legalBottom + 30, layout.footerTopPx)
     }
 
     @Test

@@ -46,17 +46,17 @@ private const val DECK_EXPORT_JPEG_QUALITY = 95
 private const val PLACEHOLDER_TEXT_SIZE_PX = 20
 private const val PLACEHOLDER_BORDER_PX = 2
 
-/** 右下角游戏 logo：参考图是「原神」白色立体字标，这里用文字近似（素材未提供） */
-private const val GAME_LOGO_TEXT = "原神"
-
 /** 卡框素材（drawable-nodpi/v38_card_frame.png，300×514，中心透明、边框 ≈7px、顶部尖角在框内） */
 private const val CARD_FRAME_BORDER_PX = 7
 
-/** 参考图资源：卡框位图。解不出来就退化成占位色块 + 描边 */
-data class DeckExportAssets(val cardFrame: Bitmap?)
+/** 参考图资源：卡框位图 + 官方背景图。任一解不出来就退化成占位色块 / 程序化纸面 */
+data class DeckExportAssets(val cardFrame: Bitmap?, val background: Bitmap?)
 
 fun loadDeckExportAssets(resources: Resources): DeckExportAssets =
-    DeckExportAssets(cardFrame = runCatching { BitmapFactory.decodeResource(resources, R.drawable.v38_card_frame) }.getOrNull())
+    DeckExportAssets(
+        cardFrame = runCatching { BitmapFactory.decodeResource(resources, R.drawable.v38_card_frame) }.getOrNull(),
+        background = runCatching { BitmapFactory.decodeResource(resources, R.drawable.v38_deck_bg) }.getOrNull(),
+    )
 
 /** 一次导出的结果：[uri] 只有 Q+ 的 MediaStore 分支有（≤API 28 落公共目录恒 null，但文件确实写成功） */
 data class DeckExportOutcome(val succeeded: Boolean, val uri: Uri?, val error: String? = null)
@@ -96,6 +96,7 @@ suspend fun exportDeckImage(
                 }
             } finally {
                 assets.cardFrame?.recycle()
+                assets.background?.recycle()
             }
         }
     } catch (cancel: CancellationException) {
@@ -140,43 +141,37 @@ fun renderDeckImageBitmap(
     val sectionPaint = textPaint(DECK_GROUP_LABEL_TEXT_PX, DECK_COLOR_SECTION_TITLE).apply { isFakeBoldText = true }
     val placeholderPaint = textPaint(PLACEHOLDER_TEXT_SIZE_PX, DECK_COLOR_PILL_TEXT)
     val footerPaint = textPaint(UID_FOOTER_TEXT_PX, DECK_COLOR_FOOTER_TEXT)
-    val logoPaint = textPaint(DECK_LOGO_TEXT_SIZE_PX, DECK_COLOR_LOGO_TEXT).apply {
-        isFakeBoldText = true
-    }
-    // 参考图右下是白色「原神」立体字标：字面 + 一圈深色外描边 + 一层向外扩张的浅色轮廓。
-    // 单层 shadowLayer 会显得又小又虚，这里改用 stroke 描边两次 + 偏移投影，凑出体积感。
-    val logoStrokePaint = textPaint(DECK_LOGO_TEXT_SIZE_PX, DECK_COLOR_LOGO_STROKE).apply {
-        isFakeBoldText = true
-        style = Paint.Style.STROKE
-        strokeWidth = DECK_LOGO_STROKE_PX
-    }
-    val logoGlowPaint = textPaint(DECK_LOGO_TEXT_SIZE_PX, DECK_COLOR_LOGO_GLOW).apply {
-        isFakeBoldText = true
-        style = Paint.Style.STROKE
-        strokeWidth = DECK_LOGO_GLOW_PX
-    }
-    val logoShadowPaint = textPaint(DECK_LOGO_TEXT_SIZE_PX, DECK_COLOR_LOGO_SHADOW).apply {
-        isFakeBoldText = true
-        style = Paint.Style.FILL
-    }
 
     val canvas = Canvas(bitmap)
     val width = layout.widthPx.toFloat()
     val height = layout.heightPx.toFloat()
 
-    // 1. 米白纸面铺满 + 双层内描边 + 四角云纹（程序化近似，官方纸面素材不在网页 CSS 内联里）
-    fillPaint.color = DECK_COLOR_PAPER_BG
-    canvas.drawRect(0f, 0f, width, height, fillPaint)
-    // 参考图纸面是"双线框"：外侧一圈细线 + 内侧一圈更浅的线，两线之间留 6px 纸面
-    strokePaint.color = DECK_COLOR_PANEL_BORDER
-    strokePaint.strokeWidth = 2f
-    canvas.drawRect(8f, 8f, width - 8f, height - 8f, strokePaint)
-    strokePaint.color = DECK_COLOR_PANEL_BORDER_INNER
-    strokePaint.strokeWidth = 1.5f
-    canvas.drawRect(PANEL_INNER_INSET_PX, PANEL_INNER_INSET_PX, width - PANEL_INNER_INSET_PX, height - PANEL_INNER_INSET_PX, strokePaint)
-    strokePaint.color = DECK_COLOR_PANEL_BORDER
-    strokePaint.strokeWidth = PLACEHOLDER_BORDER_PX.toFloat()
-    drawCornerFlourishes(canvas, width, height)
+    // 1. 背景：优先铺官方纸面图（由用户提供的 `export_bg.png` 裁出的纸面区 705×1200，
+    //    含真四角卷草纹 + 纸面底色 #DBD5CE）。
+    //    🔴 裁剪窗 (190,150)-(895,1350) 是**向内收缩**过的：原图的纸面是透视斜切四边形，
+    //    四角外侧紧邻桌面（深褐木纹/绿布/卡片），按纯色区外接矩形裁会把桌面带进画面
+    //    （实测右上/右下出现深褐竖条）。收缩到这组坐标后四角脏污率实测 0.000。
+    //    🔴 纸面区本身纵横比 0.587，而导出图高度随牌数变化 ⇒ **纵向拉伸铺满**。
+    //    纸面内部是纯色 + 边框，拉伸只会让边线/卷草纹略微纵向拉长，视觉可接受（下方有实测截图）。
+    //    解不出来才退回程序化纸面（米白底 + 描边 + 四角云纹），保证不掀翻导出。
+    val bg = assets.background?.takeIf { !it.isRecycled && it.width > 0 && it.height > 0 }
+    if (bg != null) {
+        dstRect.set(0f, 0f, width, height)
+        srcRect.set(0, 0, bg.width, bg.height)
+        canvas.drawBitmap(bg, srcRect, dstRect, imagePaint)
+    } else {
+        fillPaint.color = DECK_COLOR_PAPER_BG
+        canvas.drawRect(0f, 0f, width, height, fillPaint)
+        strokePaint.color = DECK_COLOR_PANEL_BORDER
+        strokePaint.strokeWidth = 2f
+        canvas.drawRect(8f, 8f, width - 8f, height - 8f, strokePaint)
+        strokePaint.color = DECK_COLOR_PANEL_BORDER_INNER
+        strokePaint.strokeWidth = 1.5f
+        canvas.drawRect(PANEL_INNER_INSET_PX, PANEL_INNER_INSET_PX, width - PANEL_INNER_INSET_PX, height - PANEL_INNER_INSET_PX, strokePaint)
+        strokePaint.color = DECK_COLOR_PANEL_BORDER
+        strokePaint.strokeWidth = PLACEHOLDER_BORDER_PX.toFloat()
+        drawCornerFlourishes(canvas, width, height)
+    }
 
     // 2. 两个金棕分区标题（居中）——顶部 banner 已移除，这里只剩参考图保留的两块
     layout.roleLabelTopPx?.let { top ->
@@ -190,27 +185,18 @@ fun renderDeckImageBitmap(
     drawCards(canvas, layout.roleSlots, roleImages, spec.roleCards, assets, fillPaint, strokePaint, imagePaint, placeholderPaint, srcRect, dstRect)
     drawCards(canvas, layout.actionSlots, actionImages, spec.actionCards, assets, fillPaint, strokePaint, imagePaint, placeholderPaint, srcRect, dstRect)
 
-    // 4. 页脚：左下 UID/昵称两行 + 右下游戏 logo
+    // 4. 页脚：左下 UID/昵称两行
+    //    🔴 右下**不画任何 logo**（V38 用户指令）：官方背景素材 `export_bg.png` 里本就不含 logo，
+    //    此前那版程序化「原神」文字近似（白字+描边+投影四层）已整体删除。
     footerPaint.textAlign = Paint.Align.LEFT
     deckFooterLines(spec.authorText, uid).forEachIndexed { index, line ->
         canvas.drawText(line, DECK_BODY_PADDING_SIDE_PX.toFloat(), (layout.footerTopPx + (index + 1) * UID_LINE_HEIGHT_PX).toFloat(), footerPaint)
     }
-    // 参考图 logo 在右下角、压住纸面底缘：先投影（偏移 3px）→ 再外层浅色轮廓 → 再深色描边 → 最后白字面
-    val logoX = width - DECK_BODY_PADDING_SIDE_PX - 4f
-    val logoY = height - 18f
-    listOf(logoShadowPaint, logoGlowPaint, logoStrokePaint, logoPaint).forEach { it.textAlign = Paint.Align.RIGHT }
-    canvas.drawText(GAME_LOGO_TEXT, logoX + 3f, logoY + 4f, logoShadowPaint)
-    canvas.drawText(GAME_LOGO_TEXT, logoX, logoY, logoGlowPaint)
-    canvas.drawText(GAME_LOGO_TEXT, logoX, logoY, logoStrokePaint)
-    canvas.drawText(GAME_LOGO_TEXT, logoX, logoY, logoPaint)
     return bitmap
 }
 
 private const val UID_FOOTER_TEXT_PX = 20
 private const val UID_LINE_HEIGHT_PX = 26
-private const val DECK_LOGO_TEXT_SIZE_PX = 44
-private const val DECK_LOGO_STROKE_PX = 4f
-private const val DECK_LOGO_GLOW_PX = 9f
 
 /** 纸面内框距画布边的距离（双线框的内线位置） */
 private const val PANEL_INNER_INSET_PX = 16f

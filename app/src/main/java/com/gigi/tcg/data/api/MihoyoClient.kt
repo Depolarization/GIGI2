@@ -8,6 +8,7 @@ package com.gigi.tcg.data.api
 
 import com.gigi.tcg.domain.Throttle
 import java.io.IOException
+import java.net.InetAddress
 import kotlin.coroutines.resume
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +38,17 @@ import okhttp3.Response
  */
 internal fun retryDelayMsFor(attempt: Int, jitterMs: Long): Long =
     MihoyoClient.RETRY_BASE_DELAY_MS * (1L shl (attempt - 1).coerceIn(0, 16)) + jitterMs
+
+/**
+ * 网络层诊断通道（V38 排障后保留，DEBUG 级）。
+ * 只打 URL / uid / Cookie **长度** / DNS 结果 / 异常链 —— **绝不打 Cookie 内容**。
+ * 排查「App 连不上但 adb shell curl 能通」这类 uid 级网络策略问题（如设备 Doze 的
+ * REJECT_ALL）时，这几行是唯一能区分「没发请求 / DNS 错 / 连不上 / 响应异常」的证据。
+ * JVM 单测里 `android.util.Log` 未 mock 会抛，故 runCatching 兜住（诊断不得影响生产逻辑）。
+ */
+private fun diagLog(msg: String) {
+    runCatching { android.util.Log.d("GigiNetDiag", msg) }
+}
 
 /**
  * 是否值得再打一次（业务层退避重试的唯一判据）。
@@ -114,6 +126,7 @@ class MihoyoClient(
         val builder = chain.request().newBuilder()
         val uid = chain.request().tag(CookieUidTag::class.java)?.uid
         val header = credentials.cookieHeader(uid)
+        diagLog("→ ${chain.request().url.encodedPath} uid=${uid ?: "-"} cookieLen=${header?.length ?: 0}")
         if (!header.isNullOrEmpty()) {
             builder.header("Cookie", header)
         }
@@ -259,19 +272,32 @@ class MihoyoClient(
      */
     private suspend fun execute(url: String, uid: String?): String =
         withContext(Dispatchers.IO) {
+            val parsed = url.toHttpUrl()
+            // 🔍 临时诊断：解析结果决定 OkHttp 会依次尝试哪些 IP（连不上时是首要嫌疑）
+            runCatching {
+                val addrs = runCatching { InetAddress.getAllByName(parsed.host) }
+                    .getOrNull()
+                    ?.joinToString(",") { it.hostAddress ?: "?" }
+                    ?: "解析失败"
+                diagLog("dns ${parsed.host} -> $addrs")
+            }
             val builder = Request.Builder()
-                .url(url.toHttpUrl())
+                .url(parsed)
                 .get()
             // uid 只以 tag 形态随请求走，Cookie 由拦截器按 tag 解析（明文本方法不可见）
             if (uid != null) builder.tag(CookieUidTag::class.java, CookieUidTag(uid))
             val response = suspendingCall(builder.build())
             response.use { resp ->
                 if (!resp.isSuccessful) {
+                    diagLog("✗ HTTP ${resp.code} ${url.substringBefore('?')}")
                     throw ApiError(API_ERROR_KIND_NETWORK, "网络请求失败（HTTP ${resp.code}）")
                 }
                 try {
-                    resp.body?.string() ?: throw ApiError(API_ERROR_KIND_NETWORK, "响应不是有效的 JSON")
+                    val body = resp.body?.string() ?: throw ApiError(API_ERROR_KIND_NETWORK, "响应不是有效的 JSON")
+                    diagLog("← HTTP ${resp.code} len=${body.length} ${url.substringBefore('?')}")
+                    body
                 } catch (e: IOException) {
+                    diagLog("✗ 读 body 失败 ${url.substringBefore('?')} :: ${e.javaClass.name}: ${e.message}")
                     throw ApiError(API_ERROR_KIND_NETWORK, "响应不是有效的 JSON", cause = e)
                 }
             }
@@ -286,6 +312,9 @@ class MihoyoClient(
                     }
 
                     override fun onFailure(call: Call, e: IOException) {
+                        val chainMsg = generateSequence<Throwable>(e) { it.cause }
+                            .joinToString(" <- ") { "${it.javaClass.name}: ${it.message}" }
+                        diagLog("✗ ${call.request().url} :: $chainMsg")
                         continuation.resumeWith(
                             Result.failure(ApiError(API_ERROR_KIND_NETWORK, "网络请求失败", cause = e))
                         )
