@@ -2,6 +2,7 @@ package com.gigi.tcg.data.auth
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -26,13 +27,21 @@ class CredentialStoreTest {
     @Test
     fun `account index round trips all fields`() {
         val accounts = listOf(
-            StoredAccount("123456", "旅行者", "cn_gf01", 10L),
+            StoredAccount("123456", "旅行者", "cn_gf01", 10L, avatar = "https://example.com/a.png"),
             StoredAccount("654321", null, "cn_qd01", 20L),
         )
 
         val encoded = CredentialStore.encodeAccountIndex(accounts)
 
         assertEquals(accounts, CredentialStore.parseAccountIndex(encoded))
+    }
+
+    /** V36/2 新增 avatar 字段：null 时不写键（explicitNulls=false），存量索引格式不变 */
+    @Test
+    fun `absent avatar is encoded as missing key`() {
+        val encoded = CredentialStore.encodeAccountIndex(listOf(StoredAccount("123456", avatar = null)))
+        assertFalse(encoded.contains("avatar"))
+        assertNull(CredentialStore.parseAccountIndex(encoded).single().avatar)
     }
 
     @Test

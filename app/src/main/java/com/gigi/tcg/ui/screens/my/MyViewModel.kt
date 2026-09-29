@@ -1,7 +1,8 @@
 // 「我的」页状态（V35 P0 骸架）：账号管理直接投影容器级 StateFlow（accounts/activeUid），
 // 切账号/登出/添加后由 AppContainer 自动刷新，本 VM 不复制状态。
-// 个人信息区接 gcg/basicInfo（昵称/牌手等级，5min TTL 内存缓存；失败静默降级 ——
-// 分区② 有账户本地数据兜底，接口失败不影响页面可用）。
+// 个人信息接 gcg/basicInfo（昵称/牌手等级，5min TTL 内存缓存；失败静默降级 ——
+// 「我的」页总有账户本地数据可看，接口失败不影响页面可用。V36/2 起牌手等级并入账户行副标题，
+// 原「个人信息」分区卡片已删（用户第 7、14 项：与账户行重复、且一段一段加独立文本是错的）。
 // P1/P2 计划在此补：卡组/卡背/收藏对局/胜冠之试四组接口数据（设计文档 §4.3 分阶段）。
 // P2 已补四组：全部沿用 loadProfile 的静默口径 —— 失败吞异常置 null，页面据此显示空态，
 // 任何一组接口失败都**不允许**把「我的」页拖进错误态（一级页还有账户本地数据可看）。
@@ -77,27 +78,27 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _profile = MutableStateFlow<GcgBasicInfoData?>(null)
 
-    /** 个人信息区数据（昵称/牌手等级）；null = 加载中或不可用（降级显示账户本地昵称/UID） */
+    /** 个人信息（昵称/牌手等级）；null = 加载中或不可用（账户行降级显示本地昵称/UID） */
     val profile: StateFlow<GcgBasicInfoData?> = _profile.asStateFlow()
 
     private val _deckList = MutableStateFlow<GcgDeckListData?>(null)
 
-    /** 分区③/卡组页数据；null = 加载中或不可用（页面显示空态，不显示 0 组） */
+    /** 卡组页数据 + 一级页摘要；null = 加载中或不可用（页面显示空态，不显示 0 组） */
     val deckList: StateFlow<GcgDeckListData?> = _deckList.asStateFlow()
 
     private val _cardBackList = MutableStateFlow<GcgCardBackListData?>(null)
 
-    /** 分区③/卡背页数据（含未收集项，靠 hasObtained 区分）；null = 加载中或不可用 */
+    /** 卡背页数据（含未收集项，靠 hasObtained 区分）；null = 加载中或不可用 */
     val cardBackList: StateFlow<GcgCardBackListData?> = _cardBackList.asStateFlow()
 
     private val _matchList = MutableStateFlow<GcgMatchListData?>(null)
 
-    /** 分区④/收藏对局页数据；null = 加载中或不可用。favouriteMatches 实测可为空数组（正常） */
+    /** 收藏对局页数据；null = 加载中或不可用。favouriteMatches 实测可为空数组（正常） */
     val matchList: StateFlow<GcgMatchListData?> = _matchList.asStateFlow()
 
     private val _challengeSchedule = MutableStateFlow<GcgChallengeScheduleData?>(null)
 
-    /** 分区④/胜冠之试旬列表；null = 加载中或不可用 */
+    /** 胜冠之试旬列表；null = 加载中或不可用 */
     val challengeSchedule: StateFlow<GcgChallengeScheduleData?> = _challengeSchedule.asStateFlow()
 
     private val _challengeRecord = MutableStateFlow<GcgChallengeRecordData?>(null)
@@ -185,8 +186,9 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 拉当前激活账户的个人信息。调用点：进入页面 / 激活账户变化（LaunchedEffect(activeUid)）。
-     * 失败静默：分区② 总是有账户本地的昵称/UID 可显示，接口只是增强。
+     * 拉当前激活账户的个人信息（牌手等级，供账户行副标题）。
+     * 调用点：进入页面 / 激活账户变化（LaunchedEffect(activeUid)）。
+     * 失败静默：账户行总有本地昵称/UID 可显示，接口只是增强。
      */
     fun loadProfile(force: Boolean = false) {
         load(_profile, force) { uid, server, f ->
@@ -194,22 +196,22 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 我的卡组（分区③摘要 + 卡组页） */
+    /** 我的卡组（「我的资产」摘要 + 卡组页） */
     fun loadDeckList(force: Boolean = false) {
         load(_deckList, force) { uid, server, f -> container.repository.fetchGcgDeckListCached(uid, server, f) }
     }
 
-    /** 卡背图鉴（分区③摘要 + 卡背页） */
+    /** 卡背图鉴（「我的资产」摘要 + 卡背页） */
     fun loadCardBackList(force: Boolean = false) {
         load(_cardBackList, force) { uid, server, f -> container.repository.fetchGcgCardBackListCached(uid, server, f) }
     }
 
-    /** 收藏对局（分区④摘要 + 收藏页） */
+    /** 收藏对局（「最近对局」摘要 + 收藏页） */
     fun loadMatchList(force: Boolean = false) {
         load(_matchList, force) { uid, server, f -> container.repository.fetchGcgMatchListCached(uid, server, f) }
     }
 
-    /** 胜冠之试旬列表（分区④摘要 + 胜冠页列表态） */
+    /** 胜冠之试旬列表（「最近对局」摘要 + 胜冠页的旬列表） */
     fun loadChallengeSchedule(force: Boolean = false) {
         load(_challengeSchedule, force) { uid, server, f ->
             container.repository.fetchGcgChallengeScheduleCached(uid, server, f)
