@@ -159,7 +159,8 @@ fun CardStatsRoute(
     val app = LocalContext.current.applicationContext as Application
     val viewModel: CardStatsViewModel = viewModel(key = "cardStats", factory = CardStatsViewModel.factory(app))
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val uid = container.sessionUid.value.orEmpty()
+    val sessionUid by container.sessionUid.collectAsStateWithLifecycle()
+    val uid = sessionUid.orEmpty()
 
     // 三态与其余三页统一：共享组件内部 fillMaxWidth 会覆盖外部 align，
     // 统一用 Box 居中承载，避免 LoadingView 被拉成整屏高。
