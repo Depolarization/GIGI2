@@ -46,6 +46,7 @@ fun MyFavoritesPage(modifier: Modifier = Modifier) {
     val activeUid by viewModel.activeUid.collectAsStateWithLifecycle()
     val matchData by viewModel.matchList.collectAsStateWithLifecycle()
 
+    // 装载幂等：同账户重入不清空（VM 只在 uid 变化时清空），命中内存缓存后静默替换 ⇒ 列表不闪。
     LaunchedEffect(activeUid) { viewModel.loadMatchList() }
 
     val matches = matchData?.favouriteMatches.orEmpty()

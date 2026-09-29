@@ -74,14 +74,11 @@ fun MyRoute(
     var logoutConfirmOpen by remember { mutableStateOf(false) }
     val activeAccount = accounts.firstOrNull { it.uid == activeUid }
 
-    // 进入页面 / 切换账户后拉个人信息 + 分区③④ 摘要（切账号时 VM 先清旧值，不会残留上一账户数据）
-    LaunchedEffect(activeUid) {
-        viewModel.loadProfile()
-        viewModel.loadDeckList()
-        viewModel.loadCardBackList()
-        viewModel.loadMatchList()
-        viewModel.loadChallengeSchedule()
-    }
+    // 进入页面 / 切换账户后拉个人信息 + 分区③④ 摘要：5 组**串行错峰**（VM 内部延迟），
+    // 不再一次性并发 5 个私有接口（正中米游社 -500004 保流窗口；口径同首页首刷 runStaggeredFirstLoad）。
+    // 🔴 这里不调 `refresh()` 式的全清重载：装载本身是幂等的 —— VM 只在**账户变化**时清空，
+    // 页面重入（离开 Composition 后 LaunchedEffect 重启）静默替换缓存值，数字不再闪（用户第 12 项）。
+    LaunchedEffect(activeUid) { viewModel.loadAllStaggered() }
 
     // 摘要口径：数据没到 / 列表为空 ⇒ 整段不显示（显示 0 会把「还没拉到」误报成「真的没有」）
     val deckSummary = deckList?.deckList?.size?.takeIf { it > 0 }

@@ -54,6 +54,7 @@ fun MyCardBacksPage(modifier: Modifier = Modifier) {
     val activeUid by viewModel.activeUid.collectAsStateWithLifecycle()
     val cardBackData by viewModel.cardBackList.collectAsStateWithLifecycle()
 
+    // 装载幂等：同账户重入不清空（VM 只在 uid 变化时清空），命中内存缓存后静默替换 ⇒ 网格不闪。
     LaunchedEffect(activeUid) { viewModel.loadCardBackList() }
 
     val cardBacks = cardBackData?.cardBackList.orEmpty()

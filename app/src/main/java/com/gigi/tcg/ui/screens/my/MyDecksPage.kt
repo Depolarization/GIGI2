@@ -65,9 +65,14 @@ fun MyDecksPage(modifier: Modifier = Modifier) {
     val deckListData by viewModel.deckList.collectAsStateWithLifecycle()
     var selectedDeck by remember { mutableStateOf<GcgDeck?>(null) }
 
+    // 🔴 lastUid 守卫，写法照首页 HomeRoute（LaunchedEffect 的 key 相同只防"同一组合内 key 变化"，
+    // 防不了"离开 Composition 后重入"）：重入不该打掉详情态，也不该清空数字（VM 同 uid 不清空、静默替换）；
+    // 只有真正换账户才掉回列表态 —— 详情正开着时切账户，屏幕不该继续展示上一账户那副牌组。
+    var lastUid by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(activeUid) {
-        // 切账户先掉回列表态：详情正开着时切账户，屏幕不该继续展示上一账户那副牌组
-        selectedDeck = null
+        val uid = activeUid
+        if (uid != null && uid != lastUid) selectedDeck = null
+        if (uid != null) lastUid = uid
         viewModel.loadDeckList()
     }
 
