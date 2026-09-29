@@ -31,7 +31,9 @@ import kotlinx.serialization.json.Json
 /**
  * 多账户索引元素（uid 为身份键 = 原神 game_uid；服务器与账户在登录时绑定，⑧）
  *
- * [avatar]：登录时落盘的角色头像 URL（「我的」页账户行用）。
+ * [avatar]：角色头像 URL（「我的」页账户行用）。登录/续命时若 getUserGameRolesByCookie
+ * 下发则落盘，实测该接口**不下发** avatar_url ⇒ 主来源是「我的」页装载链对
+ * my_home_page `page_info.avatar_url` 的回填（V36/2b，CredentialStore.updateAccountAvatar）。
  * 🔴 **必须带默认值**：索引是 JSON 串、存量数据里根本没有这个键，
  * kotlinx.serialization 只在字段有默认值时才允许缺失，否则整个索引解析抛异常 →
  * [parseAccountIndex] 把它当成"索引损坏"返回空列表 → **老用户直接掉登录态**。
@@ -121,6 +123,17 @@ class CredentialStore(context: Context) : CredentialSource {
         val recent = hit.copy(lastActiveEpochMs = System.currentTimeMillis())
         writeIndex(listOf(recent) + all.filterNot { it.uid == uid })
         prefs.edit().putString(KEY_ACTIVE_UID, uid).apply()
+    }
+
+    /**
+     * 头像回填（V36/2b）：只改索引里 [uid] 账户的 avatar，不动激活键、顺序与密文。
+     * 判据是纯函数 [replaceAvatar]（JVM 单测锁死）：uid 未命中 / 头像空白 / 同值 ⇒ 不写、返回 false，
+     * 调用方据返回值决定要不要 refreshAccounts()（同值不刷，避免每次进「我的」页都惊动账户列表）。
+     */
+    fun updateAccountAvatar(uid: String, avatar: String?): Boolean {
+        val next = replaceAvatar(accounts(), uid, avatar) ?: return false
+        writeIndex(next)
+        return true
     }
 
     // ===== ⑩ 升级收养：旧版单槽凭据 → 正式账户 =====
@@ -326,6 +339,22 @@ class CredentialStore(context: Context) : CredentialSource {
             } catch (e: IllegalArgumentException) {
                 emptyList()
             }
+        }
+
+        /**
+         * 替换索引中 [uid] 账户的头像（[updateAccountAvatar] 的判据，纯函数）。
+         * 返回 null = 无需落盘：uid 未命中、[avatar] 空白、或同值（幂等 ——
+         * 头像补齐后每次进「我的」页都重写索引/刷 UI 是纯惊动，必须跳过）。
+         */
+        fun replaceAvatar(
+            accounts: List<StoredAccount>,
+            uid: String,
+            avatar: String?,
+        ): List<StoredAccount>? {
+            if (avatar.isNullOrBlank()) return null
+            val hit = accounts.firstOrNull { it.uid == uid } ?: return null
+            if (hit.avatar == avatar) return null
+            return accounts.map { if (it.uid == uid) it.copy(avatar = avatar) else it }
         }
     }
 }
