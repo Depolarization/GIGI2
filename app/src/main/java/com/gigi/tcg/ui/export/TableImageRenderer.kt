@@ -13,6 +13,14 @@ import java.io.IOException
 import kotlin.math.ceil
 
 // 版式照抄参考导出图的实测规格（.task/dispatch/SPEC-export.md，源自 Alpiiine/gcg-plugin 的 gcg.html/css）。
+// 🔴 V36 已知无解项（勿再排查、勿加重试）：导出图行动牌分母源自 gcg/basicInfo 的 *_card_num_total，
+// 该端点被网关**定向门禁** —— V36-5 用 37 组变体实测恒 retcode=1034（41 字节定长、两账号逐字节一致，
+// 报告 .task/v36-probe/basicinfo/REPORT.md）；同 cookie 下 deckList/cardBackList/cardList 恒 0，
+// POST 一律 405、基线路径唯一正确 ⇒ 既非 cookie、非账号风控、非请求写法，判定在业务代码之前。
+// ⇒ CardStatsViewModel.fetchOfficialCardTotals 恒 null，分母降级为**图鉴口径 568**（官方真值 **941**），
+//   导出图上「没收集全」会被画成「全收集」。这是已知降级、不是待修 bug。
+//   1034 已被 MihoyoClient 判为不可重试（V36-1），不要给它加退避/兜底。
+//   若将来要修：改走 BuildConfig.CONTENT_LIST_URL（公开图鉴接口）取 941 分母绕开门禁 —— 涉数据层，归下一轮。
 // 关键模型：**HTML 表格自动布局** —— 单元格全部 whitespace-nowrap，
 // 列宽 = 该列 max(表头宽, 各行该列文本宽) + 左右内边距，表格自然变宽，
 // **永不换行、永不省略**（旧实现按 weight 拉伸填满固定画布：长牌名折成「8+1」看着像缩进、
