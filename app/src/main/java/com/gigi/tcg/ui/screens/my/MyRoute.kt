@@ -1,8 +1,10 @@
 // 「我的」页（V35 P0 骸架，设计文档 docs/superpowers/specs/2026-09-28-my-page-design.md §3.2）：
-// 单条 LazyColumn 四个分区卡片 —— ①账号管理（列表/点选切换/添加/登出，复用 LocalAccountActions
-// 的现有多账号底座）②个人信息（昵称/游戏 UID/牌手等级，接口失败降级为账户本地数据）
-// ③卡牌资产（我的卡组/卡背图鉴入口）④对局记录（收藏对局/胜冠之试入口）。
-// ③④ 的入口行带数值摘要（卡组数 / 已收集卡背 / 收藏条数 / 旬数），数据缺失时整段不显示；
+// 单条 LazyColumn 三个分区卡片（V36/2 重排）—— ①账户（含头像，列表/点选切换/添加/登出，
+// 复用 LocalAccountActions 的现有多账号底座）②我的资产（我的卡组/卡背图鉴入口）
+// ③最近对局（收藏对局/胜冠之试入口）。
+// 原「个人信息」分区已删：UID 与昵称在①的账户行里已经展示，牌手等级并入同一行副标题，
+// 再开一张卡片只是重复占位（用户第 7、14 项）。
+// ②③ 的入口行带数值摘要（卡组数 / 已收集卡背 / 收藏条数 / 旬数），数据缺失时整段不显示；
 // 内容本身在四个二级页（MyDecksPage 等，设计 §3.3）。
 // 一级页只做导航枢纽，重内容一律进二级页（设计 §3.2「为什么用分区列表而不是嵌套 Tab」）。
 
@@ -18,12 +20,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.Logout
-import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.AlertDialog
@@ -49,8 +49,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gigi.tcg.R
 import com.gigi.tcg.data.auth.StoredAccount
-import com.gigi.tcg.data.model.GcgBasicInfoData
 import com.gigi.tcg.i18n.displayShortName
+import com.gigi.tcg.ui.components.Avatar
 import com.gigi.tcg.ui.login.LocalAccountActions
 
 @Composable
@@ -72,9 +72,8 @@ fun MyRoute(
     val challengeSchedule by viewModel.challengeSchedule.collectAsStateWithLifecycle()
     val actions = LocalAccountActions.current
     var logoutConfirmOpen by remember { mutableStateOf(false) }
-    val activeAccount = accounts.firstOrNull { it.uid == activeUid }
 
-    // 进入页面 / 切换账户后拉个人信息 + 分区③④ 摘要：5 组**串行错峰**（VM 内部延迟），
+    // 进入页面 / 切换账户后拉个人信息 + ②③ 摘要：5 组**串行错峰**（VM 内部延迟），
     // 不再一次性并发 5 个私有接口（正中米游社 -500004 保流窗口；口径同首页首刷 runStaggeredFirstLoad）。
     // 🔴 这里不调 `refresh()` 式的全清重载：装载本身是幂等的 —— VM 只在**账户变化**时清空，
     // 页面重入（离开 Composition 后 LaunchedEffect 重启）静默替换缓存值，数字不再闪（用户第 12 项）。
@@ -104,17 +103,14 @@ fun MyRoute(
                     AccountRow(
                         account = account,
                         active = account.uid == activeUid,
+                        // 牌手等级只有当前会话的接口数据（profile），非激活账户行不拼这段
+                        level = if (account.uid == activeUid) profile?.level else null,
                         onSelect = { actions.switchAccount(account.uid) },
                     )
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 AddAccountRow(onClick = actions.addAccount)
                 LogoutRow(onClick = { logoutConfirmOpen = true })
-            }
-        }
-        item(key = "profile") {
-            SectionCard(title = stringResource(R.string.my_section_profile)) {
-                ProfileSection(activeAccount = activeAccount, profile = profile)
             }
         }
         item(key = "assets") {
@@ -177,7 +173,7 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
                 title,
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = MyRowHorizontalPadding, vertical = 8.dp),
             )
             content()
         }
@@ -185,27 +181,32 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
 }
 
 /**
- * 账号行：头像占位 + 昵称 + 「UID · 服」，当前账户行尾 Check 并禁点（点自己无操作）。
- * P2 可换真实头像（接口已有 myHomePage 头像链路，P0 不引入网络依赖）。
+ * 账号行：头像 + 昵称 + 「UID · 服 · 牌手等级」，当前账户行尾 Check 并禁点（点自己无操作）。
+ * V36/2：
+ * - 头像走登录时落盘的 [StoredAccount.avatar]（56dp：比首页个人信息那 64dp 略小，
+ *   但整块材料高度基本不变）；缺字段（旧账号）时 Avatar 自己画圆形 Person 占位，不留空。
+ * - 牌手等级**并进这一行副标题**，不再单独开一张「个人信息」卡片 —— 用户原话：
+ *   「上面账户里已经展示了 UID 和昵称，下方再展示只是浪费空间」「说明文本应合并到已有文本」。
+ * - 等级只属于激活账户（profile 接口按当前会话取），非激活行不拼这一段。
  */
 @Composable
-private fun AccountRow(account: StoredAccount, active: Boolean, onSelect: () -> Unit) {
+private fun AccountRow(
+    account: StoredAccount,
+    active: Boolean,
+    level: Int?,
+    onSelect: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = !active, onClick = onSelect)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = MyRowHorizontalPadding, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            imageVector = Icons.Outlined.AccountCircle,
-            contentDescription = null,
-            modifier = Modifier.size(36.dp),
-            tint = if (active) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
+        Avatar(
+            url = account.avatar,
+            size = 56.dp,
+            contentDescription = stringResource(R.string.cd_avatar),
         )
         Column(
             modifier = Modifier
@@ -218,8 +219,13 @@ private fun AccountRow(account: StoredAccount, active: Boolean, onSelect: () -> 
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
+            // 分隔符沿用「我的」域既有口径（对局/旬区间也用 " · " 串），不为它单开文案
+            val subtitle = listOfNotNull(
                 stringResource(R.string.my_account_subtitle, account.uid, account.server().displayShortName()),
+                level?.let { stringResource(R.string.my_profile_level) + " $it" },
+            ).joinToString(" · ")
+            Text(
+                subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -243,7 +249,7 @@ private fun AddAccountRow(onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = MyRowHorizontalPadding, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -266,7 +272,7 @@ private fun LogoutRow(onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = MyRowHorizontalPadding, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -284,64 +290,17 @@ private fun LogoutRow(onClick: () -> Unit) {
 }
 
 /**
- * 个人信息区：昵称/游戏 UID 来自激活账户（本地必有），牌手等级来自 gcg/basicInfo
- *（异步；未就绪或失败则不显示该行——不写"加载中"占位，避免页面闪烁）。
- */
-@Composable
-private fun ProfileSection(activeAccount: StoredAccount?, profile: GcgBasicInfoData?) {
-    if (activeAccount == null) return
-    InfoRow(
-        label = stringResource(R.string.my_profile_nickname),
-        value = profile?.nickname?.takeIf { it.isNotBlank() } ?: activeAccount.displayName(),
-    )
-    InfoRow(
-        label = stringResource(R.string.my_profile_game_uid),
-        value = activeAccount.uid,
-    )
-    profile?.level?.let { level ->
-        InfoRow(
-            label = stringResource(R.string.my_profile_level),
-            value = level.toString(),
-        )
-    }
-}
-
-/** 标签-值行（标签弱化、值正常），个人信息与后续摘要共用 */
-@Composable
-private fun InfoRow(label: String, value: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(0.4f),
-        )
-        Text(
-            value,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(0.6f),
-        )
-    }
-}
-
-/**
  * 二级页入口行：文案 + 弱化摘要（可空）+ 尾部 chevron。
  * 摘要为 null（数据未就绪 / 列表为空）时整段不渲染，行退化成纯文案 —— 一级页不因缺数据出现「0 组」。
+ * internal：四个二级页的行组件同源，放开给它们复用（此前 private 导致各页手搓一份）。
  */
 @Composable
-private fun EntryRow(label: String, onClick: () -> Unit, trailing: String? = null) {
+internal fun EntryRow(label: String, onClick: () -> Unit, trailing: String? = null) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = MyRowHorizontalPadding, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(

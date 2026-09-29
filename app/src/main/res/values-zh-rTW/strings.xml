@@ -36,16 +36,14 @@
     <string name="account_logout_confirm_title">登出目前帳號？</string>
     <string name="account_logout_message">登出後將刪除本機儲存的目前帳號憑證，其他帳號不受影響。</string>
 
-    <!-- 我的頁（V35 P0 骸架，設計文件 §3.2/§3.3） -->
+    <!-- 我的頁（V35 P0 骸架，設計文件 §3.2/§3.3）。V36/2：分區重排 + 刪「個人資訊」卡片 -->
     <string name="my_section_accounts">帳號</string>
-    <string name="my_section_profile">個人資訊</string>
-    <string name="my_section_assets">卡牌資產</string>
-    <string name="my_section_records">對局記錄</string>
+    <string name="my_section_assets">我的資產</string>
+    <string name="my_section_records">最近對局</string>
     <string name="my_account_subtitle">%1$s · %2$s</string>
     <string name="my_account_current">目前帳號</string>
-    <string name="my_profile_nickname">暱稱</string>
-    <string name="my_profile_game_uid">遊戲 UID</string>
     <string name="my_profile_level">牌手等級</string>
+    <string name="cd_avatar">頭像</string>
     <string name="my_deck_entry">我的牌組</string>
     <string name="my_cardback_entry">卡背圖鑑</string>
     <string name="my_favorites_entry">收藏對局</string>
@@ -65,6 +63,8 @@
     <string name="my_summary_schedules">%1$d 旬</string>
     <string name="my_challenge_no_data">該旬暫無戰績</string>
     <string name="my_challenge_win_count">勝場 %1$d</string>
+    <string name="my_copy_share_code">複製分享碼</string>
+    <string name="toast_copied_share_code">已複製分享碼:%1$s</string>
 
     <!-- 伺服器 -->
     <string name="server_cn_gf01">天空島</string>

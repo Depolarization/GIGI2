@@ -36,16 +36,15 @@
     <string name="account_logout_confirm_title">退出当前账户？</string>
     <string name="account_logout_message">退出后将删除本机保存的当前账户凭据，其他账户不受影响。</string>
 
-    <!-- 我的页（V35 P0 骸架，设计文档 §3.2/§3.3） -->
+    <!-- 我的页（V35 P0 骸架，设计文档 §3.2/§3.3）。V36/2：分区重排为 账户 → 我的资产 → 最近对局，
+         「个人信息」卡片删除（UID/昵称已在账户行展示，牌手等级并入账户副标题） -->
     <string name="my_section_accounts">账户</string>
-    <string name="my_section_profile">个人信息</string>
-    <string name="my_section_assets">卡牌资产</string>
-    <string name="my_section_records">对局记录</string>
+    <string name="my_section_assets">我的资产</string>
+    <string name="my_section_records">最近对局</string>
     <string name="my_account_subtitle">%1$s · %2$s</string>
     <string name="my_account_current">当前账户</string>
-    <string name="my_profile_nickname">昵称</string>
-    <string name="my_profile_game_uid">游戏 UID</string>
     <string name="my_profile_level">牌手等级</string>
+    <string name="cd_avatar">头像</string>
     <string name="my_deck_entry">我的卡组</string>
     <string name="my_cardback_entry">卡背图鉴</string>
     <string name="my_favorites_entry">收藏对局</string>
@@ -65,6 +64,8 @@
     <string name="my_summary_schedules">%1$d 旬</string>
     <string name="my_challenge_no_data">该旬暂无战绩</string>
     <string name="my_challenge_win_count">胜场 %1$d</string>
+    <string name="my_copy_share_code">复制分享码</string>
+    <string name="toast_copied_share_code">已复制分享码:%1$s</string>
 
     <!-- 服务器 -->
     <string name="server_cn_gf01">天空岛</string>

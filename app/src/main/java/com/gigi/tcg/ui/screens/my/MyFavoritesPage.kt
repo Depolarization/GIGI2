@@ -50,15 +50,19 @@ fun MyFavoritesPage(modifier: Modifier = Modifier) {
     LaunchedEffect(activeUid) { viewModel.loadMatchList() }
 
     val matches = matchData?.favouriteMatches.orEmpty()
-    MySubpageScaffold(title = stringResource(R.string.my_favorites_entry), modifier = modifier) {
+    MySubpageScaffold(modifier = modifier) {
         if (matches.isEmpty()) {
-            EmptyState(
-                modifier = Modifier.padding(top = 32.dp),
-                title = stringResource(R.string.my_empty_favorites),
-            )
+            // 空态居中：EmptyState 不接管剩余空间（且把 fillMaxWidth 写在传入 modifier 之后），
+            // 在调用点用 weight(1f) + Box 居中包住，不去改公共组件。
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                EmptyState(title = stringResource(R.string.my_empty_favorites))
+            }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {

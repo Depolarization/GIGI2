@@ -337,6 +337,9 @@ class AuthManager(
                 uid = gameRoleId,
                 nickname = exchange.nickname ?: previous?.nickname,
                 serverId = accountServer.id,
+                // V36/2 决策 2：头像随登录/续命落盘（角色发现接口下发就写，没下发留 null → UI 画占位）。
+                // 🔴 本次响应没带头像时要沿用已存值，否则每次续命都会把已有头像擦成 null。
+                avatar = role.avatarUrl?.takeIf { it.isNotBlank() } ?: previous?.avatar,
             ),
         )
         return AuthFinalizeResult.Success(
@@ -560,8 +563,9 @@ class AuthManager(
 
 /**
  * getUserGameRolesByCookie data.list 元素（全字段可空，设计红线 1）。
- * 实测（2026-09-28 真机原始返回）响应另含 is_chosen/is_banned/unmask 字段，本应用不读取、
- * 不声明（反序列化 ignoreUnknownKeys；如需透出再补）。
+ * 实测（2026-09-28）响应另含 is_chosen/is_banned/unmask 字段，本应用不读取、不声明
+ * （反序列化 ignoreUnknownKeys；如需透出再补）。avatar_url 自 V36/2 起声明并落盘到账户索引，
+ * 但**不作为登录的前置条件**：服务端不下发时头像留空、UI 走占位。
  */
 @Serializable
 data class BoundGameRole(
@@ -576,6 +580,12 @@ data class BoundGameRole(
     val level: Int? = null,
     /** 官方服=true / 渠道服=false（实测：世界树 cn_qd01 = false） */
     @SerialName("is_official") val isOfficial: Boolean? = null,
+    /**
+     * 角色头像 URL（V36/2 新增，供「我的」页账户行落盘）。
+     * 🔴 全可空口径（设计红线 1）：这个键**按服务端下发与否**决定是否写入，
+     * 不下发就是 null —— 判定逻辑不许因为缺字段而拒绝登录，也不要在 UI 侧当它必存在。
+     */
+    @SerialName("avatar_url") val avatarUrl: String? = null,
 )
 
 /**

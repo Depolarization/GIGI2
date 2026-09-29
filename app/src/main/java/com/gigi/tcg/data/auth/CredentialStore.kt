@@ -28,13 +28,22 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-/** 多账户索引元素（uid 为身份键 = 原神 game_uid；服务器与账户在登录时绑定，⑧） */
+/**
+ * 多账户索引元素（uid 为身份键 = 原神 game_uid；服务器与账户在登录时绑定，⑧）
+ *
+ * [avatar]：登录时落盘的角色头像 URL（「我的」页账户行用）。
+ * 🔴 **必须带默认值**：索引是 JSON 串、存量数据里根本没有这个键，
+ * kotlinx.serialization 只在字段有默认值时才允许缺失，否则整个索引解析抛异常 →
+ * [parseAccountIndex] 把它当成"索引损坏"返回空列表 → **老用户直接掉登录态**。
+ * 服务端不下发头像 / 旧账号缺字段 ⇒ null，UI 回落圆形占位。
+ */
 @Serializable
 data class StoredAccount(
     val uid: String = "",
     val nickname: String? = null,
     val serverId: String = ServerId.DEFAULT.id,
     val lastActiveEpochMs: Long = 0L,
+    val avatar: String? = null,
 ) {
     /** 绑定服务器（索引数据损坏/非法标识符时兜底默认服务器） */
     fun server(): ServerId = ServerId.from(serverId) ?: ServerId.DEFAULT

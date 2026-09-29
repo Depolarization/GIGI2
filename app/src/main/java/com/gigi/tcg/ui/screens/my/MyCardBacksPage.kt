@@ -58,12 +58,16 @@ fun MyCardBacksPage(modifier: Modifier = Modifier) {
     LaunchedEffect(activeUid) { viewModel.loadCardBackList() }
 
     val cardBacks = cardBackData?.cardBackList.orEmpty()
-    MySubpageScaffold(title = stringResource(R.string.my_cardback_entry), modifier = modifier) {
+    MySubpageScaffold(modifier = modifier) {
         if (cardBacks.isEmpty()) {
-            EmptyState(
-                modifier = Modifier.padding(top = 32.dp),
-                title = stringResource(R.string.my_empty_cardbacks),
-            )
+            // 空态居中：StateViews 的 EmptyState 只管横向居中、不接管剩余空间（且它把
+            // fillMaxWidth() 写在传入 modifier 之后），所以在调用点用 weight(1f) + Box 居中包住它。
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                EmptyState(title = stringResource(R.string.my_empty_cardbacks))
+            }
         } else {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -79,7 +83,8 @@ fun MyCardBacksPage(modifier: Modifier = Modifier) {
                 LazyVerticalGrid(
                     // 固定 3 列：与图鉴页同一口径（393dp 宽每列约 118dp，竖版卡面仍清晰）
                     columns = GridCells.Fixed(3),
-                    modifier = Modifier.fillMaxSize(),
+                    // weight(1f) 而非 fillMaxSize：只吃计数行之后的剩余高度（此前两者叠加会溢出）
+                    modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),

@@ -3,9 +3,12 @@
 // 全局弹窗（PlayerQuery/PlayerDetail/CardCover/About）与 ToastController 统一挂载在本层，四页面共享。
 // 服务器切换：key(server) 整体重建导航图（含各页 ViewModel），对齐 web App.tsx key={server.id} 重挂载语义，
 // 旧服务器数据态不带入新服务器；startRoute 记住当前 tab，重建后停留原页。
+// 顶栏标题：一级 tab 按一级段（substringBefore('/')），「我的」的四个二级页按**完整 route**
+// 出二级标题并显示返回箭头（V36/2：二级页是独立页面，页面内不再自绘标题行）。
 
 package com.gigi.tcg.ui.navigation
 
+import android.content.Context
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -15,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Home
@@ -42,6 +46,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -90,7 +95,8 @@ private const val ROUTE_CARD_WIKI = "cardwiki"
 private const val ROUTE_MY = "my"
 
 // 「我的」页的四个二级页（P2 真实数据页，设计 §3.3）：挂在 my/ 下 ⇒
-// 底部导航/Rail 的选中态与顶栏标题按一级段（substringBefore('/')）归属到「我的」。
+// 底部导航/Rail 的选中态按一级段（substringBefore('/')）归属到「我的」，
+// 但顶栏标题与返回箭头按**完整 route** 出二级标题（V36/2：二级页是独立页面，标题栏归主壳）。
 private const val ROUTE_MY_DECK = "my/deck"
 private const val ROUTE_MY_CARDBACK = "my/cardback"
 private const val ROUTE_MY_FAVORITES = "my/favorites"
@@ -112,6 +118,29 @@ private val destinations = listOf(
 
 private val RAIL_BREAKPOINT = 840.dp
 
+/**
+ * 「我的」二级页 → 顶栏标题。命中本表 ⇒ 顶栏按**完整 route** 出二级标题 + 返回箭头，
+ * 页面自身不再自绘标题行（V36/2 用户拍板：二级页是独立页面，标题栏归主壳，避免双标题）。
+ * 标题复用一级页入口行已有的 string（my_deck_entry 等），不新增文案键。
+ */
+private val MY_SUBPAGE_TITLES = mapOf(
+    ROUTE_MY_DECK to R.string.my_deck_entry,
+    ROUTE_MY_CARDBACK to R.string.my_cardback_entry,
+    ROUTE_MY_FAVORITES to R.string.my_favorites_entry,
+    ROUTE_MY_CHALLENGE to R.string.my_challenge_entry,
+)
+
+/**
+ * 当前 Activity 的 Context（与 [GigiNavHost] 里的 `appContext` 相对）：
+ * 分享 / 导出落盘 / 打开系统界面这类场景要拿 Activity 作窗口 token 或 Intent 起点，
+ * applicationContext 起 Activity 会被系统拒（须额外加 FLAG_ACTIVITY_NEW_TASK）。
+ * 本层是唯一同时握有 Compose 局部 Context 与导航骨架的地方，故在此声明并 provide，
+ * 供 ui/export、ui/dialogs 等下游直接 `LocalActivityContext.current`，不必各自往下传参。
+ */
+val LocalActivityContext = staticCompositionLocalOf<Context> {
+    error("LocalActivityContext not provided")
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GigiNavHost() {
@@ -119,6 +148,7 @@ fun GigiNavHost() {
     // 组合期取一次，供「查看相册」等非组合回调使用：
     // LocalContext.current 是 @Composable 读取器，不能在协程/普通 lambda 里调。
     val appContext = LocalContext.current.applicationContext
+    val activityContext = LocalContext.current
     val server by container.currentServer.collectAsStateWithLifecycle()
     val sessionUid by container.sessionUid.collectAsStateWithLifecycle()
 
@@ -146,13 +176,22 @@ fun GigiNavHost() {
         }
     }
 
-    CompositionLocalProvider(LocalToast provides { toastController.show(it) }) {
+    CompositionLocalProvider(
+        LocalToast provides { toastController.show(it) },
+        LocalActivityContext provides activityContext,
+    ) {
+        // ⚠️ N2（**已知产品取舍，本轮只记录不改行为**，已登记待用户裁决）：key 含 sessionUid ⇒
+        // 切账号会整棵导航树重建，停在「我的」二级页时切账户被无声弹回一级页。
+        // 好处是各页 ViewModel 随账号一起作废、不带上一账户状态；代价是导航位置丢失。
+        // 想保住位置需把 key 收窄到 server，并给各页 ViewModel 加账号归属判定 —— 影响所有 tab。
         key(server to sessionUid) {
             val navController = rememberNavController()
             val backStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = backStackEntry?.destination?.route
-            // 一级段：二级页（my/deck 等）的选中态与顶栏标题归属到所属 tab
+            // 一级段：底部导航/Rail 的选中态按一级段（substringBefore('/')）归属到所属 tab
             val baseRoute = currentRoute?.substringBefore('/')
+            // 二级标题按**完整 route** 命中（V36/2）：命中即出二级标题 + 返回箭头，页面不自绘标题行
+            val subpageTitleRes = MY_SUBPAGE_TITLES[currentRoute]
 
             // 持续记录当前 tab：账户切换 / 服务器切换触发下方 key() 重建后，startDestination
             // 用最近记录的一级路由 ⇒ 停留在原页（V35 前该记录由顶栏账户菜单写入，菜单迁入
@@ -173,7 +212,24 @@ fun GigiNavHost() {
                         // 账户管理（列表/切换/添加/登出）见 MyRoute 分区①）。
                         TopAppBar(
                             title = {
-                                Text(destinations.firstOrNull { it.route == baseRoute }?.let { stringResource(it.labelRes) } ?: "GIGI")
+                                val tabLabel = destinations.firstOrNull { dest -> dest.route == baseRoute }
+                                    ?.let { dest -> stringResource(dest.labelRes) }
+                                Text(
+                                    subpageTitleRes?.let { stringResource(it) } ?: tabLabel ?: "GIGI",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                            // 二级页的返回入口在主壳顶栏（页面内自绘标题行 + 返回会与它叠成双标题）
+                            navigationIcon = {
+                                if (subpageTitleRes != null) {
+                                    IconButton(onClick = { navController.navigateUp() }) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                            contentDescription = stringResource(R.string.action_back),
+                                        )
+                                    }
+                                }
                             },
                             actions = {
                                 IconButton(onClick = { queryOpen = true }) {
