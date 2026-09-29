@@ -1,9 +1,11 @@
-// ①b 覆盖：MihoyoClient.get 对 RETRYABLE 重试一次且间隔 = 700ms + 0-300ms 抖动（仍仅一次）。
-// 无 MockWebServer：OkHttp 拦截器直接回 canned 响应；runTest 虚拟时钟断言抖动上界。
+// ①b 覆盖：MihoyoClient.get 的退避重试（V36/1 起为「最多 MAX_RETRY_ATTEMPTS 次重试」，
+// 间隔 = 700ms × 2^(n-1) + 0-300ms 抖动）+ network/解析失败的归因。
+// 无 MockWebServer：OkHttp 拦截器直接回 canned 响应；runTest 虚拟时钟断言退避下界/上界。
 
 package com.gigi.tcg.data.api
 
 import com.gigi.tcg.data.model.MyHomePageData
+import java.io.IOException
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -25,13 +27,25 @@ private val testJson = Json {
     encodeDefaults = false
 }
 
-/** 依脚本顺序返回 canned JSON 的拦截器（超出后复用最后一帧） */
-private class ScriptedInterceptor(private val bodies: List<String>) : Interceptor {
+private val okBody = """{"retcode":0,"message":"OK","data":{"page_info":{"nickname":"Oscuro"}}}"""
+
+/**
+ * 计数口径：`calls` = 真实 HTTP 请求数。MihoyoClient 构造期做 `http.newBuilder().addInterceptor(Cookie)`，
+ * newBuilder 复制的是**入参 client 的 interceptor 列表**，Cookie 追加在其后 ⇒ 外部只装一份 script，
+ * 不存在「同一拦截器跑两遍」。此前观察到 1 次请求 2 遍，根因是退避循环误用 `repeat` +
+ * `return@repeat`（只跳过本次 lambda、不跳出循环），把 4 发全打完——已被 MihoyoClient 的 while+break 修掉。
+ */
+private class ScriptedInterceptor(
+    private val bodies: List<String>,
+    private val ioFailures: Int = 0,
+) : Interceptor {
     var calls = 0
 
     override fun intercept(chain: Interceptor.Chain): Response {
-        val body = bodies[minOf(calls, bodies.lastIndex)]
+        val index = calls
         calls += 1
+        if (index < ioFailures) throw IOException("connection reset")
+        val body = bodies[minOf(index, bodies.lastIndex)]
         return Response.Builder()
             .request(chain.request())
             .protocol(Protocol.HTTP_1_1)
@@ -46,21 +60,25 @@ private val noCredentials = object : CredentialSource {
     override fun cookieHeader(): String? = null
 }
 
-private fun clientWith(script: ScriptedInterceptor) =
-    MihoyoClient(OkHttpClient.Builder().addInterceptor(script).build(), testJson, noCredentials)
+private fun clientWith(vararg bodies: String, ioFailures: Int = 0): Pair<MihoyoClient, ScriptedInterceptor> {
+    val script = ScriptedInterceptor(bodies.toList(), ioFailures)
+    return MihoyoClient(
+        OkHttpClient.Builder().addInterceptor(script).build(),
+        testJson,
+        noCredentials,
+    ) to script
+}
 
 class MihoyoClientRetryTest {
     @Test
-    fun `rate-limited first envelope retries once after 700ms plus 0-300ms jitter`() = runTest {
-        val script = ScriptedInterceptor(
-            listOf(
-                """{"retcode":-500004,"message":"操作频繁，请稍后再试","data":null}""",
-                """{"retcode":0,"message":"OK","data":{"page_info":{"nickname":"Oscuro"}}}""",
-            ),
+    fun `rate-limited first envelope retries after 700ms plus 0-300ms jitter and returns data`() = runTest {
+        val (client, script) = clientWith(
+            """{"retcode":-500004,"message":"操作频繁，请稍后再试","data":null}""",
+            okBody,
         )
         val start = currentTime
         val data: MyHomePageData =
-            clientWith(script).get("https://example.invalid/api/test", MyHomePageData.serializer())
+            client.get("https://example.invalid/api/test", MyHomePageData.serializer())
         val elapsed = currentTime - start
 
         assertEquals("Oscuro", data.pageInfo?.nickname)
@@ -69,33 +87,35 @@ class MihoyoClientRetryTest {
     }
 
     @Test
-    fun `retry happens exactly once even if second envelope still rate-limited`() = runTest {
-        val script = ScriptedInterceptor(
-            listOf(
-                """{"retcode":-500004,"message":"操作频繁，请稍后再试","data":null}""",
-                """{"retcode":-500004,"message":"操作频繁，请稍后再试","data":null}""",
-            ),
-        )
+    fun `rate-limit code exhausts MAX_RETRY_ATTEMPTS then throws throttled keeping the code`() = runTest {
+        val (client, script) = clientWith("""{"retcode":-500004,"message":"操作频繁，请稍后再试","data":null}""")
+        val start = currentTime
         try {
-            clientWith(script).get<MyHomePageData>("https://example.invalid/api/test")
+            client.get<MyHomePageData>("https://example.invalid/api/test")
             fail("expected ApiError")
         } catch (e: ApiError) {
-            assertEquals(API_ERROR_KIND_RETCODE, e.kind)
+            assertEquals(API_ERROR_KIND_THROTTLED, e.kind)
             assertEquals(-500004, e.retcode)
         }
-        assertEquals(2, script.calls)
+        val elapsed = currentTime - start
+        // 首发 + MAX_RETRY_ATTEMPTS 次重试；退避 (700,1400,2800) 各叠 0-300ms 抖动
+        assertEquals(MihoyoClient.MAX_RETRY_ATTEMPTS + 1, script.calls)
+        val minWait = (1..MihoyoClient.MAX_RETRY_ATTEMPTS).sumOf { retryDelayMsFor(it, 0L) }
+        val maxWait =
+            (1..MihoyoClient.MAX_RETRY_ATTEMPTS).sumOf { retryDelayMsFor(it, MihoyoClient.RETRY_JITTER_SPAN_MS) }
+        assertTrue("elapsed=$elapsed 应落在 [$minWait,$maxWait]", elapsed in minWait..maxWait)
     }
 
     @Test
     fun `auth failure fails fast without retry or jitter delay`() = runTest {
-        val script = ScriptedInterceptor(
-            listOf("""{"retcode":-100,"message":"please login","data":null}"""),
-        )
+        val (client, script) = clientWith("""{"retcode":-100,"message":"please login","data":null}""")
         val start = currentTime
         try {
-            clientWith(script).get<MyHomePageData>("https://example.invalid/api/test")
+            client.get<MyHomePageData>("https://example.invalid/api/test")
             fail("expected ApiError")
         } catch (e: ApiError) {
+            assertTrue(isAuthFailureError(e))
+            assertEquals(API_ERROR_KIND_RETCODE, e.kind)
             assertEquals(-100, e.retcode)
         }
         assertEquals(1, script.calls)
@@ -103,11 +123,95 @@ class MihoyoClientRetryTest {
     }
 
     @Test
+    fun `captcha 1034 fails fast with actionable text and no second request`() = runTest {
+        val (client, script) = clientWith("""{"retcode":1034,"message":"","data":null}""")
+        val start = currentTime
+        try {
+            client.get<MyHomePageData>("https://example.invalid/api/test")
+            fail("expected ApiError")
+        } catch (e: ApiError) {
+            assertEquals(API_ERROR_KIND_RETCODE, e.kind)
+            assertEquals(1034, e.retcode)
+            assertTrue("message=${e.message}", e.message?.contains("人机验证") == true)
+        }
+        assertEquals("1034 重试不可能成功，反而加重风控", 1, script.calls)
+        assertEquals(0, currentTime - start)
+    }
+
+    @Test
     fun `success on first envelope makes no retry`() = runTest {
-        val script = ScriptedInterceptor(
-            listOf("""{"retcode":0,"message":"OK","data":{"page_info":{}}}"""),
-        )
-        clientWith(script).get<MyHomePageData>("https://example.invalid/api/test")
+        val (client, script) = clientWith("""{"retcode":0,"message":"OK","data":{"page_info":{}}}""")
+        client.get<MyHomePageData>("https://example.invalid/api/test")
+        assertEquals(1, script.calls)
+    }
+
+    // ---- V36/1 新增：network 也纳入退避重试（此前完全无重试） ----
+
+    @Test
+    fun `connection failure retries with backoff and succeeds`() = runTest {
+        val (client, script) = clientWith(okBody, ioFailures = 1)
+        val start = currentTime
+        val data: MyHomePageData =
+            client.get("https://example.invalid/api/test", MyHomePageData.serializer())
+        val elapsed = currentTime - start
+
+        assertEquals("Oscuro", data.pageInfo?.nickname)
+        assertEquals(2, script.calls)
+        assertTrue("elapsed=$elapsed 应落在 [700,1000]", elapsed in 700..1000)
+    }
+
+    @Test
+    fun `persistent connection failure ends as network error after bounded retries`() = runTest {
+        val (client, script) = clientWith(okBody, ioFailures = MihoyoClient.MAX_RETRY_ATTEMPTS + 1)
+        try {
+            client.get<MyHomePageData>("https://example.invalid/api/test")
+            fail("expected ApiError")
+        } catch (e: ApiError) {
+            assertEquals(API_ERROR_KIND_NETWORK, e.kind)
+        }
+        assertEquals(MihoyoClient.MAX_RETRY_ATTEMPTS + 1, script.calls)
+    }
+
+    // ---- V36/1 任务 B：解析失败归因 network（不再记 null 让上层按 retcode 误报「服务出错了」） ----
+
+    @Test
+    fun `non-json body is attributed to network not retcode`() = runTest {
+        val (client, script) = clientWith("<html>502 Bad Gateway</html>")
+        try {
+            client.get<MyHomePageData>("https://example.invalid/api/test")
+            fail("expected ApiError")
+        } catch (e: ApiError) {
+            assertEquals(API_ERROR_KIND_NETWORK, e.kind)
+            assertEquals("响应不是有效的 JSON", e.message)
+        }
+        assertEquals(MihoyoClient.MAX_RETRY_ATTEMPTS + 1, script.calls)
+    }
+
+    @Test
+    fun `data shape mismatch is attributed to network not a retcode fallback`() = runTest {
+        val (client, script) = clientWith("""{"retcode":0,"message":"OK","data":"unexpected-string"}""")
+        try {
+            client.get<MyHomePageData>("https://example.invalid/api/test")
+            fail("expected ApiError")
+        } catch (e: ApiError) {
+            assertEquals(API_ERROR_KIND_NETWORK, e.kind)
+            assertEquals("响应数据解析失败", e.message)
+            assertTrue(!e.message!!.contains("retcode"))
+        }
+        // SerializationException 派生自 IOException ⇒ 归入 network 可重试路径，一并受退避驱动
+        assertEquals(MihoyoClient.MAX_RETRY_ATTEMPTS + 1, script.calls)
+    }
+
+    @Test
+    fun `业务码缺 data 仍按 retcode 出且不重试`() = runTest {
+        val (client, script) = clientWith("""{"retcode":10001,"message":"","data":null}""")
+        try {
+            client.get<MyHomePageData>("https://example.invalid/api/test")
+            fail("expected ApiError")
+        } catch (e: ApiError) {
+            assertEquals(API_ERROR_KIND_RETCODE, e.kind)
+            assertEquals(10001, e.retcode)
+        }
         assertEquals(1, script.calls)
     }
 }

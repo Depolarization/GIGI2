@@ -118,6 +118,7 @@ class MihoyoClient(
      * 三种「再试」的入口都归一到 [isRetryableError]：
      * ① 响应信封的可重试 retcode；② 传输/解析抛出的 kind=network；③ 本地节流 kind=throttled。
      * 不可重试错误（鉴权 / CAPTCHA / 其它业务码）当轮即出循环，由调用方按 retcode 抛错。
+     * 用 while + break 而非 repeat：`return@repeat` 只是结束本次 lambda，不会跳出循环。
      */
     @PublishedApi
     internal suspend fun <T> requestWithBackoff(
@@ -126,7 +127,8 @@ class MihoyoClient(
     ): Triple<Int, String?, T?> {
         var lastPair: Triple<Int, String?, T?>? = null
         var lastTransientError: ApiError? = null
-        repeat(MAX_RETRY_ATTEMPTS + 1) { index ->
+        var index = 0
+        while (index <= MAX_RETRY_ATTEMPTS) {
             val outcome: Result<Triple<Int, String?, T?>> =
                 try {
                     Result.success(requestEnvelope(url, serializer))
@@ -145,8 +147,10 @@ class MihoyoClient(
             }
             val retryableNow =
                 if (failure != null) isRetryableError(failure) else RETRYABLE_RETCODES.contains(lastPair!!.first)
-            if (!retryableNow || index == MAX_RETRY_ATTEMPTS) return@repeat
-            delay(retryDelayMsFor(index + 1, Random.nextLong(0L, RETRY_JITTER_SPAN_MS + 1)))
+            if (!retryableNow) break
+            index++
+            if (index > MAX_RETRY_ATTEMPTS) break
+            delay(retryDelayMsFor(index, Random.nextLong(0L, RETRY_JITTER_SPAN_MS + 1)))
         }
         val pair = lastPair
         if (pair != null) {

@@ -5,6 +5,7 @@ package com.gigi.tcg.data.api
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,5 +57,35 @@ class ApiErrorTest {
         assertTrue(text, text.isNotBlank())
         assertFalse(text, text.contains("retcode=1034"))
         assertTrue(text, text.contains("人机验证"))
+    }
+
+    // ---- V36/1：退避重试判据 + 解析失败归因 ----
+
+    @Test
+    fun `network 与节流归入可重试，鉴权与 CAPTCHA 不重试`() {
+        assertTrue(isRetryableError(ApiError(API_ERROR_KIND_NETWORK, "网络请求失败")))
+        assertTrue(isRetryableError(ApiError(API_ERROR_KIND_THROTTLED, "请求过于频繁，请稍后重试")))
+        assertTrue(isRetryableError(retcodeError(-500004)))
+        assertFalse(isRetryableError(retcodeError(-100)))
+        assertFalse(isRetryableError(retcodeError(-101)))
+        assertFalse(isRetryableError(retcodeError(1034)))
+        assertFalse(isRetryableError(retcodeError(10001)))
+    }
+
+    @Test
+    fun `错误可携带原始异常因果链（解析失败归因不丢真因）`() {
+        val cause = IllegalStateException("boom")
+        val error = ApiError(API_ERROR_KIND_NETWORK, "响应数据解析失败", cause = cause)
+        assertSame(cause, error.cause)
+        // 旧构造位参形态仍可用：retcode 仍在第 3 位
+        assertEquals(-500004, retcodeError(-500004).retcode)
+    }
+
+    @Test
+    fun `client 兜底的 1034 文案与 i18n 语义一致且无裸码`() {
+        val text = MihoyoClient.CAPTCHA_REQUIRED_MESSAGE
+        assertFalse(text, text.contains("retcode"))
+        assertTrue(text, text.contains("人机验证"))
+        assertEquals(describeApiError(retcodeError(1034)), text)
     }
 }

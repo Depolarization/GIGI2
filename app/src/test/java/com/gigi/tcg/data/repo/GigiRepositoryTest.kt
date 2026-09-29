@@ -211,6 +211,39 @@ class GigiRepositoryTest {
         assertEquals(2, transport.callsTo("entry_page"))
     }
 
+    // V36/1 任务 D（只读复查结论）：私有键由 privateKey() 生成 = `gigi:private:{server}:{uid}:{suffix}`，
+    // uid 恒在键内 ⇒ 账号切换天然读不到旧 uid 的 basicInfo，无需把 gcg-basic-info:v1 补进
+    // invalidateMyPageCache（那 4 个键服务的是「同一 uid 主动下拉刷新」）。此测试钉死该不变式。
+    @Test
+    fun `private keys embed uid so account switch never reads another accounts basic info`() = runTest {
+        val transport = RecordingTransport()
+        val memory = TtlCache()
+        val repo = GigiRepository(transport, FakeDisk(), testJson, memory, retryDelayMs = 0)
+        transport.raw = """{"avatar_card_num_total":147,"action_card_num_total":941}"""
+
+        val first = repo.fetchGcgBasicInfo("261958214", ServerId.Official)
+        assertNotNull(first)
+        assertNotNull(memory.cacheGet("gigi:private:cn_gf01:261958214:" + GigiRepository.BASIC_INFO_SUFFIX))
+
+        transport.raw = """{"avatar_card_num_total":200,"action_card_num_total":300}"""
+        val second = repo.fetchGcgBasicInfo("999888777", ServerId.Official)
+        assertEquals(147, first?.avatarCardNumTotal)
+        assertEquals(200, second?.avatarCardNumTotal)
+        assertEquals(2, transport.callsTo("gcg/basicInfo"))
+        // 旧账号仍命中自己的键（未被新账号覆盖）
+        assertNotNull(memory.cacheGet("gigi:private:cn_gf01:261958214:" + GigiRepository.BASIC_INFO_SUFFIX))
+        assertNotNull(memory.cacheGet("gigi:private:cn_gf01:999888777:" + GigiRepository.BASIC_INFO_SUFFIX))
+
+        // 登出走前缀清理：私有键一律作废，公开图鉴键保留
+        repo.clearPrivateCache()
+        assertNull(memory.cacheGet("gigi:private:cn_gf01:261958214:" + GigiRepository.BASIC_INFO_SUFFIX))
+        assertNull(memory.cacheGet("gigi:private:cn_gf01:999888777:" + GigiRepository.BASIC_INFO_SUFFIX))
+
+        // 同一 uid 再次拉取：走网络重取（TTL 缓存不跨账号串味）
+        repo.fetchGcgBasicInfo("261958214", ServerId.Official)
+        assertEquals(3, transport.callsTo("gcg/basicInfo"))
+    }
+
     @Test
     fun `uncached endpoints always refetch`() = runTest {
         val transport = RecordingTransport().apply {
