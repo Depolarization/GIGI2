@@ -15,6 +15,8 @@
 // Button + 下载图标；TabRow 因此恢复左右满宽。点击仍弹多选对话框，导出流程在 CardStatsExportAction.kt。
 // V29 反馈：导出结果从"每张一条纯文本 Toast"改成"整次一条带「查看」action 的消息"，
 // 经 onShowExportResult（文案 + 已落盘 Uri 列表）交给宿主 Snackbar（宿主接线见本文件 KDoc 注释）。
+// V37-AD：PlayerInfoHeader 的昵称+段位合并成单个 Text（段位走 SpanStyle，任务 B）；
+// 表头改 stickyHeader 不再随行滚走（任务 E-1）；序号列改右对齐（任务 E-2）。
 
 package com.gigi.tcg.ui.screens.cardstats
 
@@ -26,6 +28,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -70,19 +73,24 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier as ComposeModifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -114,14 +122,18 @@ private val StatPercentWidth: Dp = 60.dp
 private val ListRowVerticalPadding = 8.dp
 
 /**
- * 序号列宽与对齐（V36 任务 C，用户第 6 项）：原先 32dp 右对齐 ⇒ 数字左缘浮到 38–44dp，
- * 牌名列再叠 8dp ⇒ 牌名左缘 56dp，整列表看着右坠、左右边距不对称。
- * 现改**起始对齐 + 收窄到 24dp**（labelMedium 三位数名次 ≈21dp 放得下），牌名列不再补
- * padding(start)：牌名左缘 = ContentHorizontalPadding + RankColumnWidth = 40dp，
- * 首列文字左缘 = 16dp = contentPadding = 右侧留白 ⇒ 左右对称。
- * internal 供 StatsRowMetricsTest 断言左缘算式，不靠截图。
+ * 序号列宽与对齐（V37-2 任务 E-2，🔴 反转 V36 任务 C 的"起始对齐"决定）：
+ * 用户口径——「最左侧的序号列没有像最右侧的出场次数列那样右对齐，这是错误的设计，
+ * 随着序号位数的增加，文本会越来越贴近名称列」。起始对齐时 1→10→100 的名次右缘持续向右逼近牌名列，
+ * 右对齐则位数增加只向**左**生长，与牌名列的 [RankNameGap] 恒定。
+ * 列宽 24dp 的来源：名次用 labelMedium(12sp)，Roboto 数字步进 ≈0.55em ≈6.6dp ⇒ 三位数 ≈20dp，
+ * 取 24dp 留 ≈4dp 余量；本接口角色牌/行动牌数量级都在三位数内（四位不在数据范围内，不需要 32dp）。
+ * internal 供 StatsRowMetricsTest 断言列几何算式，不靠截图。
  */
 internal val RankColumnWidth: Dp = 24.dp
+
+/** 序号列与牌名列的呼吸位：右对齐后牌名左缘 = 页边距 + [RankColumnWidth] + 本值（不再随名次位数变化） */
+internal val RankNameGap: Dp = 8.dp
 
 /** 行动牌「类型」列宽（V29：与角色牌表头同构，类型名最长 3 字：修改/支援/事件） */
 private val ActionTypeColumnWidth: Dp = 52.dp
@@ -161,6 +173,34 @@ fun CardStatsRoute(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val sessionUid by container.sessionUid.collectAsStateWithLifecycle()
     val uid = sessionUid.orEmpty()
+
+    // 🔴 换账号自动重拉（V37-G 任务 D，V37-C residual 6-1 / V37-AD residual 7 两名子代理独立点名）：
+    // 统计页 VM 侧早已备好归属闸门（load() 里的 contentUid：uid 变了才清内容、页面重入不清）
+    // 与过期回包丢弃（generation），**缺的只是「uid 变了谁来调 load()」这个触发器** ——
+    // 没有它，一旦 VM 活得比账号久，页面就顶着上一账号的统计显示，直到用户手动下拉（数据串号）。
+    //
+    // 现状兜底：主壳 `key(server to sessionUid)`（GigiNavHost.kt:217）在切账号时整棵重建导航树，
+    // 各页 VM 随之作废 ⇒ 今天这条路径上下面的守卫不会触发。但那是**全链路唯一**的兜底，且 N2
+    // 待裁决项（同一处注释）明写着「想保住导航位置需把 key 收窄到 server，并给各页 ViewModel
+    // 加账号归属判定」⇒ 触发器必须长在页面自己身上，不能赌主壳的重建口径。
+    //
+    // 🔴 守卫必须 rememberSaveable，不是 HomeRoute.kt:121 那种 remember（手册红线 6）：
+    // 统计页被 popUpTo(saveState=true) 弹出时，**VM 随条目状态存活、remember 不存活**。
+    // 用户切账号只能去「我的」页 ⇒ 统计组合必然已被 dispose ⇒ 用 remember 的话回来时
+    // lastUid 是 null，守卫永远判不出「变过」，串号照旧；rememberSaveable 与 VM 同生死，
+    // 正好覆盖「组合重入 + VM 存活」这条真实路径。主壳 key() 重建时状态袋是新的 ⇒ 回落 null，
+    // 与 VM init 的首刷不会并发（不会双打私有接口触发 -500004）。
+    //
+    // 🔴 必须 collectAsStateWithLifecycle() 读 StateFlow（上面那行），组合里绝不读 .value
+    //（StateFlowValueCalledInComposition 是 lint error）。
+    // 首次见到 uid 只记基线、不触发；入口用 retry() 不用 refresh() —— refresh() 会点亮下拉指示器，
+    // 而换账号不是用户下拉手势（V37-C 的 StatsLoadingGateTest 锁定「refreshing 置 true 只允许出现在 refresh()」）。
+    var lastUid by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(sessionUid) {
+        val nextUid = sessionUid
+        if (nextUid != null && lastUid != null && nextUid != lastUid) viewModel.retry()
+        if (nextUid != null) lastUid = nextUid
+    }
 
     // 三态与其余三页统一：共享组件内部 fillMaxWidth 会覆盖外部 align，
     // 统一用 Box 居中承载，避免 LoadingView 被拉成整屏高。
@@ -242,7 +282,11 @@ private fun CardStatsContent(
         PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = viewModel::refresh,
-            modifier = ComposeModifier.fillMaxSize(),
+            // V37-1 任务 E-1：列表区吃满剩余高度用 weight(1f)（原先是 fillMaxSize，
+            // 在 Column 里恰好也只拿到剩余高，但语义上是"我要全部高度"，与上面固定区争空间；
+            // weight 明确"要剩余"，固定区 + tab 行 + 本区三段的比例关系才可读）。
+            // 🔴 权重子项拿到的仍是**有界**约束 ⇒ 页内 LazyColumn 不会遇到无限高（V29 白屏病根不复发）。
+            modifier = ComposeModifier.weight(1f),
         ) {
             HorizontalPager(state = pagerState, modifier = ComposeModifier.fillMaxSize()) { page ->
                 if (isCharTable(page)) {
@@ -417,7 +461,11 @@ private fun CharStatsPage(state: StatsUiState, viewModel: CardStatsViewModel) {
         if (state.sortedCharList.isEmpty()) {
             item(key = "char-empty") { NoMatchHint(R.string.stats_no_match_char) }
         } else {
-            item(key = "char-header") { CharTableHeader() }
+            // V37-1 任务 E-1：表头改为 **stickyHeader**（用户实测「表头 y=1063 随滚动移动」的病根）。
+            // 统计区/tab 行本来就是固定的（V29 结构回退后就在 verticalScroll 之外），
+            // 唯一跟着行内容一起滚走的是这个表头 ⇒ 粘在列表视口顶部即可，
+            // 不需要把表头搬出 HorizontalPager（搬出去会失去左右滑动时的跟手，且要额外处理翻页时的表头翻转）。
+            stickyHeader(key = "char-header") { CharTableHeader() }
             // V29 需求 8：# 列名次按「当前排序键」判并列（1-2-2-4），换排序键时名次跟着重算
             val charRanks = ranksWithTies(state.sortedCharList) { charSortKey(it, state.charSort) }
             itemsIndexed(
@@ -475,7 +523,8 @@ private fun ActionStatsPage(state: StatsUiState, viewModel: CardStatsViewModel) 
         if (state.filteredActionList.isEmpty()) {
             item(key = "action-empty") { NoMatchHint(R.string.stats_no_match_action) }
         } else {
-            item(key = "action-header") { ActionTableHeader() }
+            // V37-1 任务 E-1：同角色牌页，表头 sticky（行动牌页行数最多，滚得最深，病最明显）
+            stickyHeader(key = "action-header") { ActionTableHeader() }
             // 行动牌恒按出场数排序（页面无排序开关），名次即出场数的并列排名
             val actionRanks = ranksWithTies(state.filteredActionList) { it.useCount ?: 0 }
             itemsIndexed(
@@ -493,14 +542,17 @@ private fun CharTableHeader() {
     Row(
         ComposeModifier
             .fillMaxWidth()
+            // stickyHeader 底色：行内容会从表头下方滚过，没有底色就会从字缝里穿出来
+            .background(MaterialTheme.colorScheme.surface)
             .padding(top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // V36 任务 C：# 列表头起始对齐（与行内名次列同宽左对齐，首列文字左缘=contentPadding）
+        // V37-2 任务 E-2：# 列改右对齐（与最右「出场次数」同一口径），名次位数增加只向左生长
         Text(
             stringResource(R.string.stat_rank),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.End,
             maxLines = 1,
             modifier = ComposeModifier.width(RankColumnWidth),
         )
@@ -510,7 +562,7 @@ private fun CharTableHeader() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = ComposeModifier.weight(1f),
+            modifier = ComposeModifier.weight(1f).padding(start = RankNameGap),
         )
         CHAR_STAT_COLUMNS.forEach { col ->
             Text(
@@ -542,11 +594,12 @@ private fun CharCardRow(card: GcgCard, charTotalUse: Int, rank: Int) {
             .padding(vertical = ListRowVerticalPadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // V29 需求 8：# 列（名次）。用 labelMedium 弱化，不与牌名争视觉重心
+        // V37-2 任务 E-2：# 列（名次）右对齐，与表头同一列宽、同一右缘（labelMedium 弱化，不与牌名争重心）
         Text(
             rank.toString(),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.End,
             maxLines = 1,
             modifier = ComposeModifier.width(RankColumnWidth),
         )
@@ -555,7 +608,7 @@ private fun CharCardRow(card: GcgCard, charTotalUse: Int, rank: Int) {
             style = MaterialTheme.typography.bodyLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = ComposeModifier.weight(1f),
+            modifier = ComposeModifier.weight(1f).padding(start = RankNameGap),
         )
         values.forEachIndexed { index, value ->
             Text(
@@ -582,13 +635,16 @@ private fun ActionTableHeader() {
     Row(
         ComposeModifier
             .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
             .padding(top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // V37-2 任务 E-2：行动牌页的 # 列与角色牌页同一口径（右对齐）
         Text(
             stringResource(R.string.stat_rank),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.End,
             maxLines = 1,
             modifier = ComposeModifier.width(RankColumnWidth),
         )
@@ -598,7 +654,7 @@ private fun ActionTableHeader() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = ComposeModifier.weight(1f),
+            modifier = ComposeModifier.weight(1f).padding(start = RankNameGap),
         )
         Text(
             stringResource(R.string.stats_col_type),
@@ -631,6 +687,7 @@ private fun ActionCardRow(card: GcgCard, rank: Int) {
             rank.toString(),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.End,
             maxLines = 1,
             modifier = ComposeModifier.width(RankColumnWidth),
         )
@@ -640,7 +697,7 @@ private fun ActionCardRow(card: GcgCard, rank: Int) {
             style = MaterialTheme.typography.bodyLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = ComposeModifier.weight(1f),
+            modifier = ComposeModifier.weight(1f).padding(start = RankNameGap),
         )
         Text(
             stringResource(actionTypeLabelRes(card.cardType)),
@@ -688,24 +745,31 @@ private fun NoMatchHint(@StringRes messageRes: Int) {
 
 /**
  * ---- 玩家信息头几何（V36 任务 B：首页 ProfileCard 与统计页信息卡共用一套口径）----
- * 间距只有这四枚常量，页内不再各自硬编码：
- * 原先首页昵称↔段位 8dp、统计页 6dp，且统计页外层 spacedBy(8dp) 与内层 Spacer(4dp)
- * 口径打架（红线 3：同一容器不得 verticalArrangement 与显式 Spacer 叠加），一并归一。
+ * V37-3 后只剩这三枚：头像直径、头像↔文本列间距、昵称行↔UID 行间距。
+ * 🔴 原先第四枚 `PLAYER_INFO_NICK_TIER_GAP_DP`（昵称↔段位 8dp Spacer）随任务 B 一起删除——
+ * 昵称与段位已合并成**单个** Text（见 [PlayerInfoHeader]），中间只剩一个空格字符，没有 Spacer 可量。
  */
 internal const val PLAYER_INFO_AVATAR_DP = 64
 internal const val PLAYER_INFO_TEXT_COLUMN_GAP_DP = 12
-internal const val PLAYER_INFO_NICK_TIER_GAP_DP = 8
 internal const val PLAYER_INFO_UID_LINE_GAP_DP = 4
 
 /**
- * 玩家信息头：64dp 头像 + 文本列（第一行「昵称 + 段位」同行按**基线**对齐，第二行 UID）。
+ * 玩家信息头：64dp 头像 + 文本列（第一行「昵称 + 段位」**合并成单个 Text**，第二行 UID）。
  * 首页个人信息卡照抄本结构（用户第 1 项），段位无值时整段不渲染（不是渲染占位）。
  *
- * 🔴 基线 vs 底部对齐互斥（V36 红线 1）：昵称 titleMedium(16sp)、段位 titleSmall(14sp)，
- * 字号不同必须按基线对齐才看着齐；外层 Column 用 CenterVertically 把文本块整体居中在
- * 头像高度里，昵称/段位所在 Row **不得**再设 verticalAlignment = Alignment.Bottom——
- * Bottom 会把 alignByBaseline() 改写过的 parentData 二次下压，小字号段位反而视觉更低。
- * UID 与昵称/段位同处一列、列左缘即对齐轴起点，段位不加任何额外 padding(start)。
+ * 🔴 V37-3 任务 B（用户方案原话：「使用单个 textview，为段位部分设置 spannablestring +
+ * foregroundspan，特定文本位置颜色定向改变」）：
+ * 旧结构是 `Row { Text(昵称) + Spacer + Text(段位) }`，两个 Text 分属两个布局节点，
+ * 真机 bounds 实测（1080×2340）昵称 LEFT=297、段位 LEFT=467、UID LEFT=297
+ * ⇒ 段位与 UID 左缘差 170px，这就是用户报的「段位和 ID 不对齐」。
+ * 合并为单个 Text 后：段位只是同一行内文本里的一段染色 span，
+ * **整行左缘 == UID 左缘**（同一个 Column 的同一个 start），错位问题结构性消失；
+ * 昵称与段位的基线也交给文本排版自己保证，不再需要 `alignByBaseline()`（V36 红线 1 的那套 hack 全部移除）。
+ * 代价：段位与昵称同字号（titleMedium 16sp，旧结构段位是 titleSmall 14sp）——同一 Text 内混排
+ * 字号才是"看着不齐"的另一个来源，统一字号是这次方案的一部分。
+ *
+ * 🔴 `tierColor()` 是 @Composable，`buildAnnotatedString { }` 的 lambda 不是组合上下文，
+ * 直接在里面调会编译不过 ⇒ 段位的 `SpanStyle` 在 Composable 体内先取好，lambda 只用成品值。
  */
 @Composable
 internal fun PlayerInfoHeader(
@@ -715,32 +779,28 @@ internal fun PlayerInfoHeader(
     uid: String,
     modifier: ComposeModifier = ComposeModifier,
 ) {
+    // tier 为空 → null → 整段（含前导空格）不渲染；段位名未命中色表时 tierColor 回落到
+    // onSurfaceVariant，文字照旧显示，只是不着色（与旧结构同一口径）。
+    val tierSpan = if (tier.isEmpty()) null else SpanStyle(color = tierColor(tier))
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Avatar(url = avatarUrl, size = PLAYER_INFO_AVATAR_DP.dp, contentDescription = nickname)
         Column(ComposeModifier.weight(1f).padding(start = PLAYER_INFO_TEXT_COLUMN_GAP_DP.dp)) {
-            Row {
-                Text(
-                    nickname,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = ComposeModifier.weight(1f, fill = false).alignByBaseline(),
-                )
-                if (tier.isNotEmpty()) {
-                    Spacer(ComposeModifier.width(PLAYER_INFO_NICK_TIER_GAP_DP.dp))
-                    Text(
-                        tier,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Medium,
-                        color = tierColor(tier),
-                        maxLines = 1,
-                        modifier = ComposeModifier.alignByBaseline(),
-                    )
-                }
-            }
+            Text(
+                text = buildAnnotatedString {
+                    append(nickname)
+                    if (tierSpan != null) {
+                        append(' ')
+                        withStyle(tierSpan) { append(tier) }
+                    }
+                },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = ComposeModifier.fillMaxWidth(),
+            )
             Spacer(ComposeModifier.height(PLAYER_INFO_UID_LINE_GAP_DP.dp))
-            // UID 与昵称左缘天然对齐（不额外缩进）；字号走 bodySmall，卡内最小档
+            // UID 与「昵称+段位」同一 Column、同一 start ⇒ 左缘天然对齐（本任务要修的就是这件事）
             Text(
                 uid,
                 style = MaterialTheme.typography.bodySmall,

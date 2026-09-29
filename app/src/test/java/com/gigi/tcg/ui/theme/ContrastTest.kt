@@ -42,7 +42,7 @@ class ContrastTest {
 
     @Test
     fun darkTierColors_areLocked() {
-        // V9-B：深色档 win/lose 提亮到过 Card 容器(0xFF36343B) WCAG AA（4.63/4.58:1），锁新值
+        // V9-B：深色档 win/lose 提亮到过深色 surfaceContainerHighest(0xFF36343B, material3 1.3.2 实测; compose-bom 2025.09.00 不抬高版本) WCAG AA（4.63/4.58:1），锁新值
         assertEquals(Color(0xFF58B07E), WinColor)
         assertEquals(Color(0xFFE88080), LoseColor)
         assertEquals(Color(0xFFD4A643), GoldColor)

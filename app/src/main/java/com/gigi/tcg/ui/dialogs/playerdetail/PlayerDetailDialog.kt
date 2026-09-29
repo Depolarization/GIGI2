@@ -1,8 +1,8 @@
 // 玩家信息弹窗：移植 web/src/components/PlayerDetailDialog.tsx 的内容与布局，适配 M3 居中 Dialog。
 // 四入口共用，参数 (uid, onClose)；弹窗开关由调用页持有，本组件不持全局 controller。
 // 版式：头部（头像/昵称+段位/UID）+ 天梯/巅峰积分 + 展示角色 + 参赛经历；
-// 头部与主页 ProfileCard 同一套口径：昵称 titleMedium(16sp) 粗体 + 同行段位
-// titleSmall(14sp) 基线对齐，其下 UID bodyMedium(14sp)；UID 不带 "UID:" 前缀（位置即语义）；
+// 头部与主页 ProfileCard 同一套口径（V37-3 任务 B）：昵称与段位**合并成单个 Text**
+// （段位走 SpanStyle 行内染色），其下 UID 独立一行、与整行同左缘；UID 不带 "UID:" 前缀（位置即语义）；
 // 段位色按档位取 ui/theme/TierColors.kt（不再一律染金），无段位不占位；
 // is_shield / 无 pageInfo 走独立分支；胜负语义色来自 LocalSemanticColors。
 // 头像兜底（V26）：列表接口（排行榜 rank_infos / 对局 game_records）必定带回头像，
@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -44,8 +43,11 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -201,16 +203,19 @@ private fun HeaderRow(
     tier: TierStars? = null,
     fallbackAvatarUrl: String? = null,
 ) {
-    // 昵称与段位为何不照抄主页那套 weight(1f, fill=false)：主页文本列有 weight(1f) 且外层
-    // Card 撑满屏宽，剩余宽度 ≈「屏宽 − 头像」，昵称吃不满、段位必然留在可视区内；
-    // 弹窗 Column 只有「文本区 − 头像」≈156dp，fill=false 的 weight 会按昵称内在宽度把
-    // 昵称块撑到最宽，段位起点跟着昵称长度漂移、昵称稍长即被顶到省略号之后甚至出框
-    // ——这就是用户看到的「段位与玩家名不齐」。现在两个 Text 同处一个 Row、都挂
-    // alignByBaseline()，按内在宽度紧挨着排，昵称的单行省略交给 widthIn(max)：
-    // 段位最宽形态「黄铜★★★★★」≈63dp（14sp 汉字×2 + ★ 7.7sp×5 + 8dp 间距），
-    // 156 − 63 取 88dp（≈5.5 个汉字），保证段位永远完整可见；
-    // 无段位时（屏蔽分支即如此）不必让位，上限放宽到 148dp，避免无故截短昵称。
-    val nicknameMaxWidth = if (tier == null) 148.dp else 88.dp
+    // V37-3 任务 B（用户「对话框同上重构」）：昵称与段位合并成**单个 Text**，段位是行内一段
+    // SpanStyle 染色（等价于 Android 的 SpannableString + ForegroundSpan）。
+    // 旧结构 `Row { Text(昵称) + Spacer(8) + Text(段位) }` + widthIn(max=88dp) 是为"段位别被挤出可视区"
+    // 打的补丁，但两个 Text 各自成块 ⇒ 真机 bounds 实测段位 LEFT=467、UID LEFT=297（差 170px），
+    // 就是用户报的「段位和 ID 不对齐」。合并后行内只有一个布局节点：
+    // 整行左缘 == UID 左缘，昵称↔段位的基线由文本排版自己保证，alignByBaseline() 全部移除。
+    // 省略号现在按**整行**可用宽度截断（旧代码那套 88/148dp 上限是给两段 Text 分账用的，已无意义）：
+    // 昵称过长时段位会被截进省略号里，这是单 Text 方案的已知取舍（弹窗文本列窄，实测未触发）。
+    // 🔴 tierLabel / tierColor / stringResource 都是 @Composable，buildAnnotatedString 的 lambda
+    // 不是组合上下文 ⇒ 全部在体内取成成品值再进 lambda。
+    val nicknameText = nickname ?: stringResource(R.string.common_unknown)
+    val tierText = tier?.let { tierLabel(it) }
+    val tierSpan = tierText?.let { SpanStyle(color = tierColor(it)) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Avatar(
             url = resolveAvatarUrl(avatarUrl, fallbackAvatarUrl),
@@ -218,36 +223,25 @@ private fun HeaderRow(
             contentDescription = nickname,
         )
         Spacer(Modifier.width(12.dp))
-        Column {
-            // V36 红线 1：昵称(16sp)/段位(14sp)靠 alignByBaseline() 对齐基线即可，
-            // Row 不得再设 verticalAlignment = Alignment.Bottom —— Bottom 会把基线
-            // parentData 二次下压，小字号段位反而比昵称视觉更低（A5 同款病，一并修）。
-            Row {
-                Text(
-                    text = nickname ?: stringResource(R.string.common_unknown),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = nicknameMaxWidth).alignByBaseline(),
-                )
-                // tier == null（天梯分不足 1 分）时整段不渲染：不留占位、不留多余间距。
-                // 不能用「tierLabel 结果为空串」判无段位——无段位会被本地化成「无段位」字样。
-                if (tier != null) {
-                    val tierText = tierLabel(tier)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = tierText,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Medium,
-                        color = tierColor(tierText),
-                        maxLines = 1,
-                        modifier = Modifier.alignByBaseline(),
-                    )
-                }
-            }
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = buildAnnotatedString {
+                    append(nicknameText)
+                    // tier == null（天梯分不足 1 分）时整段不渲染：不留占位、不留尾随空格。
+                    // 不能用「tierLabel 结果为空串」判无段位——无段位会被本地化成「无段位」字样。
+                    if (tierText != null && tierSpan != null) {
+                        append(' ')
+                        withStyle(tierSpan) { append(tierText) }
+                    }
+                },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
             // 不加 "UID:" 前缀：与主页 ProfileCard 同一套设计语言——昵称在上、数字在下，
-            // 位置本身即语义，前缀只会与昵称争宽度。
+            // 位置本身即语义，前缀只会与昵称争宽度。左缘与上一行同轴（同一个 Column 的同一个 start）。
             Text(
                 text = uid,
                 style = MaterialTheme.typography.bodyMedium,

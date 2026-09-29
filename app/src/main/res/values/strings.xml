@@ -64,8 +64,13 @@
     <string name="my_summary_schedules">%1$d 旬</string>
     <string name="my_challenge_no_data">该旬暂无战绩</string>
     <string name="my_challenge_win_count">胜场 %1$d</string>
+    <string name="my_challenge_prev_period">上一旬</string>
+    <string name="my_challenge_next_period">下一旬</string>
     <string name="my_copy_share_code">复制分享码</string>
     <string name="toast_copied_share_code">已复制分享码:%1$s</string>
+    <string name="my_export_deck_image">导出渲染图</string>
+    <string name="deck_export_saved">已保存卡组图片到相册</string>
+    <string name="export_deck_author">分享人：%1$s</string>
 
     <!-- 服务器 -->
     <string name="server_cn_gf01">天空岛</string>
@@ -262,6 +267,7 @@
     <string name="export_dir_char">角色牌</string>
     <string name="export_dir_action">行动牌</string>
     <string name="export_dir_qr">二维码</string>
+    <string name="export_dir_deck">卡组</string>
 
     <!-- 导出图页眉 / 页脚 -->
     <string name="export_level">牌手等级 %1$d</string>

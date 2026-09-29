@@ -68,6 +68,21 @@ internal suspend fun runStaggeredSteps(staggerMs: Long, steps: List<suspend () -
     }
 }
 
+/**
+ * 切旬/翻页连点时，单旬战绩请求的合并延迟（V37-E）。
+ * 取值口径：Android 的双击判定窗口 `ViewConfiguration.getDoubleTapTimeout()` = 300ms ⇒
+ * 300ms 内的连续点击按"一次意图"处理，不再逐次打接口。
+ * 🔴 只在**上一旬的请求还在途**时生效（见 [challengeRecordFetchDelayMs]）：
+ * 首次装载和回看缓存旬都是零额外延迟，不会因为 dock 把翻页变得很顺手就给每次点击都加 300ms。
+ * 私有接口有 -500004 保流窗口（同 [MyViewModel.MY_LOAD_STAGGER_MS] 的错峰理由），
+ * dock 化之后「切旬」从低频动作变成了高频动作，这里是配套的收口。
+ */
+internal const val CHALLENGE_RECORD_COALESCE_MS: Long = 300L
+
+/** 纯函数（JVM 单测钉死）：上一次单旬请求仍在途 ⇒ 合并连点、延迟取；否则立即取 */
+internal fun challengeRecordFetchDelayMs(previousFetchInFlight: Boolean): Long =
+    if (previousFetchInFlight) CHALLENGE_RECORD_COALESCE_MS else 0L
+
 class MyViewModel(app: Application) : AndroidViewModel(app) {
 
     private val container: AppContainer = (app as GigiApp).container
@@ -122,7 +137,7 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
     /** [loadAllStaggered] 的在途串行链，重新触发时先取消，避免两条链并发 */
     private var staggeredJob: Job? = null
 
-    /** 头像回填的在途请求（同一时刻只允许一条，重复进页不叠请求） */
+    /** 头像回填链的在途 job（同一时刻只允许一条链，重复进页/换账户先取消上一条） */
     private var avatarJob: Job? = null
 
     /** 作废上一账户的全部数据：取消所有在途请求 + 6 个账户级 StateFlow 整组清空 */
@@ -168,7 +183,8 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 进「我的」页的一揽子装载：5 组摘要 + 头像回填（V36/2b）**串行 + 错峰**（间隔 [MY_LOAD_STAGGER_MS]）。
+     * 进「我的」页的一揽子装载：5 组摘要 + 头像回填（V36/2b 引入，V37-G 起逐账户补**全部**缺头账户）
+     * **串行 + 错峰**（间隔 [MY_LOAD_STAGGER_MS]）。
      * 🔴 一次性并发 5 个私有接口正中米游社 -500004 保流窗口，失败率抬升；
      * 首页首刷早已改错峰（`runStaggeredFirstLoad`），本页沿用同一口径与同一间隔。
      */
@@ -179,7 +195,7 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
                 staggerMs,
                 listOf(
                     { loadProfile() },
-                    { backfillActiveAvatar() },
+                    { backfillAllAvatars() },
                     { loadDeckList() },
                     { loadCardBackList() },
                     { loadMatchList() },
@@ -201,34 +217,53 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 存量账户头像回填（V36/2b）：`StoredAccount.avatar` 原唯一来源 getUserGameRolesByCookie
-     * 实测**不下发** avatar_url，且 V36 新字段对存量索引无回填 ⇒ 账户行永远灰占位。
-     * 唯一下发头像的是首页资料卡 my_home_page 的 `page_info.avatar_url`（repository 已有 45s
-     * 内存缓存，首页刚拉过时静默命中，不是新增端点）。
-     * 🔴 gcg/basicInfo（[loadProfile] 的 profile）结构上没有头像也没有 uid/role_id ⇒ 不做 uid 匹配，
-     * 走「按当前激活账户落一次盘」：缺头像才取、同值不重写（CredentialStore.replaceAvatar），
-     * 落盘后 refreshAccounts() 让账户行立即反映；补齐后本步骤零请求、零写盘。
+     * 存量账户头像回填（V36/2b 引入，🔴 V37-G 起覆盖**全部账户**，用户澄清 B2「所有账户都要有」）：
+     * 旧实现只补激活账户 ⇒ 切到第二个账户时它仍是灰占位，要下次进本页才补。
+     * 现在按 [planAvatarBackfill] 筛出缺头像的账户**逐个**补，其余口径不变：
+     * - 数据源仍是 my_home_page 的 `page_info.avatar_url`（gcg/basicInfo 结构上没有头像）；
+     * - 🔴 串行 + 错峰（[MY_LOAD_STAGGER_MS]，同 [runStaggeredSteps] 与整页装载链的口径）：
+     *   一次性并发 N 个私有接口正中米游社 -500004 保流窗口 ⇒ 任一时刻链上只有一条头像请求在途；
+     * - 每个账户用它**自己绑定的服务器** [StoredAccount.server]（多账户可以分属不同服），
+     *   激活账户与容器 currentServer 同值，故激活账户的行为与 V36/2b 完全一致；
+     * - 同值/未命中不重写（[CredentialStore.replaceAvatar] 的幂等判据），补齐后稳态**零请求**。
      */
-    fun backfillActiveAvatar() {
-        val uid = container.activeAccountUid.value ?: return
+    fun backfillAllAvatars(staggerMs: Long = MY_LOAD_STAGGER_MS) {
+        val pending = planAvatarBackfill(container.accounts.value)
+        if (pending.isEmpty()) return
+        avatarJob?.cancel()
+        avatarJob = viewModelScope.launch {
+            runStaggeredSteps(
+                staggerMs,
+                pending.map { account ->
+                    suspend { backfillOneAvatar(account.uid, account.server()) }
+                },
+            )
+        }
+    }
+
+    /**
+     * 补单个账户的头像（[backfillAllAvatars] 链上的一步）。
+     * 🔴 逐账户隔离：本账户请求失败（网络 / 风控 / 1034 类）只跳过本账户，异常不外抛，
+     *   链上后面的账户照常补 —— 一个账户的坏数据不许拖垮整页头像。
+     * 🔴 落盘键永远是**这一步自己的 uid**，不读「当前激活账户」⇒ 回填期间用户切账号，
+     *   旧账户的头像不可能挂到新账户头上。每次进这一步都用实时索引复核：
+     *   账户已登出（索引里没有它）或已被登录/续命路径补齐 ⇒ 直接跳过，不发请求。
+     */
+    private suspend fun backfillOneAvatar(uid: String, server: ServerId) {
         val account = container.accounts.value.firstOrNull { it.uid == uid } ?: return
         if (!account.avatar.isNullOrBlank()) return
-        avatarJob?.cancel()
-        val server = container.currentServer.value
-        avatarJob = viewModelScope.launch {
-            val avatar = try {
-                container.repository.fetchMyHomePageCached(uid, server).pageInfo?.avatarUrl
-            } catch (cancel: CancellationException) {
-                throw cancel
-            } catch (_: Exception) {
-                null
-            }
-            if (avatar.isNullOrBlank()) return@launch
-            // 在途期间切了账户：不能把旧账户的头像落到新账户头上
-            if (container.activeAccountUid.value != uid) return@launch
-            if (container.credentialStore.updateAccountAvatar(uid, avatar)) {
-                container.refreshAccounts()
-            }
+        val avatar = try {
+            container.repository.fetchMyHomePageCached(uid, server).pageInfo?.avatarUrl
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            null
+        }
+        if (avatar.isNullOrBlank()) return
+        // 在途期间该账户可能被别处补齐或已登出：replaceAvatar 的「uid 未命中 / 同值」判据兜住，
+        // 返回 false 就不落盘也不刷列表（避免每次进本页都惊动账户行）
+        if (container.credentialStore.updateAccountAvatar(uid, avatar)) {
+            container.refreshAccounts()
         }
     }
 
@@ -261,6 +296,10 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
      * 少了这一步，预览区会顶着上一旬的胜场数显示。
      */
     fun loadChallengeRecord(scheduleId: Int, force: Boolean = false) {
+        // 🔴 连点合并（V37-E）：dock 把「切旬」变成高频动作（一次翻页 = 一次加载）。
+        // 在途标记必须读在下面 cancel **之前** —— cancel 后旧 Job 立刻 isActive=false，
+        // 就再也判不出"用户是不是在连着翻页"了。
+        val fetchDelayMs = challengeRecordFetchDelayMs(jobs[_challengeRecord]?.isActive == true)
         val uid = container.activeAccountUid.value ?: run {
             jobs[_challengeRecord]?.cancel()
             _challengeRecord.value = null
@@ -283,6 +322,8 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         load(_challengeRecord, force) { fetchUid, server, f ->
+            // 连点时只有最后一次真正打到接口：前面的在途 Job 已被 cancel，delay 直接被中断
+            if (fetchDelayMs > 0) delay(fetchDelayMs)
             container.repository.fetchGcgChallengeRecordCached(fetchUid, server, scheduleId, f).also {
                 // 只有仍属当前账户才入表：切账户期间在途请求已被 cancel，不会走到这里
                 if (container.activeAccountUid.value == fetchUid) challengeRecordCache[scheduleId] = it
@@ -302,3 +343,13 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
             }
     }
 }
+
+/**
+ * 头像回填计划（纯函数，JVM 单测钉死）：筛出**缺头像**的账户（null 或空白），保持索引序
+ * （索引头 = 最近使用 ⇒ 激活账户天然是第一个被补的）。
+ * 🔴 空列表 ⇒ [MyViewModel.backfillAllAvatars] 直接返回，一次请求都不发（V37-G 稳态零请求判据：
+ * 头像补齐后每次进「我的」页都必须零请求、零写盘）。
+ * 空白串同样算缺：my_home_page 偶发下发空 avatar_url，占位回落比一张空图有用。
+ */
+internal fun planAvatarBackfill(accounts: List<StoredAccount>): List<StoredAccount> =
+    accounts.filter { it.avatar.isNullOrBlank() }

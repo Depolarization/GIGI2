@@ -2,21 +2,12 @@ package com.gigi.tcg.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import android.os.Build
-
-private val LightColors = lightColorScheme()
-private val DarkColors = darkColorScheme()
 
 @Immutable
 data class SemanticColors(
@@ -28,20 +19,20 @@ data class SemanticColors(
 val LocalSemanticColors: ProvidableCompositionLocal<SemanticColors> =
     compositionLocalOf { SemanticColors() }
 
+/**
+ * 主题入口。色板固定用 [LightColors] / [DarkColors]（见 Color.kt），**不再有动态取色开关**：
+ * V37 真机夜间实测 MIUI 壁纸动态取色（原 `dynamicColor` 默认 true）会接管整个 ColorScheme，
+ * 把夜间 Snackbar 解析成浅底 `#E6E0E9` + 浅字，对比度 ≈1.0:1 完全看不见，
+ * 「导出数据图表」Button 也是浅紫底 + 浅紫字。用户决定关闭动态取色、走固定色板，
+ * 所以 `dynamicLightColorScheme` / `dynamicDarkColorScheme` 分支与 `dynamicColor` 参数一并删除
+ * （留一个恒为 false 的开关就是死代码）。要恢复动态取色请显式重新引入并覆写 inverse 三槽。
+ */
 @Composable
 fun GigiTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        darkTheme -> DarkColors
-        else -> LightColors
-    }
+    val colorScheme = if (darkTheme) DarkColors else LightColors
 
     // win/lose/gold 随主题取色：暗色档对 Card 容器(0xFF36343B) AA ✓（win 4.63、lose 4.58），
     // 但在亮底上对比度不足（约 2.6:1），亮色档换用深色调——对白底 AA ✓（约 5.0~5.1）、

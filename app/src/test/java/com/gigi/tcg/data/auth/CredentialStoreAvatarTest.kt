@@ -2,6 +2,7 @@
 // 🔴 索引是磁盘上的 JSON 串，老用户的索引里没有 avatar 键。字段必须带默认值，
 // 否则 kotlinx.serialization 对缺失键抛 MissingFieldException ⇒ parseAccountIndex 按"索引损坏"
 // 返回空列表 ⇒ 老账号在升级后被当成"没有账户"，直接掉登录态。
+// V37-G 任务 A：回填扩到**全部账户** ⇒ 补第二个账户时第一个的成果、索引序与激活键都不许被搅动（下面 4 条锁死）。
 package com.gigi.tcg.data.auth
 
 import org.junit.Assert.assertEquals
@@ -93,4 +94,77 @@ class CredentialStoreAvatarTest {
         // 空表 ⇒ null
         assertNull(CredentialStore.replaceAvatar(emptyList(), "111", "https://new/x.png"))
     }
+
+    // ===== V37-G 任务 A：全账户逐个回填依赖的多账户判据 =====
+
+    /** 真机现状复刻：两个账户都没有 avatar 键 ⇒ 逐个补第二个时，第一个的成果不许被抹掉 */
+    @Test
+    fun `backfilling the second account leaves the first one's avatar intact`() {
+        val bothMissing = listOf(
+            StoredAccount("261958214", "Oscuro", lastActiveEpochMs = 10L),
+            StoredAccount("157777921", "墨邪", lastActiveEpochMs = 20L),
+        )
+
+        val afterFirst = CredentialStore.replaceAvatar(bothMissing, "261958214", "https://cdn/a.png")
+        val afterSecond = CredentialStore.replaceAvatar(afterFirst ?: failOnNull(), "157777921", "https://cdn/b.png")
+
+        assertEquals(
+            listOf(
+                StoredAccount("261958214", "Oscuro", lastActiveEpochMs = 10L, avatar = "https://cdn/a.png"),
+                StoredAccount("157777921", "墨邪", lastActiveEpochMs = 20L, avatar = "https://cdn/b.png"),
+            ),
+            afterSecond,
+        )
+    }
+
+    /** 链上每一步只动自己那一条：uid、顺序、昵称、服务器与 lastActiveEpochMs 全部原样（索引头 = 最近使用） */
+    @Test
+    fun `replaceAvatar keeps index order and every other field`() {
+        val accounts = listOf(
+            StoredAccount("111", "A", serverId = "cn_gf01", lastActiveEpochMs = 30L),
+            StoredAccount("222", "B", serverId = "cn_qd01", lastActiveEpochMs = 40L, avatar = "https://keep/b.png"),
+            StoredAccount("333", "C", lastActiveEpochMs = 50L),
+        )
+
+        val next = CredentialStore.replaceAvatar(accounts, "333", "https://cdn/c.png") ?: failOnNull()
+
+        assertEquals(listOf("111", "222", "333"), next.map { it.uid })
+        assertEquals(listOf(30L, 40L, 50L), next.map { it.lastActiveEpochMs })
+        assertEquals(listOf("A", "B", "C"), next.map { it.nickname })
+        assertEquals("cn_qd01", next[1].serverId)
+        // 未命中 uid 的那几条没被 copy 过（值相等还不够，其它账户的头像不许变）
+        assertEquals("https://keep/b.png", next[1].avatar)
+        assertNull(next[0].avatar)
+    }
+
+    /** 回填只改索引：激活键与密文槽位是另一路 prefs 键，replaceAvatar 纯函数碰不到（updateAccountAvatar 也只 writeIndex） */
+    @Test
+    fun `replaceAvatar output keeps the active uid still present in the index`() {
+        val accounts = listOf(
+            StoredAccount("111", avatar = null),
+            StoredAccount("222", avatar = "https://old/b.png"),
+        )
+
+        val next = CredentialStore.replaceAvatar(accounts, "111", "https://cdn/a.png") ?: failOnNull()
+
+        // 索引序不变 ⇒ 头（最近使用 = 激活账户）仍是 111，换账号语义不被回填搅动
+        assertEquals("111", next.first().uid)
+        // 回写的仍是同一份索引 JSON 形态：编码再解码，头像在位且整表等价
+        assertEquals(next, CredentialStore.parseAccountIndex(CredentialStore.encodeAccountIndex(next)))
+    }
+
+    /** 已补齐的账户被再次「回填同值」⇒ 不写盘（稳态零写盘，与零请求配套） */
+    @Test
+    fun `repeated backfill passes are no-ops after accounts are complete`() {
+        val complete = listOf(
+            StoredAccount("111", avatar = "https://cdn/a.png"),
+            StoredAccount("222", avatar = "https://cdn/b.png"),
+        )
+
+        assertNull(CredentialStore.replaceAvatar(complete, "111", "https://cdn/a.png"))
+        assertNull(CredentialStore.replaceAvatar(complete, "222", "https://cdn/b.png"))
+    }
+
+    private fun failOnNull(): List<StoredAccount> =
+        throw AssertionError("replaceAvatar 判据误判：命中且头像非空白时必须返回新索引")
 }

@@ -7,8 +7,10 @@ import org.junit.Test
 
 /**
  * V8F/V9-B：深色档胜负语义色的 WCAG AA 对比度锁。
- * 口径：对 darkColorScheme().surface = 0xFF1C1B1F，以及对深色 Card 容器 0xFF36343B（V9-B 新增，
- * win/lose 在该容器上从 3.46:1 提亮到 4.63/4.58:1）。亮色档口径与 ContrastTest 对称（对白底 surface）。
+ * 口径：对 dark surface(0xFF141218, material3 1.3.2 实测基线; compose-bom 2025.09.00 不抬高版本;
+ *   ⚠️ 代码常量 DarkSurface=0xFF1C1B1FL 是旧误记值，比实际 surface 亮，属保守基准)，
+ *   以及对深色 surfaceContainerHighest(0xFF36343B, 原注释误称"Card 容器"——非 surface 也非 Card, material3 1.3.2 实测)。
+ * win/lose 在 surfaceContainerHighest 上从 3.46:1 提亮到 4.63/4.58:1。亮色档口径与 ContrastTest 对称（对白底 surface）。
  * 纯 JVM 单测：只把 Color 拆成 sRGB 分量算数，不碰 android.graphics。
  *
  * ⚠️ 实测坑：`Color(0xFF58B07Eu)`（**UInt** 重载）在本工程 Compose 版本上是坏的 ——
@@ -82,14 +84,14 @@ class SemanticContrastTest {
 
     @Test
     fun winColor_meetsWcagAA_onDarkCard() {
-        // V9-B：胜负文案实际渲染在深色 Card 容器(0xFF36343B)上，锁该容器口径（实测 4.63:1）
+        // V9-B：胜负文案实际渲染在深色 surfaceContainerHighest(0xFF36343B, material3 1.3.2 实测)上，锁该容器口径（实测 4.63:1）
         val ratio = contrastRatio(WinColor.argbLong(), DarkCard)
         assertTrue("WinColor vs dark Card = $ratio:1, need >= 4.5", ratio >= 4.5)
     }
 
     @Test
     fun loseColor_meetsWcagAA_onDarkCard() {
-        // V9-B：同上，LoseColor 对 Card 容器实测 4.58:1
+        // V9-B：同上，LoseColor 对 surfaceContainerHighest(0xFF36343B) 实测 4.58:1
         val ratio = contrastRatio(LoseColor.argbLong(), DarkCard)
         assertTrue("LoseColor vs dark Card = $ratio:1, need >= 4.5", ratio >= 4.5)
     }

@@ -1,6 +1,9 @@
 // 卡牌使用详情状态：移植 web/src/pages/CardStatsPage.tsx（§5.6）。
 // - load 取 fetchGcgCardListCached（统计主体，5min 缓存），头像随 summary 一起取 fetchMyHomePageCached
 //   （与主页共用 45s 缓存，通常直接命中；失败不影响统计主流程）；
+// - V37-5：装载入口不再无条件打 Loading —— 已有内容时静默替换（见 shouldShowBlockingLoading），
+//   缓存命中也闪一帧菊花就是用户报的「切页必闪 progressbar」；口径照抄 HomeViewModel「有内容即静默」，
+//   内容归属的 uid 变了才清空（同 V36 MyViewModel.AccountScopeGuard 的语义）。
 // - 分母（角色牌/行动牌总手牌数）首选 gcg/basicInfo 官方总数（需登录 Cookie，失败静默降级），
 //   取不到才退回公开图鉴计数——图鉴会去重手牌（行动牌只数出 568 / 真实 941），单用会把未收集画成全收集；
 //   服务端 cardList 的 *_card_num_total 恒缺失不可依赖；
@@ -89,6 +92,14 @@ data class StatsUiState(
     val isEmpty: Boolean
         get() = !loading && error == null && summary == null
 
+    /**
+     * 有没有「既有的可展示内容」——[shouldShowBlockingLoading] 的输入，决定这次装载是静默替换还是打 Loading。
+     * 🔴 不能只看 `summary != null`：接口字段全可空（红线 1），stats 缺失而 cardList 有牌是合法组合，
+     * 只看 summary 会把这种「有内容」的重入误判成首屏 ⇒ 白闪一次菊花。
+     */
+    val hasContent: Boolean
+        get() = summary != null || charList.isNotEmpty() || actionList.isNotEmpty()
+
     /** 出场率分母 = 全部角色牌使用次数之和（红线 6：不是游玩场次数） */
     val charTotalUse: Int
         get() = charList.sumOf { it.useCount ?: 0 }
@@ -121,6 +132,25 @@ data class StatsUiState(
         }
 }
 
+/**
+ * 阻塞式 Loading 判据（纯函数，无 Compose/Android 依赖，JVM 单测直接钉死）。
+ *
+ * 「阻塞式」= 整屏 LoadingView 把内容换掉。口径与 HomeViewModel.loadProfile 的「有内容即静默」一致：
+ * 状态里已经有内容，重新装载就只静默替换，**不再把 loading 打回 true** —— 内存缓存命中时协程几乎
+ * 立刻返回，但入口那一次 `loading = true` 已经足够让 UI 先画一帧菊花，这正是用户报的
+ * 「每次切换页面都会出现 progressbar + 正在加载」（V37-5 实测根因，与 force 无关、与缓存失效无关）。
+ *
+ * 判据读的是 **StateFlow 里的状态**，不是 `LaunchedEffect(key)` 的 key：组合离开会被 cancel、
+ * 重入会重启（手册 §8.6 红线 6），而每次 load() 都重新求值 ⇒ 天然免疫重入漏判。
+ *
+ * @param hasContent 既有内容（[StatsUiState.hasContent]）
+ * @param isError 当前可见的是错误页：本页错误分支**不清内容**（只置 error），
+ *        光靠 hasContent 会把「错误页上的重试」误判成可静默替换 —— 错误页上没有内容可盖，
+ *        重试必须回到阻塞 Loading。
+ */
+internal fun shouldShowBlockingLoading(hasContent: Boolean, isError: Boolean): Boolean =
+    isError || !hasContent
+
 class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val container: AppContainer = (app as GigiApp).container
@@ -135,6 +165,9 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
 
     private var generation = 0
     private var loadJob: Job? = null
+
+    /** uiState 里的内容归属哪个会话（null = 还没装过）：变了才清空，见 [load] 的内容归属闸门 */
+    private var contentUid: String? = null
 
     init {
         load(force = false)
@@ -165,10 +198,29 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
     private fun load(force: Boolean) {
         loadJob?.cancel()
         val gen = ++generation
-        _uiState.update { it.copy(loading = true, error = null) }
+        val uid = container.sessionUid.value
+        val server = container.currentServer.value
+        // 内容归属闸门（语义照 V36 MyViewModel.AccountScopeGuard：账号变才清、页面重入不清）：
+        // uid 变了（含首装/登出置 null）必须先丢掉上一账号的内容 —— 静默替换只允许替换同一账号的数据，
+        // 否则新账号的装载会把旧账号的统计当「既有内容」静默盖着显示。
+        if (contentUid != uid) {
+            contentUid = uid
+            _uiState.update {
+                it.copy(
+                    summary = null,
+                    charList = emptyList(),
+                    actionList = emptyList(),
+                    avatarUrl = null,
+                    tier = "",
+                )
+            }
+        }
+        // 仅「无既有内容 / 当前是错误页」才打阻塞 Loading（判据见 shouldShowBlockingLoading）；
+        // error 的清理时机保持现状：入口清、各落定分支按结果写。
+        _uiState.update {
+            it.copy(loading = shouldShowBlockingLoading(it.hasContent, isError = it.error != null), error = null)
+        }
         loadJob = viewModelScope.launch {
-            val uid = container.sessionUid.value
-            val server = container.currentServer.value
             if (uid.isNullOrBlank()) {
                 _refreshing.value = false
                 _uiState.update { it.copy(loading = false, error = null, summary = null, charList = emptyList(), actionList = emptyList()) }
@@ -176,6 +228,7 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
             }
             // 分母的两路来源互不依赖、并发取（都不串在统计主链路后面，第三级 cardList total 随主链路免费拿到）：
             // basicInfo 官方总数（首选）/ 图鉴频道计数（兜底）。是本 job 的子协程，下拉 cancel 时一起收掉。
+            // force=false 时两路都命中缓存（basicInfo 内存 5min、图鉴内存 1h→磁盘），不拖慢静默替换路径。
             val officialTotalsDeferred = async { fetchOfficialCardTotals(uid, server, force) }
             val totalsDeferred = async { fetchWikiCardTotals() }
             try {
@@ -211,7 +264,7 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 // 头像随统计主体一起就绪（首屏 PlayerInfoCard 即可显示），
                 // 失败不影响统计主流程（对齐 web 的 .catch(() => undefined)）
-                fetchAvatar()
+                fetchAvatar(uid, server, gen)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -271,12 +324,15 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
         WikiCardTotals()
     }
 
-    private fun fetchAvatar() {
-        val uid = container.sessionUid.value ?: return
-        val server = container.currentServer.value
+    /**
+     * 头像 + 段位（与统计同源 myHomePage，45s 缓存）。uid/server/gen 由 [load] 透传而非再读容器：
+     * 装载途中换了账号时，本次回包属过期数据（gen 不匹配）直接丢弃，避免把 A 的头像静默盖到 B 的内容上。
+     */
+    private fun fetchAvatar(uid: String, server: ServerId, gen: Int) {
         viewModelScope.launch {
             try {
                 val home = container.repository.fetchMyHomePageCached(uid, server)
+                if (gen != generation) return@launch
                 val info = home.pageInfo
                 // V29：段位（天梯积分 → TierStars）与头像同源，一次请求一起带出来给信息卡用。
                 // 段位格式化交给 domain 的 getTierStars/formatTier，UI 层不重算分段规则。

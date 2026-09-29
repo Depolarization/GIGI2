@@ -5,10 +5,14 @@
 // 旧服务器数据态不带入新服务器；startRoute 记住当前 tab，重建后停留原页。
 // 顶栏标题：一级 tab 按一级段（substringBefore('/')），「我的」的四个二级页按**完整 route**
 // 出二级标题并显示返回箭头（V36/2：二级页是独立页面，页面内不再自绘标题行）。
+// V37-F：卡组详情也升成独立路由（my/deck/{deck_index}?deck_name=…）——此前它是页内状态，
+// 主壳出不了牌组名，页内才自绘一行「返回 + 标题」叠成双标题栏。现在牌组名走导航参数进顶栏，
+// 返回同样归主壳（详情 → 卡组列表 → 我的页 逐级弹出），页内只留两个 trailing icon 动作。
 
 package com.gigi.tcg.ui.navigation
 
 import android.content.Context
+import android.net.Uri
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -60,10 +64,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.navArgument
 import androidx.navigation.compose.rememberNavController
 import com.gigi.tcg.GigiApp
 import com.gigi.tcg.R
@@ -83,6 +89,7 @@ import com.gigi.tcg.ui.screens.cardwiki.CardWikiRoute
 import com.gigi.tcg.ui.screens.home.HomeRoute
 import com.gigi.tcg.ui.screens.my.MyCardBacksPage
 import com.gigi.tcg.ui.screens.my.MyChallengePage
+import com.gigi.tcg.ui.screens.my.MyDeckDetailPage
 import com.gigi.tcg.ui.screens.my.MyDecksPage
 import com.gigi.tcg.ui.screens.my.MyFavoritesPage
 import com.gigi.tcg.ui.screens.my.MyRoute
@@ -101,6 +108,16 @@ private const val ROUTE_MY_DECK = "my/deck"
 private const val ROUTE_MY_CARDBACK = "my/cardback"
 private const val ROUTE_MY_FAVORITES = "my/favorites"
 private const val ROUTE_MY_CHALLENGE = "my/challenge"
+
+// 牌组详情（V37-F）：卡组列表点进去的三级页。deck_index 是**列表下标**而不是牌组 id
+// （实测 id 可重复，见 my/stableItemKey 的服务端事实），deck_name 只喂顶栏动态标题、不参与取数。
+private const val ROUTE_MY_DECK_DETAIL = "my/deck/{deck_index}?deck_name={deck_name}"
+private const val ARG_DECK_INDEX = "deck_index"
+private const val ARG_DECK_NAME = "deck_name"
+
+// 与 [ROUTE_MY_DECK_DETAIL] 同一形状，占位符填实际值；牌组名必须 URL 编码（可含 / ? # & 空格）
+private fun deckDetailRoute(index: Int, deckName: String): String =
+    "my/deck/$index?deck_name=${Uri.encode(deckName)}"
 
 private data class GigiDestination(
     val route: String,
@@ -162,6 +179,19 @@ fun GigiNavHost() {
     var startRoute by remember { mutableStateOf(ROUTE_HOME) }
     var announcedServer by remember { mutableStateOf(server) }
 
+    // 卡组导出结果的反馈：与统计页导出同一条「成功带『查看』→ openInGallery」链路（V36 已修它的 NEW_TASK 崩溃）。
+    // uris 为空（失败 / ≤API 28 拿不到 MediaStore uri）时只出纯文本，action 不挂。
+    val showExportResult: (message: String, uris: List<Uri>) -> Unit = { message, uris ->
+        val first = uris.firstOrNull()
+        if (first == null) {
+            toastController.show(message)
+        } else {
+            toastController.showWithAction(message, LocaleStrings.get(R.string.action_view)) {
+                openInGallery(appContext, first)
+            }
+        }
+    }
+
     LaunchedEffect(sessionUid) {
         queryOpen = false
         detailTarget = null
@@ -190,8 +220,18 @@ fun GigiNavHost() {
             val currentRoute = backStackEntry?.destination?.route
             // 一级段：底部导航/Rail 的选中态按一级段（substringBefore('/')）归属到所属 tab
             val baseRoute = currentRoute?.substringBefore('/')
-            // 二级标题按**完整 route** 命中（V36/2）：命中即出二级标题 + 返回箭头，页面不自绘标题行
-            val subpageTitleRes = MY_SUBPAGE_TITLES[currentRoute]
+            // 二级标题按**完整 route** 命中（V36/2）：命中即出二级标题 + 返回箭头，页面不自绘标题行。
+            // V37-F：牌组详情是三级页，标题用导航参数里的牌组名（动态），route 命中的 map 兜底「我的卡组」。
+            val deckDetailTitle = if (currentRoute == ROUTE_MY_DECK_DETAIL) {
+                backStackEntry?.arguments?.getString(ARG_DECK_NAME)?.takeIf { it.isNotBlank() }
+            } else {
+                null
+            }
+            val subpageTitleRes = when {
+                deckDetailTitle != null -> null
+                currentRoute == ROUTE_MY_DECK_DETAIL -> R.string.my_deck_entry
+                else -> MY_SUBPAGE_TITLES[currentRoute]
+            }
 
             // 持续记录当前 tab：账户切换 / 服务器切换触发下方 key() 重建后，startDestination
             // 用最近记录的一级路由 ⇒ 停留在原页（V35 前该记录由顶栏账户菜单写入，菜单迁入
@@ -215,7 +255,7 @@ fun GigiNavHost() {
                                 val tabLabel = destinations.firstOrNull { dest -> dest.route == baseRoute }
                                     ?.let { dest -> stringResource(dest.labelRes) }
                                 Text(
-                                    subpageTitleRes?.let { stringResource(it) } ?: tabLabel ?: "GIGI",
+                                    deckDetailTitle ?: subpageTitleRes?.let { stringResource(it) } ?: tabLabel ?: "GIGI",
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -366,7 +406,31 @@ fun GigiNavHost() {
                                     onOpenChallenge = { navController.navigate(ROUTE_MY_CHALLENGE) },
                                 )
                             }
-                            composable(ROUTE_MY_DECK) { MyDecksPage() }
+                            composable(ROUTE_MY_DECK) {
+                                MyDecksPage(onOpenDeckDetail = { index, deckName ->
+                                    navController.navigate(deckDetailRoute(index, deckName))
+                                })
+                            }
+                            composable(
+                                route = ROUTE_MY_DECK_DETAIL,
+                                arguments = listOf(
+                                    navArgument(ARG_DECK_INDEX) {
+                                        type = NavType.IntType
+                                        defaultValue = -1
+                                    },
+                                    // 牌组名可能为空串（玩家没改名）⇒ 可空参数，缺失时顶栏回落「我的卡组」
+                                    navArgument(ARG_DECK_NAME) {
+                                        type = NavType.StringType
+                                        nullable = true
+                                        defaultValue = null
+                                    },
+                                ),
+                            ) { entry ->
+                                MyDeckDetailPage(
+                                    deckIndex = entry.arguments?.getInt(ARG_DECK_INDEX) ?: -1,
+                                    onShowExportResult = showExportResult,
+                                )
+                            }
                             composable(ROUTE_MY_CARDBACK) { MyCardBacksPage() }
                             composable(ROUTE_MY_FAVORITES) { MyFavoritesPage() }
                             composable(ROUTE_MY_CHALLENGE) { MyChallengePage() }

@@ -94,15 +94,24 @@ class HomeReloadModeTest {
         )
     }
 
-    /** 缺陷 C：昵称 maxLines=1 必须配 ellipsis，禁止硬裁切（V36/3 起信息头在 cardstats/PlayerInfoHeader） */
+    /**
+     * 缺陷 C：昵称行 maxLines=1 必须配 ellipsis，禁止硬裁切。
+     * V36/3 起信息头在 cardstats/PlayerInfoHeader；🔴 V37-3 任务 B 把昵称+段位合并成**单个 Text**
+     * （段位走 SpanStyle），结构特征串从位置参数 `nickname,` 改成 `text = buildAnnotatedString {`，
+     * 断言口径不变：整行仍然必须带 overflow = TextOverflow.Ellipsis。
+     */
     @Test
     fun profileNickname_usesEllipsis() {
         val stats = readSource("../cardstats/CardStatsRoute.kt")
         assertTrue("PlayerInfoHeader 应引入 TextOverflow", stats.contains("import androidx.compose.ui.text.style.TextOverflow"))
-        val nicknameBlock = stats.substringAfter("\n                    nickname,")
+        val nicknameBlock = stats.substringAfter("text = buildAnnotatedString {")
         assertTrue(
-            "昵称 Text 应带 overflow = TextOverflow.Ellipsis",
+            "昵称行 Text 应带 overflow = TextOverflow.Ellipsis",
             nicknameBlock.substringBefore("Spacer").contains("overflow = TextOverflow.Ellipsis"),
+        )
+        assertTrue(
+            "合并后昵称与段位共用一个 Text（maxLines=1 也只剩这一处）",
+            nicknameBlock.substringBefore("Spacer").contains("maxLines = 1"),
         )
     }
 }

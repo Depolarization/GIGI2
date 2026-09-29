@@ -15,6 +15,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,6 +52,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -73,8 +75,6 @@ import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
 import com.gigi.tcg.ui.components.LocalToast
 import com.gigi.tcg.ui.components.tierLabel
-import com.gigi.tcg.ui.screens.cardstats.PLAYER_INFO_AVATAR_DP
-import com.gigi.tcg.ui.screens.cardstats.PLAYER_INFO_TEXT_COLUMN_GAP_DP
 import com.gigi.tcg.ui.screens.cardstats.PlayerInfoHeader
 import com.gigi.tcg.ui.theme.LocalSemanticColors
 import com.gigi.tcg.ui.theme.SemanticColors
@@ -272,9 +272,9 @@ private fun ProfileCard(
                 .fillMaxWidth()
                 .padding(PROFILE_CARD_PADDING_DP.dp),
         ) {
-            // V36 任务 B（用户第 1、2 项）：个人信息区照抄统计页版式——共用 PlayerInfoHeader，
-            // 昵称/段位同行按基线对齐（Row 不再叠 Alignment.Bottom，两者互斥，V36 红线 1），
-            // 段位左缘不额外缩进、UID 左缘即卡片内容左缘，几何常量单一来源（PLAYER_INFO_*）。
+            // V36 任务 B（用户第 1、2 项）：个人信息区照抄统计页版式——共用 PlayerInfoHeader；
+            // V37-3 任务 B 起昵称与段位合并成单个 Text（段位走 SpanStyle 行内染色），
+            // 几何常量仍是单一事实源（PLAYER_INFO_*）。
             PlayerInfoHeader(
                 avatarUrl = profile.avatarUrl,
                 nickname = profile.nickname ?: unknownLabel,
@@ -282,14 +282,16 @@ private fun ProfileCard(
                 uid = uid,
             )
             Spacer(Modifier.height(PROFILE_SCORES_GAP_DP.dp))
-            // 四层之 4「积分区」：等宽两列、各占一半、整块左对齐（ScoreItem 内容起始即列左缘，
-            // 无居中/右对齐——用户拍板参考 PlayerDetailDialog 的左对齐范式）；
-            // 整块缩进「头像直径 + 列间距」，让表头左缘落进昵称/UID 那条竖向对齐轴。
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(start = (PLAYER_INFO_AVATAR_DP + PLAYER_INFO_TEXT_COLUMN_GAP_DP).dp),
-            ) {
+            // V37-3 任务 C（用户澄清口径已定）：个人信息卡改为**竖向三段**——
+            // ① PlayerInfoHeader（头像 + 昵称/段位 + UID）② 天梯/巅峰两栏 ③（卡外）最近对局。
+            // 积分区从「缩进在头像右侧的文本列里」提升为与 PlayerInfoHeader **平级**的一整行
+            // fillMaxWidth：卡片内容左缘 = padding(16) = 头像左缘，所以两栏左缘自然 == 头像左缘。
+            // 旧写法给整块补了「头像直径 + 列间距」的起始缩进，把两栏推到文本列左缘（实测 LEFT=297，
+            // 而头像 LEFT=88，差 209px），正是用户报的「天梯/巅峰没有和头像对齐」；
+            // 参照物是同项目里已经正确的 PlayerDetailDialog.ScoresRow —— 它就是独立于 HeaderRow
+            // 的一整行 fillMaxWidth，不缩进在头像右。
+            // 🔴 两栏**内部**维持原样（各自 label 与数值左对齐，实测已对齐，用户也确认这点是对的）。
+            Row(Modifier.fillMaxWidth()) {
                 ScoreItem(
                     label = stringResource(R.string.score_ladder),
                     value = profile.ladderScore ?: 0,
@@ -418,8 +420,20 @@ private fun RecordItem(
                 )
             }
             Column(
-                modifier = Modifier.alignByBaseline(),
-                horizontalAlignment = Alignment.End,
+                // V37-3 任务 D（用户第 3 项「胜/负和天梯/巅峰积分变动的文本没有居中对齐」）：
+                // 旧写法 horizontalAlignment = Alignment.End ⇒ 两行只是"右贴齐"，真机 bounds 实测
+                // `天梯 2760 (10)` LEFT=700、`巅峰 -` LEFT=843（同右缘 931）——短的那行整个贴在右边，
+                // 两行左缘各浮一处，读起来就是"没对齐"。
+                // 现改为**两行共用同一个列宽**并居中：列宽用 width(IntrinsicSize.Max)，
+                // 由 Compose 按内容实测（= 本卡两行里较长那行的自然宽），
+                // 🔴 不拍脑袋写死 dp：写死既放不下「天梯 2760 (+150)」这类长文案，也会在
+                // 三语（Ladder/Peak、巔梯/巔峰）之间长短不一。短行在列宽内居中 ⇒ 两行左右缘一致。
+                // 胜负列不额外定宽：三个取值（胜/负/空、W/L/–）都是**单字**，天然等宽，
+                // 且整组右贴齐卡片内容右缘 ⇒ 跨卡右缘恒定，无需再套一个宽度常量。
+                modifier = Modifier
+                    .width(IntrinsicSize.Max)
+                    .alignByBaseline(),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
                     text = buildAnnotatedString {
@@ -429,6 +443,8 @@ private fun RecordItem(
                         }
                     },
                     style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
                 )
                 Text(
                     text = buildAnnotatedString {
@@ -442,6 +458,8 @@ private fun RecordItem(
                         }
                     },
                     style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
                 )
             }
             Text(

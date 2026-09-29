@@ -164,6 +164,15 @@ fun MyRoute(
     }
 }
 
+/**
+ * 账户行头像直径：**48dp**（用户 2026-09-29 拍板，V37-G）。
+ * 口径 = M3 `ListItem` 的 **LeadingAvatar** 标准尺寸（列表行首头像），账户行正是列表行；
+ * 原 56dp 比行首头像规范大一档，用户报「头像略大」。
+ * ⚠️ 首页/统计页资料卡的头像（`PlayerInfoHeader.PLAYER_INFO_AVATAR_DP` = 64dp）是**另一处材料**，
+ * 用户只说「我的页面」⇒ 本棒不动它。
+ */
+internal val MyAccountAvatarSize = 48.dp
+
 /** 分区卡片：M3 filled Card，标题走 primary 色 titleSmall（区块小标题的工程惯例） */
 @Composable
 private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
@@ -182,11 +191,12 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
 
 /**
  * 账号行：头像 + 昵称 + 「UID · 服 · 牌手等级」，当前账户行尾 Check 并禁点（点自己无操作）。
- * V36/2：
- * - 头像走 [StoredAccount.avatar]（56dp：比首页个人信息那 64dp 略小，但整块材料高度基本不变）。
- *   该字段的来源是「我的」页装载链的 my_home_page 回填（V36/2b，见 MyViewModel.backfillActiveAvatar），
- *   登录接口的 avatar_url 只是顺带兜住；缺字段/空白（存量未补齐、接口无头像）时
- *   Avatar 自己画圆形 Person 占位，不留空。
+ * V36/2，尺寸与回填口径 V37-G 更新：
+ * - 头像走 [StoredAccount.avatar]，直径 [MyAccountAvatarSize]（48dp = M3 ListItem LeadingAvatar）。
+ *   该字段由「我的」页装载链对 my_home_page 的回填补齐（V36/2b 引入，V37-G 起**逐账户覆盖全部账户**，
+ *   见 MyViewModel.backfillAllAvatars），登录接口的 avatar_url 只是顺带兜住。
+ * - 🔴 缺字段/空白（存量未补齐、接口无头像、该账户请求失败）时**保留占位回落**：
+ *   [Avatar] 自己画圆形 Person 占位，不留空、不隐藏头像位（行高因此不随回填进度跳动）。
  * - 牌手等级**并进这一行副标题**，不再单独开一张「个人信息」卡片 —— 用户原话：
  *   「上面账户里已经展示了 UID 和昵称，下方再展示只是浪费空间」「说明文本应合并到已有文本」。
  * - 等级只属于激活账户（profile 接口按当前会话取），非激活行不拼这一段。
@@ -207,7 +217,7 @@ private fun AccountRow(
     ) {
         Avatar(
             url = account.avatar,
-            size = 56.dp,
+            size = MyAccountAvatarSize,
             contentDescription = stringResource(R.string.cd_avatar),
         )
         Column(

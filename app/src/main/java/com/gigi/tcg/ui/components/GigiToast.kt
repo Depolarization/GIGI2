@@ -3,6 +3,8 @@ package com.gigi.tcg.ui.components
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -77,7 +79,14 @@ private val EmptyToastAction: (String, String, suspend () -> Unit) -> Unit = { _
 val LocalToastAction: ProvidableCompositionLocal<(String, String, suspend () -> Unit) -> Unit> =
     compositionLocalOf { EmptyToastAction }
 
-/** 渲染当前一条 Snackbar，并在协程内持续消费 controller 队列 */
+/**
+ * 渲染当前一条 Snackbar，并在协程内持续消费 controller 队列。
+ *
+ * Snackbar 的容器/正文/action 三色在此处**显式**指定，不用 M3 默认：默认值走
+ * `inverseSurface` 一族槽位，V37 真机夜间被 MIUI 动态取色解析成浅底浅字（≈1.0:1，完全看不见）。
+ * 现在主题侧（Color.kt）已固定色板、这两侧同相（深底浅字），这里再显式传色 + 单测锁死，
+ * 避免「默认回落」成为下一个可读性回归的入口。
+ */
 @Composable
 fun ToastHost(controller: ToastController, modifier: Modifier = Modifier) {
     val hostState = remember { SnackbarHostState() }
@@ -101,7 +110,24 @@ fun ToastHost(controller: ToastController, modifier: Modifier = Modifier) {
             }
         }
     }
-    SnackbarHost(hostState = hostState, modifier = modifier)
+    // V37-B：snackbar 配色显式传，不吃 M3 默认回落。
+    // M3 默认 Snackbar 的三件套是 inverseSurface（容器）/ inverseOnSurface（正文）/
+    // inversePrimary（action 文字），而夜间「完全看不见」正是落在这三个槽上：
+    // V37 真机实测 MIUI 动态取色给出浅底 #E6E0E9 + 浅字，对比度 ≈1.0:1。
+    // 固定色板（Color.kt）已把三槽钉成「两套主题都是深底浅字」（浅色 #322F35 / 深色 #2B2930），
+    // 这里再按槽显式传一遍：即使将来有人重调 scheme 或 M3 改了默认取槽口径，也不会悄悄退回不可读。
+    // 实测对比度（ThemeContrastTest 钉死）：正文 11.65（浅）/ 11.08（深），
+    // 「查看」按钮 inversePrimary #D0BCFF 对两种容器 7.73 / 8.42 —— action 单独一档，别漏。
+    val colorScheme = MaterialTheme.colorScheme
+    SnackbarHost(hostState = hostState, modifier = modifier) { data ->
+        Snackbar(
+            snackbarData = data,
+            containerColor = colorScheme.inverseSurface,
+            contentColor = colorScheme.inverseOnSurface,
+            actionContentColor = colorScheme.inversePrimary,
+            dismissActionContentColor = colorScheme.inverseOnSurface,
+        )
+    }
 }
 
 /**

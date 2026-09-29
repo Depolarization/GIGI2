@@ -56,6 +56,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -124,7 +125,20 @@ fun LoginScreen(
                 },
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {
+            // V37-H：与 GigiToast.kt ToastHost 同构，显式传四色槽，不吃 M3 默认回落。
+            // M3 1.3.2 深色基线 inverseSurface=#E6E0E9（浅），若走默认则浅底浅字≈1.0:1 夜间不可读。
+            val colorScheme = MaterialTheme.colorScheme
+            SnackbarHost(hostState = snackbarHostState) { data ->
+                Snackbar(
+                    snackbarData = data,
+                    containerColor = colorScheme.inverseSurface,
+                    contentColor = colorScheme.inverseOnSurface,
+                    actionContentColor = colorScheme.inversePrimary,
+                    dismissActionContentColor = colorScheme.inverseOnSurface,
+                )
+            }
+        },
     ) { innerPadding ->
         // 单列可滚动：内容在窄屏/横屏不裁剪；区块间 24dp（M3 大区块阶梯），
         // 顶栏下方不再叠居中大标题——页面靠顶栏定锚，正文直接铺开避免「飘在页面中间」。

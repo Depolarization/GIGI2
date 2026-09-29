@@ -2,6 +2,8 @@
 // 三分类频道（233 角色牌 / 234 行动牌 / 235 魔物牌）+ 多维筛选（AND）+ 关键词搜索 + 网格。
 // 筛选语义逐字对齐 Web：选中维度子项拼成 "label/sub" 键，卡牌 filterArray 须包含全部选中键；
 // 关键词按去后缀标题不区分大小写包含匹配。列表数据经 repository（内存→磁盘 1h TTL 缓存）。
+// V37-5：装载入口不再无条件打 Loading —— 已有分类就静默替换（见 shouldShowBlockingLoading），
+// 否则内存/磁盘缓存命中也先闪一帧菊花（V37-5 用户实测：切页必闪 progressbar + 正在加载）。
 
 package com.gigi.tcg.ui.screens.cardwiki
 
@@ -62,6 +64,14 @@ data class WikiUiState(
 ) {
     val activeCategory: CategoryVm? get() = categories.find { it.id == activeCatId }
 
+    /**
+     * 有没有「既有的可展示内容」——[shouldShowBlockingLoading] 的输入。
+     * 三个频道只要解析出任一分类就算有内容：整页结构（tab + 搜索框 + 网格）已经能画，
+     * 这时候再打 Loading 就是把已经看着的东西擦掉重画（切页闪菊花的来源）。
+     * 分类里筛不出牌（关键词/筛选不命中）走的是 EmptyState，不是 Loading。
+     */
+    val hasContent: Boolean get() = categories.isNotEmpty()
+
     /** 当前分类经"各维度选中项 AND + 关键词"过滤后的卡牌（对齐 Web filteredCards useMemo） */
     val filteredCards: List<CardVm>
         get() {
@@ -79,6 +89,21 @@ data class WikiUiState(
         }
 }
 
+/**
+ * 阻塞式 Loading 判据（纯函数，无 Compose/Android 依赖，JVM 单测直接钉死）：
+ * 口径与 V36-5 定稿、HomeViewModel.loadProfile 落地的「有内容即静默替换」一致 ——
+ * 状态里已经有分类可画，本次装载（含 force=true 的手动刷新）只静默替换，不把 loading 打回 true。
+ * 缓存命中时协程几乎立刻返回，但入口那一次 `loading = true` 已足够让 UI 先画一帧菊花，
+ * 这就是用户报的「每次切页都闪 progressbar」（V37-5 实测根因）。
+ *
+ * 判据读的是 **StateFlow 里的状态**，不是 `LaunchedEffect(key)` 的 key：组合离开会被 cancel、
+ * 重入会重启（手册 §8.6 红线 6），每次 load() 都重新求值 ⇒ 天然免疫重入漏判。
+ *
+ * 与统计页 CardStatsViewModel 的同名判据少一个 isError 入参：
+ * 本页两处错误分支都把 categories 清成空 ⇒ 「错误页」必然「无内容」，hasContent 单条判据已经够。
+ */
+internal fun shouldShowBlockingLoading(hasContent: Boolean): Boolean = !hasContent
+
 class CardWikiViewModel(private val container: AppContainer) : ViewModel() {
 
     private val _uiState = MutableStateFlow(WikiUiState())
@@ -93,7 +118,8 @@ class CardWikiViewModel(private val container: AppContainer) : ViewModel() {
     /** force=true 绕过双层缓存（重试 / 手动刷新入口）；每次自增 generation 丢弃过期回调 */
     fun load(force: Boolean) {
         val gen = ++generation
-        _uiState.update { it.copy(loading = true, error = null) }
+        // 有内容即静默替换（判据见 shouldShowBlockingLoading）；error 的清理时机保持现状：入口清、落定按结果写。
+        _uiState.update { it.copy(loading = shouldShowBlockingLoading(it.hasContent), error = null) }
         viewModelScope.launch {
             try {
                 val data = container.repository.fetchCardWikiListCached(force)

@@ -63,8 +63,13 @@
     <string name="my_summary_schedules">%1$d periods</string>
     <string name="my_challenge_no_data">No records for this period</string>
     <string name="my_challenge_win_count">%1$d wins</string>
+    <string name="my_challenge_prev_period">Previous period</string>
+    <string name="my_challenge_next_period">Next period</string>
     <string name="my_copy_share_code">Copy share code</string>
     <string name="toast_copied_share_code">Share code copied: %1$s</string>
+    <string name="my_export_deck_image">Export deck image</string>
+    <string name="deck_export_saved">Deck image saved to your gallery</string>
+    <string name="export_deck_author">Shared by %1$s</string>
 
     <!-- Servers -->
     <string name="server_cn_gf01">Sky Island</string>
@@ -263,6 +268,7 @@
     <string name="export_dir_char">Character Cards</string>
     <string name="export_dir_action">Action Cards</string>
     <string name="export_dir_qr">QR Code</string>
+    <string name="export_dir_deck">Decks</string>
 
     <!-- Export image header / footer -->
     <string name="export_level">Player Level %1$d</string>

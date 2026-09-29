@@ -1,11 +1,17 @@
-// 我的卡组（设计 §3.3）：牌组列表 → 页内切详情（角色牌 / 行动牌两组卡面 + 复制分享码）。
+// 我的卡组（设计 §3.3）：牌组列表页 + 牌组详情页（角色牌 / 行动牌两组卡面 + 复制分享码 + 导出渲染图）。
 // 数据：gcg/deckList（实测官服 11 副 · 渠道服 0 副；avatar_cards 恒 3 张、action_cards 22–25 张）。
-// 标题与返回入口在主壳顶栏（GigiNavHost），详情态是同一目的地内的状态切换，
-// 返回按钮随内容画（见 DeckDetail 的头行），不再是第二条标题栏。
+// 🔴 V37-F：详情**升为独立路由** `my/deck/{deck_index}?deck_name=…`（不再是页内状态）。
+// 根因：页内状态时主壳顶栏只知道当前在 my/deck，出不了牌组名，页内才补画了一行「返回 + 标题」
+// ⇒ 与主壳顶栏叠成双标题栏。升路由后标题（牌组名，取导航参数）与返回都在主壳，返回栈也自然逐级：
+// 详情 → 卡组列表 → 我的页。页内只剩两个 trailing icon 动作（复制 / 导出），没有任何标题行。
+// 详情各自一份 MyViewModel：重活（5min 私有内存缓存）在共享的 GigiRepository 里，
+// 口径与其余二级页一致（见 MySubpages.kt 头注的既有取舍）。
 
 package com.gigi.tcg.ui.screens.my
 
 import android.app.Application
+import android.content.Context
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -26,18 +33,20 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +66,12 @@ import com.gigi.tcg.data.model.GcgDeckCard
 import com.gigi.tcg.ui.components.AppImage
 import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.LocalToast
+import com.gigi.tcg.ui.components.LoadingView
+import com.gigi.tcg.ui.dialogs.cardcover.exportDateText
+import com.gigi.tcg.ui.export.buildDeckImageSpec
+import com.gigi.tcg.ui.export.deckExportFeedback
+import com.gigi.tcg.ui.export.exportDeckImage
+import kotlinx.coroutines.launch
 
 /** 卡面宽高比：接口图片 URL 自带 `resize,m_fixed,h_275,w_160`，按原比例摆框，避免 Crop 切掉卡名 */
 internal const val CARD_FACE_ASPECT_RATIO: Float = 160f / 275f
@@ -67,30 +82,20 @@ internal val DeckCardShape = RoundedCornerShape(8.dp)
 private const val DECK_GRID_COLUMNS = 3
 private val DECK_GRID_GAP = 8.dp
 
+/**
+ * 牌组列表页。点击某副牌 ⇒ 交宿主导航到详情路由（带上标号与该副牌的名字，
+ * 名字进导航参数只为让主壳顶栏立刻出动态标题，不参与数据查找）。
+ */
 @Composable
-fun MyDecksPage(modifier: Modifier = Modifier) {
+fun MyDecksPage(modifier: Modifier = Modifier, onOpenDeckDetail: (index: Int, deckName: String) -> Unit) {
     val app = LocalContext.current.applicationContext as Application
     val viewModel: MyViewModel = viewModel(factory = MyViewModel.factory(app))
     val activeUid by viewModel.activeUid.collectAsStateWithLifecycle()
     val deckListData by viewModel.deckList.collectAsStateWithLifecycle()
-    var selectedDeck by remember { mutableStateOf<GcgDeck?>(null) }
 
-    // 🔴 lastUid 守卫，写法照首页 HomeRoute（LaunchedEffect 的 key 相同只防"同一组合内 key 变化"，
-    // 防不了"离开 Composition 后重入"）：重入不该打掉详情态，也不该清空数字（VM 同 uid 不清空、静默替换）；
-    // 只有真正换账户才掉回列表态 —— 详情正开着时切账户，屏幕不该继续展示上一账户那副牌组。
-    var lastUid by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(activeUid) {
-        val uid = activeUid
-        if (uid != null && uid != lastUid) selectedDeck = null
-        if (uid != null) lastUid = uid
-        viewModel.loadDeckList()
-    }
-
-    val deck = selectedDeck
-    if (deck != null) {
-        DeckDetail(deck = deck, onBack = { selectedDeck = null }, modifier = modifier)
-        return
-    }
+    // 装载幂等：同账户重入不清空（VM 只在 uid 变化时清空），命中内存缓存后静默替换 ⇒ 列表不闪。
+    // 换账户的返回栈归属由主壳 `key(server to sessionUid)` 重建负责（详情是路由 ⇒ 自然一起弹出）。
+    LaunchedEffect(activeUid) { viewModel.loadDeckList() }
 
     val decks = deckListData?.deckList.orEmpty()
     MySubpageScaffold(modifier = modifier) {
@@ -110,16 +115,52 @@ fun MyDecksPage(modifier: Modifier = Modifier) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 // 牌组 id 实测 1..11 不连续、可缺失也可重复 ⇒ 复合下标（见 stableItemKey）
-                itemsIndexed(decks, key = { index, item -> stableItemKey(item.id, index) }) { _, item ->
-                    DeckRow(deck = item, onClick = { selectedDeck = item })
+                itemsIndexed(decks, key = { index, item -> stableItemKey(item.id, index) }) { index, item ->
+                    val title = deckDisplayName(item)
+                    DeckRow(deck = item, title = title, onClick = { onOpenDeckDetail(index, title) })
                 }
             }
         }
     }
 }
 
+/**
+ * 牌组详情路由的内容。参数只有标号 ⇒ 数据自己按内存缓存取（与其余二级页同一口径）；
+ * 名字从导航参数进顶栏，这里不重复画。
+ */
 @Composable
-private fun DeckRow(deck: GcgDeck, onClick: () -> Unit) {
+fun MyDeckDetailPage(
+    deckIndex: Int,
+    onShowExportResult: (message: String, uris: List<Uri>) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val app = LocalContext.current.applicationContext as Application
+    val viewModel: MyViewModel = viewModel(factory = MyViewModel.factory(app))
+    val activeUid by viewModel.activeUid.collectAsStateWithLifecycle()
+    val deckListData by viewModel.deckList.collectAsStateWithLifecycle()
+    LaunchedEffect(activeUid) { viewModel.loadDeckList() }
+
+    // 下标而非 id：实测牌组 id 可重复（见 stableItemKey 的服务端事实），下标才唯一对应「点进去的那一副」。
+    val deck = deckListData?.deckList.orEmpty().getOrNull(deckIndex)
+    MySubpageScaffold(modifier = modifier) {
+        when {
+            deck != null -> DeckDetail(
+                deck = deck,
+                nickname = deckListData?.nickname,
+                uid = activeUid,
+                onShowExportResult = onShowExportResult,
+            )
+            // 尚未回包（内存缓存命中时这一帧基本看不见）；回包后仍取不到该下标 ⇒ 空态，不画半截详情
+            deckListData == null -> Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { LoadingView() }
+            else -> Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                EmptyState(title = stringResource(R.string.my_empty_decks))
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeckRow(deck: GcgDeck, title: String, onClick: () -> Unit) {
     val avatars = deck.avatarCards.orEmpty()
     Card(
         modifier = Modifier
@@ -128,7 +169,7 @@ private fun DeckRow(deck: GcgDeck, onClick: () -> Unit) {
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                deckDisplayName(deck),
+                title,
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -170,11 +211,18 @@ private fun DeckRow(deck: GcgDeck, onClick: () -> Unit) {
 }
 
 /**
- * 牌组详情：动态标题（牌组名）+ 返回随内容画，两组卡面三等分，底部「复制分享码」。
+ * 牌组详情内容：两组卡面三等分 + 右上角两个 icon 动作（复制分享码 / 导出渲染图）。
  * 行动牌 22–25 张，整页 verticalScroll（量小，不上 LazyGrid）。
+ * 🔴 标题行已删除（V37-F 任务 A）：牌组名与返回都在主壳顶栏，页内再画一行就是第二条标题栏。
  */
 @Composable
-private fun DeckDetail(deck: GcgDeck, onBack: () -> Unit, modifier: Modifier = Modifier) {
+private fun DeckDetail(
+    deck: GcgDeck,
+    nickname: String?,
+    uid: String?,
+    onShowExportResult: (message: String, uris: List<Uri>) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val toast = LocalToast.current
     // 剪贴板范式照 PlayerDetailDialog（LocalClipboardManager 已废弃但仍是当前工程口径）
     @Suppress("DEPRECATION") val clipboard = LocalClipboardManager.current
@@ -183,6 +231,19 @@ private fun DeckDetail(deck: GcgDeck, onBack: () -> Unit, modifier: Modifier = M
     val canCopyShareCode = !shareCode.isNullOrBlank()
     // stringResource 不能在 onClick（普通 lambda）里调，先在组合期算好（同 PlayerDetailDialog）
     val copiedToast = stringResource(R.string.toast_copied_share_code, shareCode.orEmpty())
+    val copyLabel = stringResource(R.string.my_copy_share_code)
+    val exportLabel = stringResource(R.string.my_export_deck_image)
+    // 文件名里的「我的卡组」与导出图的品牌口径同源
+    val deckLabel = stringResource(R.string.my_deck_entry)
+    val exporter = rememberDeckExporter(
+        context = LocalContext.current,
+        deck = deck,
+        deckTitle = deckDisplayName(deck),
+        nickname = nickname,
+        uid = uid,
+        deckLabel = deckLabel,
+        onResult = onShowExportResult,
+    )
 
     MySubpageScaffold(modifier = modifier) {
         Column(
@@ -190,46 +251,83 @@ private fun DeckDetail(deck: GcgDeck, onBack: () -> Unit, modifier: Modifier = M
                 .weight(1f)
                 .verticalScroll(rememberScrollState()),
         ) {
+            // 两个动作贴右上角：IconButton 的 48dp 触摸区外沿留 4dp ⇒ 图标正好落在 16dp 内容线上，
+            // 与主壳顶栏 actions 区的图标同列（用户要的"横向对齐卡组名称"在单标题栏下的等价落点）。
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 4.dp, end = MyRowHorizontalPadding, top = 4.dp),
+                    .padding(top = 4.dp, end = 4.dp),
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                        contentDescription = stringResource(R.string.action_back),
-                    )
+                IconButton(
+                    onClick = {
+                        val code = shareCode
+                        val message = copiedToast
+                        if (!code.isNullOrBlank() && message.isNotEmpty()) {
+                            @Suppress("DEPRECATION") clipboard.setText(AnnotatedString(code))
+                            toast(message)
+                        }
+                    },
+                    enabled = canCopyShareCode,
+                ) {
+                    Icon(imageVector = Icons.Outlined.ContentCopy, contentDescription = copyLabel)
                 }
-                Text(
-                    deckDisplayName(deck),
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            OutlinedButton(
-                onClick = {
-                    val code = shareCode
-                    val message = copiedToast
-                    if (!code.isNullOrBlank() && message != null) {
-                        @Suppress("DEPRECATION") clipboard.setText(AnnotatedString(code))
-                        toast(message)
+                if (exporter.exporting) {
+                    Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                     }
-                },
-                enabled = canCopyShareCode,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = MyRowHorizontalPadding, vertical = 8.dp),
-            ) {
-                Text(stringResource(R.string.my_copy_share_code))
+                } else {
+                    IconButton(onClick = exporter.run, enabled = exporter.enabled) {
+                        Icon(imageVector = Icons.Outlined.IosShare, contentDescription = exportLabel)
+                    }
+                }
             }
             CardGroup(title = stringResource(R.string.my_deck_card_group_avatar), cards = deck.avatarCards.orEmpty())
             CardGroup(title = stringResource(R.string.my_deck_card_group_action), cards = deck.actionCards.orEmpty())
         }
     }
+}
+
+/** 导出动作：按钮可用性 + 导出中态 + 点击执行（渲染在协程里跑，UI 期间禁点并出进度） */
+private data class DeckExportActionUi(val enabled: Boolean, val exporting: Boolean, val run: () -> Unit)
+
+/**
+ * 卡组导出：组 spec → 渲染 → 落盘 → 一条带「查看」的结果回传宿主（与统计页导出同一链路）。
+ * 渲染要拉十几张卡图，耗时不确定 ⇒ 必须挂协程；`exporting` 同步置位挡住重复点击，
+ * finally 复位保证异常/取消路径不会把按钮永久禁用（照 rememberStatsExporter）。
+ */
+@Composable
+private fun rememberDeckExporter(
+    context: Context,
+    deck: GcgDeck,
+    deckTitle: String,
+    nickname: String?,
+    uid: String?,
+    deckLabel: String,
+    onResult: (message: String, uris: List<Uri>) -> Unit,
+): DeckExportActionUi {
+    val appContext = context.applicationContext
+    val coroutineScope = rememberCoroutineScope()
+    var exporting by remember { mutableStateOf(false) }
+
+    val run: () -> Unit = remember(deck, deckTitle, nickname, uid, deckLabel, exporting) {
+        {
+            if (!exporting) {
+                exporting = true
+                coroutineScope.launch {
+                    try {
+                        val spec = buildDeckImageSpec(deck, deckTitle, nickname, uid, exportDateText())
+                        val outcome = exportDeckImage(appContext, spec, deckLabel, uid)
+                        onResult(deckExportFeedback(outcome.succeeded, outcome.error), listOfNotNull(outcome.uri))
+                    } finally {
+                        exporting = false
+                    }
+                }
+            }
+        }
+    }
+    return DeckExportActionUi(enabled = !exporting, exporting = exporting, run = run)
 }
 
 /**
@@ -268,6 +366,11 @@ private fun CardGroup(title: String, cards: List<GcgDeckCard>) {
     }
 }
 
+/**
+ * 一张牌：卡面 + 牌名。**不再显示张数**（V37-F 任务 B）——
+ * 🔴 `card.num` 在牌组详情语义下恒为 1（一副牌组每张牌唯一携带一份），无信息量、纯占一行高度。
+ * 列表页 `DeckRow` 也只取 `avatars.size` / `actionCards.size`，工程里没有第二处消费 `num`。
+ */
 @Composable
 private fun DeckCardTile(card: GcgDeckCard) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -292,11 +395,6 @@ private fun DeckCardTile(card: GcgDeckCard) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 4.dp),
-        )
-        Text(
-            card.num?.toString().orEmpty(),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
