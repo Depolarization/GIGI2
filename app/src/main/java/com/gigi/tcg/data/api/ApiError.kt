@@ -24,11 +24,26 @@ val RETRYABLE_RETCODES: Set<Int> = setOf(-500004, -1, -110)
 /**
  * 需要人机验证（CAPTCHA），目前已知唯一取值 1034。
  *
- * 🔴 实测（2026-09-28，见 .task/p1-gcg-samples/FINDINGS.md §7/§8）：`gcg/basicInfo` 在真实登录态下
- * 恒返回该码，服务端 message 为空串 ⇒ 被 MihoyoClient 兜底成「接口返回 retcode=1034」原样透传。
- * 7 组请求头变体（client_type 1/2/4/5、去 x-rpc-*、加 lang、换 UA）与 DS 签名**全部仍为 1034**
- * ⇒ 这是**账号/凭据级风控**，重试与改请求形态都无效；唯一解法是用户去米游社 App
- * 「我的 → 我的角色」按提示完成人机验证。
+ * 🔴 **实测结论已更新（2026-09-29，V36-5 三十七组变体矩阵取证，报告见
+ * `.task/v36-probe/basicinfo/REPORT.md`）**——**下面这段旧结论已被推翻，勿再照它推理**：
+ *
+ * ~~旧结论（2026-09-28，7 组请求头变体）~~：~~`gcg/basicInfo` 恒 1034 ⇒ 账号/凭据级风控，
+ * 唯一解法是用户去米游社 App 完成人机验证。~~
+ *
+ * **现行结论**：`gcg/basicInfo` 在**真实有效登录态**下**恒定**返回
+ * `{"data":null,"message":"","retcode":1034}`（41 字节定长，message 为**空串**）。
+ * 已实测排除的因素（每项都有数据支撑）：
+ * - ❌ cookie 有效性：对照组 `deckList`/`cardBackList`/`cardList` **同 cookie、同主机、同路径前缀恒 0**；
+ * - ❌ 账号级风控：两个账号（cn_gf01 / cn_qd01）响应**逐字节一致**；
+ * - ❌ 主机 / 路径前缀 / 端点名：仅 `api-takumi-record.mihoyo.com` 存在该端点族，其余 404/503；
+ * - ❌ 参数名与增减：`role_id` 是**硬校验的正确参数名**（换成 `uid`/`game_uid` 得 -1）；
+ * - ❌ 请求头：历史 7 组 + 本轮 8 组全灭；
+ * - ❌ HTTP 方法：POST 一律 405，端点只认 GET。
+ *
+ * ⇒ 判定为**网关/服务端对该单端点的定向门禁**，发生在业务代码之前
+ * （无 challenge/verify 字段、无验证码 URL、无 429/Retry-After）。
+ * ⇒ **对本项目而言等价于"该数据源不可用"**：`fetchOfficialCardTotals` 恒 null，
+ * 导出图行动牌分母降级为图鉴口径 **568**（官方真值 **941**），"没收集全"会被画成"全收集"。
  *
  * 因此它**既不进** [AUTH_FAILED_RETCODES]（不代表凭据失效，不得据此登出），
  * 也**不进** [RETRYABLE_RETCODES]（重试不可能成功，别浪费一次请求）。
