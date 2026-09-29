@@ -1,16 +1,17 @@
-// ①a/①c 覆盖：首刷时序（profile 落定后错峰 staggerMs 再 records）与
-// 首刷 RETRYABLE 静默重试一次（手动 refresh/凭据错误不重试）。
-// HomeViewModel 本体依赖 Android Application，这里测其提取出的纯函数 helper。
+// ①a/①c 覆盖：首刷时序（profile 落定后错峰 staggerMs 再 records）。
+// V36 变更：fetchWithSilentRetry（首刷 RETRYABLE 静默重试一次）已删除——重试统一由
+// MihoyoClient 指数退避负责（设计红线 2），页面层再叠一层会把最坏等待翻倍。
+// 原「静默重试」的 5 个用例随之移除，改为源码回归锁防止被重新加回来。
+// HomeViewModel 本体依赖 Android Application，这里测其提取出的纯函数 helper + 源码文本断言。
 
 package com.gigi.tcg.ui.screens.home
 
-import com.gigi.tcg.data.api.API_ERROR_KIND_RETCODE
-import com.gigi.tcg.data.api.ApiError
+import java.io.File
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Test
 
 class HomeFirstLoadTest {
@@ -44,76 +45,21 @@ class HomeFirstLoadTest {
         assertEquals(0, currentTime.toInt())
     }
 
+    /** V36/3 任务 F：页面层静默重试必须删干净（与 MihoyoClient 退避重试叠加 = 最坏等待翻倍） */
     @Test
-    fun `first load silently retries once on retryable retcode then succeeds`() = runTest {
-        var calls = 0
-        val result = fetchWithSilentRetry(isFirstLoad = true) {
-            calls += 1
-            if (calls == 1) throw ApiError(API_ERROR_KIND_RETCODE, "操作频繁", -500004)
-            "ok"
-        }
-        assertEquals("ok", result)
-        assertEquals(2, calls)
+    fun `page-level silent retry is gone; retry belongs to MihoyoClient`() {
+        val src = File("src/main/java/com/gigi/tcg/ui/screens/home/HomeViewModel.kt").readText()
+        assertFalse("fetchWithSilentRetry 不得再存在", src.contains("fetchWithSilentRetry"))
+        assertFalse("页面层不得再自行判定 RETRYABLE retcode（红线 2）", src.contains("RETRYABLE_RETCODES"))
     }
 
+    /** V36/3 任务 G：下拉圈由在途计数把关，静默刷新时慢块未落定不收圈 */
     @Test
-    fun `manual refresh does not silently retry and error surfaces`() = runTest {
-        var calls = 0
-        try {
-            fetchWithSilentRetry(isFirstLoad = false) {
-                calls += 1
-                throw ApiError(API_ERROR_KIND_RETCODE, "操作频繁", -500004)
-            }
-            fail("expected ApiError")
-        } catch (e: ApiError) {
-            assertEquals(-500004, e.retcode)
-        }
-        assertEquals(1, calls)
-    }
-
-    @Test
-    fun `auth failure never silently retries even on first load`() = runTest {
-        var calls = 0
-        try {
-            fetchWithSilentRetry(isFirstLoad = true) {
-                calls += 1
-                throw ApiError(API_ERROR_KIND_RETCODE, "please login", -100)
-            }
-            fail("expected ApiError")
-        } catch (e: ApiError) {
-            assertEquals(-100, e.retcode)
-        }
-        assertEquals(1, calls)
-    }
-
-    @Test
-    fun `first load settles error after second attempt also retryable`() = runTest {
-        var calls = 0
-        try {
-            fetchWithSilentRetry(isFirstLoad = true) {
-                calls += 1
-                throw ApiError(API_ERROR_KIND_RETCODE, "操作频繁", -500004)
-            }
-            fail("expected ApiError")
-        } catch (e: ApiError) {
-            assertEquals(-500004, e.retcode)
-        }
-        assertEquals(2, calls)
-    }
-
-    @Test
-    fun `non-api errors pass through untouched`() = runTest {
-        var calls = 0
-        try {
-            fetchWithSilentRetry(isFirstLoad = true) {
-                calls += 1
-                throw IllegalStateException("boom")
-            }
-            fail("expected IllegalStateException")
-        } catch (e: IllegalStateException) {
-            assertEquals("boom", e.message)
-        }
-        assertEquals(1, calls)
-        assertTrue(true)
+    fun `refresh spinner end is gated by in-flight count not only state`() {
+        val src = File("src/main/java/com/gigi/tcg/ui/screens/home/HomeViewModel.kt").readText()
+        assertTrue("loadProfile/loadRecords 应各自进出在途计数（+=1 / -=1 各两处）",
+            Regex("pendingLoads \\+= 1").findAll(src).count() == 2 &&
+                Regex("pendingLoads -= 1").findAll(src).count() == 2)
+        assertTrue("maybeEndRefreshing 必须先看 pendingLoads == 0", src.contains("pendingLoads == 0"))
     }
 }

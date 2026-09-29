@@ -13,8 +13,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gigi.tcg.GigiApp
 import com.gigi.tcg.data.ServerId
-import com.gigi.tcg.data.api.ApiError
-import com.gigi.tcg.data.api.RETRYABLE_RETCODES
 import com.gigi.tcg.i18n.apiErrorText
 import com.gigi.tcg.data.model.GameRecord
 import com.gigi.tcg.data.model.PageInfo
@@ -41,21 +39,6 @@ internal suspend fun runStaggeredFirstLoad(
     loadProfile()
     if (staggerMs > 0) delay(staggerMs)
     loadRecords()
-}
-
-/**
- * 首刷（非手动 refresh）遇 RETRYABLE 瞬态失败时静默自动重试一次再落定 Error；
- * 手动 refresh（isFirstLoad=false）与凭据类错误原样上抛，不静默重试。
- * client/repo 层已各有一次 RETRYABLE 重试，本层是首刷单块的最后一道兜底。
- */
-internal suspend fun <T> fetchWithSilentRetry(
-    isFirstLoad: Boolean,
-    block: suspend () -> T,
-): T = try {
-    block()
-} catch (e: ApiError) {
-    if (!isFirstLoad || !RETRYABLE_RETCODES.contains(e.retcode ?: 0)) throw e
-    block()
 }
 
 /** 单块数据的三态（对齐 Feedback.tsx 的 loading / data / error 形态） */
@@ -93,6 +76,10 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private var profileGeneration = 0
     private var recordsGeneration = 0
 
+    // 在途请求计数：主线程单线程读写（viewModelScope = Dispatchers.Main.immediate），无需原子类。
+    // 下拉圈收否看它而非只看状态（见 maybeEndRefreshing）
+    private var pendingLoads = 0
+
     init {
         // AppGate 零等待渲染：会话可能尚未写入，等首个非空 UID 再拉两块。
         // 首刷串行化错峰（profile → 延迟 → records），避开启动瞬态与
@@ -118,17 +105,10 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         loadRecords(uid, server, force = true)
     }
 
-    /** ErrorState 重试按钮：对应块 force 重取 */
-    fun retryProfile() {
-        val uid = container.sessionUid.value ?: return
-        loadProfile(uid, container.currentServer.value, force = true)
-    }
-
-    fun retryRecords() {
-        val uid = container.sessionUid.value ?: return
-        loadRecords(uid, container.currentServer.value, force = true)
-    }
-
+    /**
+     * V36 任务 E 后单块重试入口已删：首页错误视图二合一为整屏一个，
+     * 重试统一走 [refresh] 整页重拉两块（原先「个人信息一套错、对局区一套错」的分区重试不复存在）。
+     */
     private fun loadProfile(uid: String, server: ServerId, force: Boolean) {
         val gen = ++profileGeneration
         val current = _uiState.value.profile
@@ -136,20 +116,22 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         // 首载（初值 Loading）与 Error 重试仍进 Loading 转圈
         val silent = current is Async.Content
         if (!silent) _uiState.value = _uiState.value.copy(profile = Async.Loading)
+        pendingLoads += 1
         viewModelScope.launch {
+            // 重试统一由 MihoyoClient 指数退避负责（设计红线 2：retcode 语义集中在客户端层，
+            // 页面不得自行判定重发）。原先的 fetchWithSilentRetry 与退避重试叠加，
+            // 会把最坏等待翻倍，V36 起删除。
             val next: Async<PageInfo> = try {
-                // 首刷（force=false）遇限流瞬态失败静默重试一次再落定 Error
-                val pageInfo = fetchWithSilentRetry(isFirstLoad = !force) {
-                    container.repository.fetchMyHomePageCached(uid, server, force).pageInfo
-                }
+                val pageInfo = container.repository.fetchMyHomePageCached(uid, server, force).pageInfo
                 if (pageInfo != null) Async.Content(pageInfo) else Async.Error()
             } catch (e: Exception) {
                 Async.Error(apiErrorText(e))
             }
             if (gen == profileGeneration) {
                 _uiState.value = _uiState.value.copy(profile = next)
-                maybeEndRefreshing()
             }
+            pendingLoads -= 1
+            maybeEndRefreshing()
         }
     }
 
@@ -159,27 +141,30 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         // 同 loadProfile：有内容即静默，force 不再打回 Loading
         val silent = current is Async.Content
         if (!silent) _uiState.value = _uiState.value.copy(records = Async.Loading)
+        pendingLoads += 1
         viewModelScope.launch {
             val next: Async<List<GameRecord>> = try {
-                // 首刷（force=false）遇限流瞬态失败静默重试一次再落定 Error
                 Async.Content(
-                    fetchWithSilentRetry(isFirstLoad = !force) {
-                        container.repository.fetchGameRecordsCached(uid, server, force)
-                    }.gameRecords.orEmpty(),
+                    container.repository.fetchGameRecordsCached(uid, server, force).gameRecords.orEmpty(),
                 )
             } catch (e: Exception) {
                 Async.Error(apiErrorText(e))
             }
             if (gen == recordsGeneration) {
                 _uiState.value = _uiState.value.copy(records = next)
-                maybeEndRefreshing()
             }
+            pendingLoads -= 1
+            maybeEndRefreshing()
         }
     }
 
-    /** 统一判定：两块都落定（不再 Loading）即收回下拉刷新指示器 */
+    /**
+     * 统一判定：在途请求清零 **且** 两块状态都落定（不再 Loading）才收回下拉刷新指示器。
+     * 只看状态会提前收圈：静默刷新（两块都有内容）不进 Loading，先返回的那一块
+     * 一落定就让状态判定成立，而慢的那块仍在途 ⇒ 圈收了、数据还没换（V36 审计 P3）。
+     */
     private fun maybeEndRefreshing() {
-        if (_refreshing.value &&
+        if (_refreshing.value && pendingLoads == 0 &&
             _uiState.value.profile !is Async.Loading &&
             _uiState.value.records !is Async.Loading
         ) {
