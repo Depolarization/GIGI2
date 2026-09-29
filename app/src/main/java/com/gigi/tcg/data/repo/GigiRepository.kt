@@ -71,6 +71,13 @@ data class RawEnvelope(val retcode: Int?, val message: String?, val raw: String?
 /** 传输层最小接口：真身 = MihoyoClient（经 MihoyoClientEnvelopeTransport 适配信封） */
 interface GigiApiTransport {
     suspend fun fetchEnvelope(url: String, tag: String = ""): RawEnvelope
+
+    /**
+     * uid = 本次请求归属的账户（V37-I：私有数据要带**该账户自己的** Cookie，不能永远取激活账户）；
+     * null = 旧语义（激活账户）。默认实现丢弃 uid 回落两参版 ⇒ 既有 stub 实现方不感知。
+     */
+    suspend fun fetchEnvelope(url: String, tag: String, uid: String?): RawEnvelope =
+        fetchEnvelope(url, tag)
 }
 
 /** 图鉴磁盘层最小接口：真身 = WikiDiskCache（直接实现，测试可用假实现替换） */
@@ -82,8 +89,11 @@ interface WikiDiskStore {
 /** MihoyoClient 适配器：Cookie 注入 / 节流 / 网络归因都在 client 内部完成。
  *  data 以 JsonElement 形态取出再转原始 JSON 串，避免在 client 层提前解码丢失泛型形态。 */
 class MihoyoClientEnvelopeTransport(private val client: MihoyoClient) : GigiApiTransport {
-    override suspend fun fetchEnvelope(url: String, tag: String): RawEnvelope {
-        val envelope = client.requestEnvelope(url, JsonElement.serializer())
+    override suspend fun fetchEnvelope(url: String, tag: String): RawEnvelope =
+        fetchEnvelope(url, tag, null)
+
+    override suspend fun fetchEnvelope(url: String, tag: String, uid: String?): RawEnvelope {
+        val envelope = client.requestEnvelope(url, JsonElement.serializer(), uid)
         return RawEnvelope(
             retcode = envelope.first,
             message = envelope.second,
@@ -148,11 +158,11 @@ class GigiRepository(
 
     /** 最近对局记录（服务端最多返回最近 10 条） */
     suspend fun fetchGameRecords(uid: String, server: ServerId): GameRecordsData =
-        get(gameRecordsUrl(uid, server, LocaleStrings.currentLanguage()), GameRecordsData.serializer(), "")
+        get(gameRecordsUrl(uid, server, LocaleStrings.currentLanguage()), GameRecordsData.serializer(), "", uid)
 
     /** 我的主页（资料卡数据） */
     suspend fun fetchMyHomePage(uid: String, server: ServerId): MyHomePageData =
-        get(myHomePageUrl(uid, server, LocaleStrings.currentLanguage()), MyHomePageData.serializer(), "")
+        get(myHomePageUrl(uid, server, LocaleStrings.currentLanguage()), MyHomePageData.serializer(), "", uid)
 
     /** 他人主页（玩家详情弹窗数据；code 由 generateCode 生成） */
     suspend fun fetchOtherHomePage(code: String, myUid: String, server: ServerId): OtherHomePageData =
@@ -168,7 +178,7 @@ class GigiRepository(
 
     /** 个人卡牌使用统计（cardListUrl 无 lang 参数，服务端不支持本地化） */
     suspend fun fetchGcgCardList(uid: String, server: ServerId): GcgCardListData =
-        get(cardListUrl(uid, server), GcgCardListData.serializer(), "")
+        get(cardListUrl(uid, server), GcgCardListData.serializer(), "", uid)
 
     // 「我的」页 4 组 record 域端点：与 cardList 同主机同鉴权口径（Cookie only，无 DS），
     // 参数口径见各 URL 构造器 KDoc（deckList/cardBackList/matchList 只带 server+role_id；
@@ -176,23 +186,23 @@ class GigiRepository(
 
     /** 我的卡组 */
     suspend fun fetchGcgDeckList(uid: String, server: ServerId): GcgDeckListData =
-        get(gcgDeckListUrl(uid, server), GcgDeckListData.serializer(), "")
+        get(gcgDeckListUrl(uid, server), GcgDeckListData.serializer(), "", uid)
 
     /** 卡背收集（含未收集项） */
     suspend fun fetchGcgCardBackList(uid: String, server: ServerId): GcgCardBackListData =
-        get(gcgCardBackListUrl(uid, server), GcgCardBackListData.serializer(), "")
+        get(gcgCardBackListUrl(uid, server), GcgCardBackListData.serializer(), "", uid)
 
     /** 最近对局 + 收藏对局 */
     suspend fun fetchGcgMatchList(uid: String, server: ServerId): GcgMatchListData =
-        get(gcgMatchListUrl(uid, server), GcgMatchListData.serializer(), "")
+        get(gcgMatchListUrl(uid, server), GcgMatchListData.serializer(), "", uid)
 
     /** 胜冠之试旬列表 */
     suspend fun fetchGcgChallengeSchedule(uid: String, server: ServerId): GcgChallengeScheduleData =
-        get(gcgChallengeScheduleUrl(uid, server), GcgChallengeScheduleData.serializer(), "")
+        get(gcgChallengeScheduleUrl(uid, server), GcgChallengeScheduleData.serializer(), "", uid)
 
     /** 单旬战绩（scheduleId 取自旬列表的 id） */
     suspend fun fetchGcgChallengeRecord(uid: String, server: ServerId, scheduleId: Int): GcgChallengeRecordData =
-        get(gcgChallengeRecordUrl(uid, server, scheduleId), GcgChallengeRecordData.serializer(), "")
+        get(gcgChallengeRecordUrl(uid, server, scheduleId), GcgChallengeRecordData.serializer(), "", uid)
 
     /** 卡面详情（公开接口）：LRU 200 命中即复用（键含 lang，切语言不串缓存），未命中打 TAG_DETAIL 交 client 节流 */
     suspend fun fetchCardDetail(entryPageId: Int): EntryPageData {
@@ -247,7 +257,7 @@ class GigiRepository(
             (memoryCache.cacheGet(key) as? GcgBasicInfoData)?.let { return it }
         }
         val fresh = try {
-            get(gcgBasicInfoUrl(uid, server), GcgBasicInfoData.serializer(), "")
+            get(gcgBasicInfoUrl(uid, server), GcgBasicInfoData.serializer(), "", uid)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -369,15 +379,21 @@ class GigiRepository(
         get(CARD_INFO_URL, WikiListData.serializer(), "")
 
     /** 请求唯一出口：鉴权失败（isAuthFailureError，与 AppGate 同一判据）→ 静默续命 →
-     *  同一 URL 原样重放一次。续命失败抛原错误；重放在 try 之外，二次失败直接上抛（最多重试一次）。 */
-    private suspend fun <T> get(url: String, serializer: KSerializer<T>, tag: String): T {
+     *  同一 URL 原样重放一次（含同一 uid ⇒ 重放仍带目标账户自己的 Cookie）。
+     *  续命失败抛原错误；重放在 try 之外，二次失败直接上抛（最多重试一次）。 */
+    private suspend fun <T> get(
+        url: String,
+        serializer: KSerializer<T>,
+        tag: String,
+        uid: String? = null,
+    ): T {
         val observedGeneration = refreshGeneration
         try {
-            return fetchAndDecode(url, serializer, tag)
+            return fetchAndDecode(url, serializer, tag, uid)
         } catch (e: ApiError) {
             if (!isAuthFailureError(e) || !refreshSessionOnce(observedGeneration)) throw e
         }
-        return fetchAndDecode(url, serializer, tag)
+        return fetchAndDecode(url, serializer, tag, uid)
     }
 
     /** 单飞续命：observedGeneration 已被推进 = 同波已完成一次续命尝试，直接复用其结果；
@@ -398,11 +414,16 @@ class GigiRepository(
 
     /** 对齐 mihoyo.ts unwrap：retcode 判定 + RETRYABLE 等待 700ms + 0-300ms 随机抖动
      *  自动重试一次（抖动避免并发请求同刻重发再次互撞）+ data 解码 */
-    private suspend fun <T> fetchAndDecode(url: String, serializer: KSerializer<T>, tag: String): T {
-        var envelope = transport.fetchEnvelope(url, tag)
+    private suspend fun <T> fetchAndDecode(
+        url: String,
+        serializer: KSerializer<T>,
+        tag: String,
+        uid: String? = null,
+    ): T {
+        var envelope = transport.fetchEnvelope(url, tag, uid)
         if (RETRYABLE_RETCODES.contains(envelope.retcode)) {
             delay(retryDelayMs + if (retryJitterMs > 0) Random.nextLong(0L, retryJitterMs + 1) else 0L)
-            envelope = transport.fetchEnvelope(url, tag)
+            envelope = transport.fetchEnvelope(url, tag, uid)
         }
         val (retcode, message, raw) = envelope
         if (retcode != 0 || raw == null) {

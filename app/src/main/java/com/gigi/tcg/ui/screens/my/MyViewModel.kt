@@ -17,6 +17,7 @@
 package com.gigi.tcg.ui.screens.my
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -250,20 +251,41 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
      *   账户已登出（索引里没有它）或已被登录/续命路径补齐 ⇒ 直接跳过，不发请求。
      */
     private suspend fun backfillOneAvatar(uid: String, server: ServerId) {
-        val account = container.accounts.value.firstOrNull { it.uid == uid } ?: return
-        if (!account.avatar.isNullOrBlank()) return
+        val account = container.accounts.value.firstOrNull { it.uid == uid }
+            ?: run {
+                // 诊断通道（V37-I 任务 B）：回填失败曾长期静默（链上看不到任何错误），
+                // 逐账户记一行结果；🔴 只进 logcat，不弹 UI、不写 account_index
+                Log.i(AVATAR_BACKFILL_LOG_TAG, "skip uid=$uid reason=loggedOut")
+                return
+            }
+        if (!account.avatar.isNullOrBlank()) {
+            Log.i(AVATAR_BACKFILL_LOG_TAG, "skip uid=$uid nickname=${account.nickname} reason=alreadyFilled")
+            return
+        }
+        var failure: String? = null
         val avatar = try {
             container.repository.fetchMyHomePageCached(uid, server).pageInfo?.avatarUrl
         } catch (cancel: CancellationException) {
             throw cancel
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            failure = "${e.javaClass.simpleName}: ${e.message}"
             null
         }
-        if (avatar.isNullOrBlank()) return
+        if (avatar.isNullOrBlank()) {
+            if (failure != null) {
+                Log.w(AVATAR_BACKFILL_LOG_TAG, "fail uid=$uid nickname=${account.nickname} error=$failure")
+            } else {
+                Log.w(AVATAR_BACKFILL_LOG_TAG, "fail uid=$uid nickname=${account.nickname} reason=noAvatarUrl")
+            }
+            return
+        }
         // 在途期间该账户可能被别处补齐或已登出：replaceAvatar 的「uid 未命中 / 同值」判据兜住，
         // 返回 false 就不落盘也不刷列表（避免每次进本页都惊动账户行）
         if (container.credentialStore.updateAccountAvatar(uid, avatar)) {
             container.refreshAccounts()
+            Log.i(AVATAR_BACKFILL_LOG_TAG, "ok uid=$uid nickname=${account.nickname} result=backfilled")
+        } else {
+            Log.i(AVATAR_BACKFILL_LOG_TAG, "skip uid=$uid nickname=${account.nickname} reason=replaceNoop")
         }
     }
 
@@ -353,3 +375,6 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
  */
 internal fun planAvatarBackfill(accounts: List<StoredAccount>): List<StoredAccount> =
     accounts.filter { it.avatar.isNullOrBlank() }
+
+/** 头像回填诊断日志 tag（V37-I 任务 B）：logcat `adb logcat -s GigiAvatar` 可逐账户看结果 */
+private const val AVATAR_BACKFILL_LOG_TAG = "GigiAvatar"

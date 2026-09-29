@@ -26,6 +26,7 @@ import kotlinx.serialization.serializer
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -91,22 +92,33 @@ internal const val PARAM_ERROR_RETCODE: Int = -1
 internal val THROTTLED_FALLBACK_RETCODES: Set<Int> = RETRYABLE_RETCODES - PARAM_ERROR_RETCODE
 
 
+/**
+ * 请求级账户归属标记（V37-I）：私有数据请求带上**目标账户 uid**，Cookie 注入拦截器据此取该账户凭据；
+ * 无标记 = 旧行为（激活账户）。用 tag 传递而不扩公开签名，凭据解析仍集中在拦截器一处。
+ */
+internal class CookieUidTag(val uid: String)
+
 class MihoyoClient(
     http: OkHttpClient,
     private val json: Json,
     private val credentials: CredentialSource,
 ) {
-    /** 构造期装好 Cookie 注入拦截器：凭据明文不出网络层，业务调用方不可见 */
+    /** 构造期装好 Cookie 注入拦截器：凭据明文不出网络层，业务调用方不可见。
+     *  带 [CookieUidTag] 的请求按 tag 里的 uid 取**该账户自己**的 Cookie（多账户），其余回落激活账户。 */
     private val client: OkHttpClient = http.newBuilder()
-        .addInterceptor { chain ->
-            val builder = chain.request().newBuilder()
-            val header = credentials.cookieHeader()
-            if (!header.isNullOrEmpty()) {
-                builder.header("Cookie", header)
-            }
-            chain.proceed(builder.build())
-        }
+        .addInterceptor(cookieInterceptor())
         .build()
+
+    /** 抽成 internal（V37-I）：JVM 单测可用假 Chain 直接驱动「按 tag 里的 uid 取 cookie」这条判据 */
+    internal fun cookieInterceptor(): Interceptor = Interceptor { chain ->
+        val builder = chain.request().newBuilder()
+        val uid = chain.request().tag(CookieUidTag::class.java)?.uid
+        val header = credentials.cookieHeader(uid)
+        if (!header.isNullOrEmpty()) {
+            builder.header("Cookie", header)
+        }
+        chain.proceed(builder.build())
+    }
 
     /** 详情查询全局节流：对齐 Web 版 playerDetail 的 createThrottle(1000) 单实例语义（public-inline 可见 → @PublishedApi internal） */
     @PublishedApi
@@ -125,12 +137,13 @@ class MihoyoClient(
         url: String,
         serializer: KSerializer<T> = serializer(),
         tag: String = "",
+        uid: String? = null,
     ): T {
         // 节流只拦首次请求：命中限流码后的自动重试不重复计时
         if (tag == TAG_DETAIL && !detailThrottle()) {
             throw ApiError(API_ERROR_KIND_THROTTLED, "请求过于频繁，请稍后重试")
         }
-        val (retcode, message, data) = requestWithBackoff(url, serializer)
+        val (retcode, message, data) = requestWithBackoff(url, serializer, uid)
         if (retcode != 0 || data == null) {
             val code = retcode ?: 0
             throw ApiError(
@@ -160,6 +173,7 @@ class MihoyoClient(
     internal suspend fun <T> requestWithBackoff(
         url: String,
         serializer: KSerializer<T>,
+        uid: String? = null,
     ): Triple<Int, String?, T?> {
         var lastPair: Triple<Int, String?, T?>? = null
         var lastTransientError: ApiError? = null
@@ -167,7 +181,7 @@ class MihoyoClient(
         while (index <= MAX_RETRY_ATTEMPTS) {
             val outcome: Result<Triple<Int, String?, T?>> =
                 try {
-                    Result.success(requestEnvelope(url, serializer))
+                    Result.success(requestEnvelope(url, serializer, uid))
                 } catch (e: ApiError) {
                     Result.failure(e)
                 }
@@ -210,8 +224,9 @@ class MihoyoClient(
     internal suspend fun <T> requestEnvelope(
         url: String,
         serializer: KSerializer<T>,
+        uid: String? = null,
     ): Triple<Int, String?, T?> {
-        val body = execute(url)
+        val body = execute(url, uid)
         val root = try {
             json.parseToJsonElement(body)
         } catch (e: SerializationException) {
@@ -242,13 +257,14 @@ class MihoyoClient(
      * OkHttp 异步调用挂起化（Dispatchers.IO）。
      * HTTP 非 2xx 与 IO 失败均归 network（米哈游业务失败以 retcode 表达，HTTP 通常仍为 200）。
      */
-    private suspend fun execute(url: String): String =
+    private suspend fun execute(url: String, uid: String?): String =
         withContext(Dispatchers.IO) {
-            val request = Request.Builder()
+            val builder = Request.Builder()
                 .url(url.toHttpUrl())
                 .get()
-                .build()
-            val response = suspendingCall(request)
+            // uid 只以 tag 形态随请求走，Cookie 由拦截器按 tag 解析（明文本方法不可见）
+            if (uid != null) builder.tag(CookieUidTag::class.java, CookieUidTag(uid))
+            val response = suspendingCall(builder.build())
             response.use { resp ->
                 if (!resp.isSuccessful) {
                     throw ApiError(API_ERROR_KIND_NETWORK, "网络请求失败（HTTP ${resp.code}）")

@@ -6,13 +6,17 @@ package com.gigi.tcg.data.api
 
 import com.gigi.tcg.data.model.MyHomePageData
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import okhttp3.Call
+import okhttp3.Connection
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
+import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
@@ -213,5 +217,89 @@ class MihoyoClientRetryTest {
             assertEquals(10001, e.retcode)
         }
         assertEquals(1, script.calls)
+    }
+
+    // ===== V37-I 任务 A：Cookie 注入拦截器按请求归属 uid 取凭据（多账户头像根因修复） =====
+
+    @Test
+    fun `cookie interceptor takes the tagged account's credentials`() {
+        val credentials = RecordingCredentials()
+        val client = MihoyoClient(OkHttpClient.Builder().build(), testJson, credentials)
+        val tagged = Request.Builder()
+            .url("https://example.invalid/api/test")
+            .tag(CookieUidTag::class.java, CookieUidTag("157777921"))
+            .build()
+        val chain = FakeChain(tagged)
+
+        try {
+            client.cookieInterceptor().intercept(chain)
+            fail("FakeChain 在 proceed 处截停，不应走通")
+        } catch (_: IOException) {
+        }
+
+        assertEquals(listOf<String?>("157777921"), credentials.requestedUids)
+        assertEquals("cookie-of-157777921", chain.sent?.header("Cookie"))
+    }
+
+    @Test
+    fun `untagged requests keep falling back to the active account credentials`() {
+        val credentials = RecordingCredentials()
+        val client = MihoyoClient(OkHttpClient.Builder().build(), testJson, credentials)
+        val plain = Request.Builder().url("https://example.invalid/api/test").build()
+        val chain = FakeChain(plain)
+
+        try {
+            client.cookieInterceptor().intercept(chain)
+            fail("FakeChain 在 proceed 处截停，不应走通")
+        } catch (_: IOException) {
+        }
+
+        // 无 tag = 旧行为：走**无参** cookieHeader()（激活账户，含旧版单槽回退）
+        assertEquals(listOf<String?>(null), credentials.requestedUids)
+        assertEquals("active-cookie", chain.sent?.header("Cookie"))
+    }
+
+    /** 记录「网络层向凭据区要了谁的 cookie」：requestedUids 即请求归属审计链 */
+    private class RecordingCredentials : CredentialSource {
+        val requestedUids = mutableListOf<String?>()
+
+        override fun cookieHeader(): String? {
+            requestedUids += null
+            return "active-cookie"
+        }
+
+        override fun cookieHeader(uid: String?): String? {
+            if (uid.isNullOrEmpty()) return cookieHeader()
+            requestedUids += uid
+            return "cookie-of-$uid"
+        }
+    }
+
+    /** 假链：截停在 proceed 之前（不触网），只回看拦截器改写后的请求 */
+    private class FakeChain(private val request: Request) : Interceptor.Chain {
+        var sent: Request? = null
+
+        override fun request(): Request = request
+
+        override fun proceed(request: Request): Response {
+            sent = request
+            throw IOException("FakeChain stop")
+        }
+
+        override fun connection(): Connection? = null
+
+        override fun call(): Call = throw UnsupportedOperationException()
+
+        override fun connectTimeoutMillis(): Int = 0
+
+        override fun readTimeoutMillis(): Int = 0
+
+        override fun writeTimeoutMillis(): Int = 0
+
+        override fun withConnectTimeout(timeout: Int, unit: TimeUnit): Interceptor.Chain = this
+
+        override fun withReadTimeout(timeout: Int, unit: TimeUnit): Interceptor.Chain = this
+
+        override fun withWriteTimeout(timeout: Int, unit: TimeUnit): Interceptor.Chain = this
     }
 }

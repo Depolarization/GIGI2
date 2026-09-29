@@ -5,6 +5,7 @@
 // V37-G 任务 A：回填扩到**全部账户** ⇒ 补第二个账户时第一个的成果、索引序与激活键都不许被搅动（下面 4 条锁死）。
 package com.gigi.tcg.data.auth
 
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -164,6 +165,40 @@ class CredentialStoreAvatarTest {
         assertNull(CredentialStore.replaceAvatar(complete, "111", "https://cdn/a.png"))
         assertNull(CredentialStore.replaceAvatar(complete, "222", "https://cdn/b.png"))
     }
+
+    // ===== V37-I 任务 C：凭据源接口闸门（按 uid 取 cookie 已接线 + 老调用方不破坏） =====
+
+    /** CredentialSource：无参 cookieHeader() 必须在位（AppGate/MihoyoClient 老调用方），uid 重载默认回落它 */
+    @Test
+    fun `credential source keeps the no-arg cookieHeader and adds an uid-aware default`() {
+        val src = codeOnly(File("src/main/java/com/gigi/tcg/data/api/CredentialSource.kt").readText())
+
+        assertTrue("无参 cookieHeader() 不得被改签名", src.contains("fun cookieHeader(): String?"))
+        assertTrue(
+            "uid 重载必须存在且默认回落无参版（既有实现方/测试桩零感知）",
+            src.contains("fun cookieHeader(uid: String?): String? = cookieHeader()"),
+        )
+    }
+
+    /** CredentialStore：uid 版必须真的接到 cookieHeaderFor（这个函数 V36 起就存在，V37-I 才接进请求链路） */
+    @Test
+    fun `credential store wires the uid-aware cookieHeader onto cookieHeaderFor`() {
+        val src = codeOnly(File("src/main/java/com/gigi/tcg/data/auth/CredentialStore.kt").readText())
+
+        assertTrue("无参版仍在位（激活 + 旧版单槽回退）", src.contains("override fun cookieHeader(): String?"))
+        assertTrue("cookieHeaderFor(uid) 保留", src.contains("fun cookieHeaderFor(uid: String): String?"))
+        assertTrue(
+            "uid 版必须覆写并委派 cookieHeaderFor（null/空白回落激活账户语义）",
+            Regex(
+                """override fun cookieHeader\(uid: String\?\): String\? =\s*""" +
+                    """\n?\s*if \(uid\.isNullOrEmpty\(\)\) cookieHeader\(\) else cookieHeaderFor\(uid\)""",
+            ).containsMatchIn(src),
+        )
+    }
+
+    private fun codeOnly(src: String): String = src
+        .replace(Regex("""(?s)/\*.*?\*/"""), " ")
+        .replace(Regex("""(?m)//[^\n]*"""), " ")
 
     private fun failOnNull(): List<StoredAccount> =
         throw AssertionError("replaceAvatar 判据误判：命中且头像非空白时必须返回新索引")

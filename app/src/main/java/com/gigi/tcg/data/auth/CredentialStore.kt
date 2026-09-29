@@ -78,6 +78,10 @@ class CredentialStore(context: Context) : CredentialSource {
         return decryptForKey(cipherPrefsKey(uid), keyAlias(uid))
     }
 
+    /** V37-I：网络层按请求目标账户取凭据；null/空白 uid 回落激活账户语义（含旧版单槽回退） */
+    override fun cookieHeader(uid: String?): String? =
+        if (uid.isNullOrEmpty()) cookieHeader() else cookieHeaderFor(uid)
+
     /** 账户索引（头 = 最近使用）；索引损坏时返回空列表，视为无账户 */
     fun accounts(): List<StoredAccount> = parseAccountIndex(prefs.getString(KEY_INDEX, null))
 

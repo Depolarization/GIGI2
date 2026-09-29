@@ -152,7 +152,8 @@ class MyViewModelLoadTest {
         assertTrue("头像只取 my_home_page 资料卡", src.contains("fetchMyHomePageCached"))
         assertTrue("落盘走 CredentialStore 更新入口", src.contains("updateAccountAvatar"))
         assertTrue("落盘后必须刷账户列表", src.contains("refreshAccounts()"))
-        assertTrue("已有头像不得重复取（零请求稳态）", src.contains("if (!account.avatar.isNullOrBlank()) return"))
+        // （V37-I 起早退分支带上诊断日志，从单行 return 变块——「已有头像不重取」判据不变）
+        assertTrue("已有头像不得重复取（零请求稳态）", src.contains("if (!account.avatar.isNullOrBlank()) {"))
     }
 
     /**
@@ -176,7 +177,8 @@ class MyViewModelLoadTest {
         assertTrue("错峰间隔默认 MY_LOAD_STAGGER_MS", body.contains("staggerMs: Long = MY_LOAD_STAGGER_MS"))
         assertTrue("重入装载链先取消上一条", body.contains("avatarJob?.cancel()"))
         // 逐账户隔离：本账户异常只跳过本账户，取消必须放行
-        assertTrue("单账户请求失败不外抛", body.contains("} catch (_: Exception) {"))
+        // （V37-I 起 catch 绑定 e 供诊断日志用，但**仍不外抛**——语义不变，只是多记一行）
+        assertTrue("单账户请求失败不外抛", body.contains("} catch (e: Exception) {"))
         assertTrue("CancellationException 必须放行", body.contains("throw cancel"))
     }
 
@@ -204,4 +206,37 @@ class MyViewModelLoadTest {
     private fun codeOnly(src: String): String = src
         .replace(Regex("""(?s)/\*.*?\*/"""), " ")
         .replace(Regex("""(?m)//[^\n]*"""), " ")
+
+    /**
+     * 源码闸门（V37-I 任务 B）：回填结果必须在 logcat 可见 —— 「墨邪头像永远取不到」这个 bug
+     * 的取证灾难正是**静默吞异常**（用户视角=头像是黑的，日志视角=一片空白）。
+     * 红线：只加日志，用户可见行为与持久化契约（account_index 内容、UI 提示）一律不动。
+     */
+    @Test
+    fun `avatar backfill logs hit skip and failure per account`() {
+        val body = codeOnly(File("src/main/java/com/gigi/tcg/ui/screens/my/MyViewModel.kt").readText())
+            .substringAfter("private suspend fun backfillOneAvatar(")
+            .substringBefore("fun loadDeckList")
+
+        assertTrue("命中（回填成功）必须记一行", body.contains("\"ok uid="))
+        assertTrue("跳过必须记一行（带 uid 与原因）", body.contains("skip uid="))
+        assertTrue("失败必须记一行（带 uid、昵称与原因）", body.contains("fail uid="))
+        assertTrue(
+            "走 android.util.Log（成功 info / 失败 warn），不得用 println",
+            body.contains("Log.i(AVATAR_BACKFILL_LOG_TAG") && body.contains("Log.w(AVATAR_BACKFILL_LOG_TAG"),
+        )
+        assertFalse("println 不得出现", body.contains("println"))
+        // 取数通道不变：仍是 repo 按 uid 的 fetchMyHomePageCached（V37-I 起该请求自带**目标账户自己的** cookie）
+        assertTrue(body.contains("fetchMyHomePageCached(uid, server)"))
+    }
+
+    /** 源码闸门（V37-I）：log tag 是具名常量且值稳定，主代理收装机后 `adb logcat -s GigiAvatar` 可 grep */
+    @Test
+    fun `avatar backfill log tag is a stable constant`() {
+        val src = File("src/main/java/com/gigi/tcg/ui/screens/my/MyViewModel.kt").readText()
+        assertTrue(
+            "tag 常量必须存在且值为 GigiAvatar",
+            src.contains("private const val AVATAR_BACKFILL_LOG_TAG = \"GigiAvatar\""),
+        )
+    }
 }

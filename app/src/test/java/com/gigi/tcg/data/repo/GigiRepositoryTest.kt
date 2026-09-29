@@ -7,12 +7,14 @@ import com.gigi.tcg.data.ServerId
 import com.gigi.tcg.data.api.MihoyoClient
 import com.gigi.tcg.data.model.EntryPageData
 import com.gigi.tcg.domain.TtlCache
+import java.io.File
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 private val testJson = Json {
@@ -35,6 +37,22 @@ private class RecordingTransport : GigiApiTransport {
     }
 
     fun callsTo(urlFragment: String): Int = calls.count { it.first.contains(urlFragment) }
+}
+
+/** V37-I：记录「按 uid 取 cookie」链路的桩——url / tag / 归属 uid 三件套 */
+private class RecordingUidTransport : GigiApiTransport {
+    val calls = mutableListOf<Triple<String, String, String?>>()
+
+    var envelopes: List<RawEnvelope> = listOf(RawEnvelope(0, "OK", "{}"))
+
+    override suspend fun fetchEnvelope(url: String, tag: String): RawEnvelope =
+        fetchEnvelope(url, tag, null)
+
+    override suspend fun fetchEnvelope(url: String, tag: String, uid: String?): RawEnvelope {
+        val envelope = envelopes[minOf(calls.size, envelopes.lastIndex)]
+        calls += Triple(url, tag, uid)
+        return envelope
+    }
 }
 
 private class FakeDisk : WikiDiskStore {
@@ -256,4 +274,118 @@ class GigiRepositoryTest {
         assertEquals(2, transport.calls.size)
         assertEquals("", transport.calls.last().second)
     }
+
+    // ===== V37-I 任务 A：私有数据请求必须带「目标账户自己的」凭据 =====
+    // 真机根因：URL 的 uid 是墨邪、Cookie 却是激活账户 Oscuro 的 ⇒ 服务端按 Cookie 判身份，
+    // 非激活账户永远拿不到资料。repo 层的功能锁 = 私有端点请求归属 uid 与 URL 一致。
+
+    @Test
+    fun `every private endpoint requests with the target uid`() = runTest {
+        val transport = RecordingUidTransport()
+        val repo = GigiRepository(transport, FakeDisk(), testJson, TtlCache(), retryDelayMs = 0)
+        val other = "157777921"
+
+        repo.fetchMyHomePage(other, ServerId.Official)
+        repo.fetchGameRecords(other, ServerId.Official)
+        repo.fetchGcgCardList(other, ServerId.Official)
+        repo.fetchGcgDeckList(other, ServerId.Official)
+        repo.fetchGcgCardBackList(other, ServerId.Official)
+        repo.fetchGcgMatchList(other, ServerId.Official)
+        repo.fetchGcgChallengeSchedule(other, ServerId.Official)
+        repo.fetchGcgChallengeRecord(other, ServerId.Official, 7)
+        repo.fetchGcgBasicInfo(other, ServerId.Official)
+
+        assertEquals(9, transport.calls.size)
+        assertTrue(
+            "请求归属 uid 必须逐个等于目标 uid（不得回落激活账户）",
+            transport.calls.all { it.third == other },
+        )
+        assertTrue(
+            "URL 里的 role_id 与 Cookie 归属必须同源（否则就是本次 bug 的形态）",
+            transport.calls.all { it.first.contains(other) },
+        )
+    }
+
+    @Test
+    fun `public and login endpoints keep the active-account path`() = runTest {
+        val transport = RecordingUidTransport().apply {
+            envelopes = listOf(RawEnvelope(0, "OK", "{}"))
+        }
+        val repo = GigiRepository(
+            transport,
+            FakeDisk(),
+            testJson,
+            TtlCache(),
+            retryDelayMs = 0,
+            detailCache = MapDetailCache(),
+        )
+
+        repo.fetchLoginInfo(ServerId.Official)
+        repo.fetchCardWikiListCached()
+        repo.fetchCardDetail(1001)
+        repo.fetchOtherHomePage("SomeCode", "261958214", ServerId.Official)
+
+        assertTrue(
+            "公开/登录态端点不传 uid ⇒ 走旧语义（激活账户），行为与 V37-I 之前完全一致",
+            transport.calls.all { it.third == null },
+        )
+    }
+
+    @Test
+    fun `auth refresh replay still carries the same uid`() = runTest {
+        val transport = RecordingUidTransport().apply {
+            envelopes = listOf(
+                RawEnvelope(-100, "please login", null),
+                RawEnvelope(0, "OK", """{"page_info":{"nickname":"墨邪"}}"""),
+            )
+        }
+        var refreshes = 0
+        val repo = GigiRepository(
+            transport,
+            FakeDisk(),
+            testJson,
+            TtlCache(),
+            retryDelayMs = 0,
+            sessionRefresher = object : SessionRefresher {
+                override suspend fun refreshActive(): Boolean {
+                    refreshes += 1
+                    return true
+                }
+            },
+        )
+
+        val data = repo.fetchMyHomePage("157777921", ServerId.Official)
+
+        assertEquals("墨邪", data.pageInfo?.nickname)
+        assertEquals(1, refreshes)
+        assertEquals(
+            "鉴权失败→续命→原样重放：重放必须带**同一个** uid（既有静默续命语义不动）",
+            listOf<String?>("157777921", "157777921"),
+            transport.calls.map { it.third },
+        )
+    }
+
+    /** 源码闸门（剥注释）：uid 参数是**可选**的（默认 null = 旧行为），且真的流到了 transport */
+    @Test
+    fun `source gate - uid is an optional parameter threaded to the transport`() {
+        val src = codeOnly(File("src/main/java/com/gigi/tcg/data/repo/GigiRepository.kt").readText())
+
+        assertTrue(
+            "私有 get 的 uid 参数必须带默认值（public 老调用点语义不动）",
+            Regex("""fun <T> get\([\s\S]{0,160}uid: String\? = null""").containsMatchIn(src),
+        )
+        assertTrue("fetchAndDecode 必须把 uid 交给 transport", src.contains("transport.fetchEnvelope(url, tag, uid)"))
+        assertTrue(
+            "transport 接口的 uid 重载必须以回落两参版为默认（既有 stub 不感知）",
+            Regex("""fetchEnvelope\(url: String, tag: String, uid: String\?\): RawEnvelope =\s*\n?\s*fetchEnvelope\(url, tag\)""").containsMatchIn(src),
+        )
+        assertTrue(
+            "真身 transport 必须把 uid 递给 client",
+            src.contains("client.requestEnvelope(url, JsonElement.serializer(), uid)"),
+        )
+    }
+
+    private fun codeOnly(src: String): String = src
+        .replace(Regex("""(?s)/\*.*?\*/"""), " ")
+        .replace(Regex("""(?m)//[^\n]*"""), " ")
 }

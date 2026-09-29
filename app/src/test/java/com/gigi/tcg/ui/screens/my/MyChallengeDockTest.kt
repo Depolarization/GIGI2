@@ -254,10 +254,11 @@ class MyChallengeDockTest {
     @Test
     fun `avatar segment of the viewmodel stays untouched`() {
         // V37-E 只碰 challenge 段：V36-2b 的头像回填链必须原样在位（探针里另贴 diff 证明）
+        // （V37-I 起「已有头像早退」从单行 return 改为带诊断日志的块——判据不变，只订正断言串）
         val src = File("src/main/java/com/gigi/tcg/ui/screens/my/MyViewModel.kt").readText()
         assertTrue(src.contains("{ backfillAllAvatars() }"))
         assertTrue(src.contains("avatarJob?.cancel()"))
-        assertTrue(src.contains("if (!account.avatar.isNullOrBlank()) return"))
+        assertTrue(src.contains("if (!account.avatar.isNullOrBlank()) {"))
     }
 
     /** 剥掉行注释与块注释（含 KDoc），源码锁只匹配真正的代码 */
