@@ -61,8 +61,9 @@ fun MyFavoritesPage(modifier: Modifier = Modifier) {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // game_id 实测是字符串且可能重复/缺失，按下标兜底避免重复 key 崩溃
-                itemsIndexed(matches, key = { index, item -> item.gameId ?: "noid-$index" }) { _, item ->
+                // 🔴 game_id 实测重复（3 条全是 "10"）：裸 id 当 key 会「Key was already used」闪退，
+                // 必须复合下标（见 stableItemKey）
+                itemsIndexed(matches, key = { index, item -> stableItemKey(item.gameId, index) }) { _, item ->
                     MatchRow(match = item)
                 }
             }

@@ -83,7 +83,7 @@ fun MyCardBacksPage(modifier: Modifier = Modifier) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    itemsIndexed(cardBacks, key = { index, item -> item.id ?: "noid-$index" }) { _, item ->
+                    itemsIndexed(cardBacks, key = { index, item -> stableItemKey(item.id, index) }) { _, item ->
                         CardBackTile(cardBack = item)
                     }
                 }

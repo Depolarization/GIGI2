@@ -91,7 +91,7 @@ fun MyChallengePage(modifier: Modifier = Modifier) {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                itemsIndexed(schedules, key = { index, item -> item.id ?: "noid-$index" }) { _, item ->
+                itemsIndexed(schedules, key = { index, item -> stableItemKey(item.id, index) }) { _, item ->
                     ScheduleRow(schedule = item, onClick = { selectedSchedule = item })
                 }
             }

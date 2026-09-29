@@ -93,8 +93,8 @@ fun MyDecksPage(modifier: Modifier = Modifier) {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // 牌组 id 实测 1..11 不连续且可缺失，缺失时按下标兜底防 LazyColumn 重复 key 崩溃
-                itemsIndexed(decks, key = { index, item -> item.id ?: "noid-$index" }) { _, item ->
+                // 牌组 id 实测 1..11 不连续、可缺失也可重复 ⇒ 复合下标（见 stableItemKey）
+                itemsIndexed(decks, key = { index, item -> stableItemKey(item.id, index) }) { _, item ->
                     DeckRow(deck = item, onClick = { selectedDeck = item })
                 }
             }

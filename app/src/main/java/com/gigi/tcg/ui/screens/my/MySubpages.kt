@@ -31,6 +31,23 @@ import com.gigi.tcg.data.model.GcgDeck
 import com.gigi.tcg.data.model.GcgTime
 import java.util.Locale
 
+/**
+ * 「我的」域行组件的统一水平内距：此前 AccountRow/EntryRow/MySectionTitle 混用 12dp 与 16dp，
+ * 同一页里左右留白不齐（V36/2 审计 N 的内距收敛项）。
+ */
+internal val MyRowHorizontalPadding = 16.dp
+
+/**
+ * LazyColumn / LazyVerticalGrid 的复合唯一 key：把 id 与下标拼在一起，**同时兜住 null 和重复**。
+ *
+ * 🔴 实测事实（真机，2026-09-29）：`recent_matches` 的 3 条记录 `game_id` **全是字符串 "10"**——
+ * 非 null 但重复。原先写 `item.gameId ?: "noid-$index"` 只兜 null、不兜重复，
+ * 于是同一个 key 出现两次 ⇒ `IllegalArgumentException: Key "10" was already used` ⇒
+ * **点「收藏对局」直接闪退**。四个二级页的 id 字段（game_id / deck id / cardback id / schedule id）
+ * 都可能是这种"看着像主键其实不唯一"的服务端值，故一律走本函数，不要再裸传 id。
+ */
+internal fun stableItemKey(id: Any?, index: Int) = "${id ?: "noid"}-$index"
+
 /** 接口给的是拆开的年月日时分，展示前自己拼；缺字段返回 null，由调用方整段不显示（不显示 0000-00-00） */
 internal fun formatGcgDate(time: GcgTime?): String? {
     val year = time?.year ?: return null
