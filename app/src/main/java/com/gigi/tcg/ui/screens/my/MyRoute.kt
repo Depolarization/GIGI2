@@ -183,8 +183,10 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
 /**
  * 账号行：头像 + 昵称 + 「UID · 服 · 牌手等级」，当前账户行尾 Check 并禁点（点自己无操作）。
  * V36/2：
- * - 头像走登录时落盘的 [StoredAccount.avatar]（56dp：比首页个人信息那 64dp 略小，
- *   但整块材料高度基本不变）；缺字段（旧账号）时 Avatar 自己画圆形 Person 占位，不留空。
+ * - 头像走 [StoredAccount.avatar]（56dp：比首页个人信息那 64dp 略小，但整块材料高度基本不变）。
+ *   该字段的来源是「我的」页装载链的 my_home_page 回填（V36/2b，见 MyViewModel.backfillActiveAvatar），
+ *   登录接口的 avatar_url 只是顺带兜住；缺字段/空白（存量未补齐、接口无头像）时
+ *   Avatar 自己画圆形 Person 占位，不留空。
  * - 牌手等级**并进这一行副标题**，不再单独开一张「个人信息」卡片 —— 用户原话：
  *   「上面账户里已经展示了 UID 和昵称，下方再展示只是浪费空间」「说明文本应合并到已有文本」。
  * - 等级只属于激活账户（profile 接口按当前会话取），非激活行不拼这一段。

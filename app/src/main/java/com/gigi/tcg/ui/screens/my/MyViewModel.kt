@@ -122,6 +122,9 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
     /** [loadAllStaggered] 的在途串行链，重新触发时先取消，避免两条链并发 */
     private var staggeredJob: Job? = null
 
+    /** 头像回填的在途请求（同一时刻只允许一条，重复进页不叠请求） */
+    private var avatarJob: Job? = null
+
     /** 作废上一账户的全部数据：取消所有在途请求 + 6 个账户级 StateFlow 整组清空 */
     private fun clearAccountScoped() {
         jobs.values.forEach { it?.cancel() }
@@ -165,7 +168,7 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 进「我的」页的一揽子装载：5 组**串行 + 错峰**（间隔 [MY_LOAD_STAGGER_MS]）。
+     * 进「我的」页的一揽子装载：5 组摘要 + 头像回填（V36/2b）**串行 + 错峰**（间隔 [MY_LOAD_STAGGER_MS]）。
      * 🔴 一次性并发 5 个私有接口正中米游社 -500004 保流窗口，失败率抬升；
      * 首页首刷早已改错峰（`runStaggeredFirstLoad`），本页沿用同一口径与同一间隔。
      */
@@ -176,6 +179,7 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
                 staggerMs,
                 listOf(
                     { loadProfile() },
+                    { backfillActiveAvatar() },
                     { loadDeckList() },
                     { loadCardBackList() },
                     { loadMatchList() },
@@ -193,6 +197,38 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
     fun loadProfile(force: Boolean = false) {
         load(_profile, force) { uid, server, f ->
             container.repository.fetchGcgBasicInfo(uid, server, f)
+        }
+    }
+
+    /**
+     * 存量账户头像回填（V36/2b）：`StoredAccount.avatar` 原唯一来源 getUserGameRolesByCookie
+     * 实测**不下发** avatar_url，且 V36 新字段对存量索引无回填 ⇒ 账户行永远灰占位。
+     * 唯一下发头像的是首页资料卡 my_home_page 的 `page_info.avatar_url`（repository 已有 45s
+     * 内存缓存，首页刚拉过时静默命中，不是新增端点）。
+     * 🔴 gcg/basicInfo（[loadProfile] 的 profile）结构上没有头像也没有 uid/role_id ⇒ 不做 uid 匹配，
+     * 走「按当前激活账户落一次盘」：缺头像才取、同值不重写（CredentialStore.replaceAvatar），
+     * 落盘后 refreshAccounts() 让账户行立即反映；补齐后本步骤零请求、零写盘。
+     */
+    fun backfillActiveAvatar() {
+        val uid = container.activeAccountUid.value ?: return
+        val account = container.accounts.value.firstOrNull { it.uid == uid } ?: return
+        if (!account.avatar.isNullOrBlank()) return
+        avatarJob?.cancel()
+        val server = container.currentServer.value
+        avatarJob = viewModelScope.launch {
+            val avatar = try {
+                container.repository.fetchMyHomePageCached(uid, server).pageInfo?.avatarUrl
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                null
+            }
+            if (avatar.isNullOrBlank()) return@launch
+            // 在途期间切了账户：不能把旧账户的头像落到新账户头上
+            if (container.activeAccountUid.value != uid) return@launch
+            if (container.credentialStore.updateAccountAvatar(uid, avatar)) {
+                container.refreshAccounts()
+            }
         }
     }
 

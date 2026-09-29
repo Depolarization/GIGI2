@@ -93,4 +93,19 @@ class MyViewModelLoadTest {
         assertTrue("进页只调 loadAllStaggered()", src.contains("viewModel.loadAllStaggered()"))
         assertFalse("不得再逐组并发 load", Regex("viewModel\\.load(DeckList|CardBackList|MatchList|ChallengeSchedule)\\(\\)").containsMatchIn(src))
     }
+
+    /**
+     * 源码回归锁（V36/2b）：存量账户头像回填链路不得被拆。
+     * getUserGameRolesByCookie 实测不下发 avatar_url ⇒ 唯一来源是 my_home_page 的
+     * page_info.avatar_url，经 CredentialStore 更新入口落盘后必须刷账户列表。
+     */
+    @Test
+    fun `avatar backfill rides the load chain and refreshes accounts`() {
+        val src = File("src/main/java/com/gigi/tcg/ui/screens/my/MyViewModel.kt").readText()
+        assertTrue("回填必须排在装载链里（错峰，不与摘要组并发）", src.contains("{ backfillActiveAvatar() }"))
+        assertTrue("头像只取 my_home_page 资料卡", src.contains("fetchMyHomePageCached"))
+        assertTrue("落盘走 CredentialStore 更新入口", src.contains("updateAccountAvatar"))
+        assertTrue("落盘后必须刷账户列表", src.contains("refreshAccounts()"))
+        assertTrue("已有头像不得重复取（零请求稳态）", src.contains("if (!account.avatar.isNullOrBlank()) return"))
+    }
 }
