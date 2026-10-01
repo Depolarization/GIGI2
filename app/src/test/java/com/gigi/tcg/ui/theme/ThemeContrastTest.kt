@@ -4,6 +4,7 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.graphics.Color
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -350,5 +351,81 @@ class ThemeContrastTest {
             "以下文件含 SnackbarHost 调用但未传 containerColor（全仓收口锁）: $violations",
             violations.isEmpty(),
         )
+    }
+
+    /**
+     * 🔴 V39-H：语义色与段位色**吃的那张 Card 底**必须钉在色板槽位上，不能只钉一个抄来的字面量。
+     * material3 1.3.2 无变体 `Card()` 走 `FilledCardTokens.ContainerColor`
+     * = `surfaceContainerHighest`（夜 #36343B / 白 #E6E0E9）。V39-G 之前仓内三处注释
+     * （`Theme.kt` / `Color.kt` / `TierColors.kt`）都把 `surfaceContainerLow #F7F2FA` 当「Card 容器」，
+     * 于是亮色档语义色按错的底调、白天 Card 上只有 3.89~3.94。这条锁就是防它再漂回另一档。
+     */
+    @Test
+    fun cardContainerSlot_isSurfaceContainerHighest_onBothThemes() {
+        assertEquals("浅色 Card 底", Color(0xFFE6E0E9), LightColors.surfaceContainerHighest)
+        assertEquals("深色 Card 底", Color(0xFF36343B), DarkColors.surfaceContainerHighest)
+        // surfaceContainerLow 是 ElevatedCard / 底部弹 Sheet 档，**不是** Card：两值必须仍可区分，
+        // 否则「Card 底 = #F7F2FA」那个误称就会重新说得通。
+        assertNotEquals(LightColors.surfaceContainerLow, LightColors.surfaceContainerHighest)
+    }
+
+    /**
+     * V39-H：两套语义色 × **本主题真容器**（槽位直接取自 colorScheme，不写字面量）全过正文级 AA。
+     * 这是把「哪个语义前景允许躺在哪个容器上」这条成对约束第一次钉进单测（V39-G §4/§5a 的缺口）。
+     */
+    @Test
+    fun semanticForegrounds_meetWcagAA_onTheirOwnThemeContainers() {
+        listOf(
+            Triple("浅色", LightColors, SemanticColors(win = WinColorLight, lose = LoseColorLight, gold = GoldColorLight)),
+            Triple("深色", DarkColors, SemanticColors(win = WinColor, lose = LoseColor, gold = GoldColor)),
+        ).forEach { (name, scheme, semantic) ->
+            val containers = listOf(
+                "Card(surfaceContainerHighest)" to scheme.surfaceContainerHighest,
+                "surface" to scheme.surface,
+                "surfaceContainer" to scheme.surfaceContainer,
+                "surfaceContainerHigh" to scheme.surfaceContainerHigh,
+                "surfaceContainerLow" to scheme.surfaceContainerLow,
+            )
+            listOf(
+                "win" to semantic.win,
+                "lose" to semantic.lose,
+                "gold" to semantic.gold,
+            ).forEach { (fgName, fg) ->
+                containers.forEach { (bgName, bg) ->
+                    val value = ContrastUtils.wcagContrast(fg, bg)
+                    assertTrue(
+                        "$name $fgName/$bgName = ${"%.2f".format(value)}:1，需 >= $BODY_LEVEL",
+                        value >= BODY_LEVEL,
+                    )
+                }
+            }
+        }
+    }
+
+    /** 同上：段位四色两档 × 本主题真容器（段位与语义色同属文字前景，共用一条闸门口径） */
+    @Test
+    fun tierForegrounds_meetWcagAA_onTheirOwnThemeContainers() {
+        listOf(
+            true to DarkColors,
+            false to LightColors,
+        ).forEach { (darkTheme, scheme) ->
+            val containers = listOf(
+                "Card(surfaceContainerHighest)" to scheme.surfaceContainerHighest,
+                "surface" to scheme.surface,
+                "surfaceContainerHigh(dialog)" to scheme.surfaceContainerHigh,
+                "surfaceContainerLow(sheet)" to scheme.surfaceContainerLow,
+            )
+            listOf("黄铜", "星银", "赤金", "影幻").forEach { tier ->
+                val argb = requireNotNull(tierColorArgb(tier, darkTheme)) { "$tier 应有段位色" }
+                containers.forEach { (bgName, bg) ->
+                    val value = ContrastUtils.wcagContrast(Color(argb), bg)
+                    assertTrue(
+                        "${if (darkTheme) "深档" else "浅档"} $tier/$bgName = ${"%.2f".format(value)}:1，" +
+                            "需 >= $BODY_LEVEL",
+                        value >= BODY_LEVEL,
+                    )
+                }
+            }
+        }
     }
 }

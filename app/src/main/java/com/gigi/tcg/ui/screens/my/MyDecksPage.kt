@@ -160,6 +160,14 @@ fun MyDeckDetailPage(
     }
 }
 
+/**
+ * 一副牌组的行动牌**携带总张数**（列表行用），不是种类数。
+ * `num` 缺失 / ≤0 记 1 ⇒ 与导出图 `ui/export/DeckImageExport.expandActionCardsByCount` 同一口径，
+ * 两处「一共几张」必须对得上（实测 22 种行动牌、num 合计 30 时可正常开局，列表要显示 30）。
+ */
+internal fun deckActionCardTotal(cards: List<GcgDeckCard>?): Int =
+    cards.orEmpty().sumOf { (it.num ?: 1).coerceAtLeast(1) }
+
 @Composable
 private fun DeckRow(deck: GcgDeck, title: String, onClick: () -> Unit) {
     val avatars = deck.avatarCards.orEmpty()
@@ -179,7 +187,7 @@ private fun DeckRow(deck: GcgDeck, title: String, onClick: () -> Unit) {
                 stringResource(
                     R.string.my_deck_card_summary,
                     avatars.size,
-                    deck.actionCards.orEmpty().size,
+                    deckActionCardTotal(deck.actionCards),
                 ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -191,10 +199,14 @@ private fun DeckRow(deck: GcgDeck, title: String, onClick: () -> Unit) {
                     .padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                // 卡面宽度预算（三张 + 两道 6dp 间隙，刻意不铺满行宽）：
+                // 行可用宽 = 屏宽 - LazyColumn contentPadding(16×2) - Card 内 Column padding(16×2) = 屏宽 - 64
+                //   360dp ⇒ 296dp，占用 3×72 + 2×6 = 228dp，余 68dp
+                //   411dp ⇒ 347dp，占用同为 228dp，余 119dp
                 avatars.forEach { card ->
                     Box(
                         Modifier
-                            .width(52.dp)
+                            .width(72.dp)
                             .aspectRatio(CARD_FACE_ASPECT_RATIO)
                             .clip(DeckCardShape)
                             .background(MaterialTheme.colorScheme.surfaceVariant),
@@ -212,7 +224,7 @@ private fun DeckRow(deck: GcgDeck, title: String, onClick: () -> Unit) {
 }
 
 /**
- * 牌组详情内容：两组卡面三等分 + 右上角两个 icon 动作（复制分享码 / 导出渲染图）。
+ * 牌组详情内容：两组卡面三等分 + 一条动作行（左端牌组名，右端两个 icon：复制分享码 / 导出渲染图）。
  * 行动牌 22–25 张（同一张牌可携带 2 份，见 [DeckCardTile] 的张数徽标），整页 verticalScroll（量小，不上 LazyGrid）。
  * 🔴 标题行已删除（V37-F 任务 A）：牌组名与返回都在主壳顶栏，页内再画一行就是第二条标题栏。
  */
@@ -252,15 +264,25 @@ private fun DeckDetail(
                 .weight(1f)
                 .verticalScroll(rememberScrollState()),
         ) {
+            // 左侧卡组名 + 右侧两个动作。**顶栏（返回 + 标题）不动**，这是用户要的「动作行左边再标一次牌组名」。
             // 两个动作贴右上角：IconButton 的 48dp 触摸区外沿留 4dp ⇒ 图标正好落在 16dp 内容线上，
             // 与主壳顶栏 actions 区的图标同列（用户要的"横向对齐卡组名称"在单标题栏下的等价落点）。
+            // 名称左缘同理必须与主壳顶栏主标题的墨迹同线（16dp），取「我的」域统一内距常量。
+            // 🔴 两段 padding 分开写、不合并成一个调用：动作行的源码指纹是下面那行原文（既有闸门测试的锚点）。
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(start = MyRowHorizontalPadding)
                     .padding(top = 4.dp, end = 4.dp),
-                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Text(
+                    deckDisplayName(deck),
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
                 IconButton(
                     onClick = {
                         val code = shareCode
@@ -394,7 +416,7 @@ internal fun cardCountLabel(num: Int?, countPrefix: String): String? =
  * 行动牌 `num` 出现 2（如第 1 副末段 `[..,2,1,2,2,2]`、第 2 副 `[..,2,2,2,..]`）⇒ 同一张行动牌可携带多份；
  * 角色牌 `num` 实测恒等于 1（三张都唯一）⇒ 画徽标无信息量。
  * V37-F 曾据此把张数整个删掉，那是把角色牌的实测结论错误推广到了行动牌（本轮 bug 根因）。
- * 工程里 `num` 的其它消费点：无（`ui/export` 包不读 num，列表页只取两个 size）。
+ * `num` 的其它消费点：[deckActionCardTotal]（列表行总张数）与 `ui/export` 的按张数展开，三处同口径。
  */
 @Composable
 private fun DeckCardTile(card: GcgDeckCard, showCount: Boolean) {

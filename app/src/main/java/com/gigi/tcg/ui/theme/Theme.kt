@@ -34,9 +34,13 @@ fun GigiTheme(
 ) {
     val colorScheme = if (darkTheme) DarkColors else LightColors
 
-    // win/lose/gold 随主题取色：暗色档对 Card 容器(0xFF36343B) AA ✓（win 4.63、lose 4.58），
-    // 但在亮底上对比度不足（约 2.6:1），亮色档换用深色调——对白底 AA ✓（约 5.0~5.1）、
-    // 对 Card 容器(M3 light surfaceContainerLow ≈0xFFF7F2FA) AA ✓（win 4.57、lose 4.62）；
+    // win/lose/gold 随主题取色，两档都按**无变体 Card 的真容器**定档：material3 1.3.2
+    // `FilledCardTokens.ContainerColor = surfaceContainerHighest`（夜 #36343B / 白 #E6E0E9）。
+    // ⚠️ 旧注释把 #F7F2FA 称作「Card 容器」是错的——那是 `surfaceContainerLow`，只有 ElevatedCard /
+    // 底部弹 Sheet 吃它；亮色档照那个错底调出来的是 3.89~3.94（正文门槛 4.5），V39-H 已重定档。
+    // 实测（[ContrastUtils]，正文门槛 4.5）：
+    //   暗色档 × #36343B  win 4.63、lose 4.58、gold 5.46
+    //   亮色档 × #E6E0E9  win 4.69、lose 4.66、gold 4.69（× 白 surface 5.74~5.78、× 弹窗底 4.93~4.96）
     // 判据与本函数 colorScheme 的 darkTheme 分支一致，不另引 isSystemInDarkTheme()。
     val semanticColors = SemanticColors(
         win = if (darkTheme) WinColor else WinColorLight,

@@ -415,4 +415,105 @@ class DeckImageExportTest {
         assertTrue("渲染层要叠官方卡框", src.contains("v38_card_frame"))
         assertTrue("素材必须放 nodpi 目录", File("src/main/res/drawable-nodpi/v38_card_frame.png").exists())
     }
+
+    // ---- ⑥ V39-A1：页脚左缘对齐卡牌网格 + 网格右边界下方画牌组名 ----
+
+    /**
+     * 用户原话：左下角的 UID 和 ID 要**左对齐于卡牌网格的左边界**，并在**网格右边界下方**加一行**卡组名**。
+     * 版式层出 footerLeftPx/footerRightPx，绘制层照抄 ⇒ 这两个数就是全部实现，JVM 锁死。
+     * 数值口径：textLeft 30（body 15）/ cardsLeft 52（+ 牌组区 11）/ 网格右边界 698（= 750 − 52）。
+     */
+    @Test
+    fun layout_footerLanes_matchCardGridEdges() {
+        val layout = computeDeckImageLayout(spec(), fakeMeasurer)
+        assertEquals("页脚左缘 = 卡牌网格左缘", layout.cardsLeftPx, layout.footerLeftPx)
+        assertEquals("页脚右缘 = 卡牌网格右边界", layout.cardsLeftPx + layout.cardsContentWidthPx, layout.footerRightPx)
+        assertTrue("左缘要比旧的 body padding 更靠右（否则就是用户看到的没对齐）", layout.footerLeftPx > layout.textLeftPx)
+        assertTrue("右缘不得越过画布右内边距", layout.footerRightPx <= layout.widthPx - layout.cardsLeftPx)
+        assertEquals(52, layout.footerLeftPx)
+        assertEquals(698, layout.footerRightPx)
+    }
+
+    /** 页脚两缘只由画布宽与两级 padding 决定 ⇒ 空牌组 / 40 张 / 超长牌组名都不该漂 */
+    @Test
+    fun layout_footerLanes_stableAcrossDeckShapes() {
+        listOf(
+            spec(roleCount = 0, actionCount = 0, pills = emptyList()),
+            spec(actionCount = 40),
+            spec(title = "很长的牌组名字".repeat(30)),
+            spec(authorText = ""),
+        ).forEach { shape ->
+            val layout = computeDeckImageLayout(shape, fakeMeasurer)
+            assertEquals("footerLeft 恒等于 cardsLeft", layout.cardsLeftPx, layout.footerLeftPx)
+            assertEquals("footerRight 恒等于网格右边界", layout.cardsLeftPx + layout.cardsContentWidthPx, layout.footerRightPx)
+            assertTrue("右缘不越界", layout.footerRightPx <= layout.widthPx - layout.cardsLeftPx)
+            assertTrue(
+                "页脚一行预算宽 = 网格宽 646（左行 UID + 右行卡组名共用）",
+                layout.footerRightPx - layout.footerLeftPx == layout.cardsContentWidthPx,
+            )
+        }
+    }
+
+    /** 绘制层闸门：页脚必须消费 layout 的两个新字段，且不得再用 body padding 画 UID 行左缘 */
+    @Test
+    fun renderer_footerDrawsOnGridLayoutLanes() {
+        val code = File("src/main/java/com/gigi/tcg/ui/export/DeckImageRenderer.kt").readText()
+            .lines().filterNot { it.trim().startsWith("//") || it.trim().startsWith("*") }.joinToString("\n")
+        assertTrue("UID 行左缘要走 layout.footerLeftPx", code.contains("layout.footerLeftPx"))
+        assertTrue("卡组名右缘要走 layout.footerRightPx", code.contains("layout.footerRightPx"))
+        assertFalse("不得再用 body padding 画页脚左缘（比网格少 11 设计 px，正是用户指的没对齐）",
+            code.contains("drawText(line, DECK_BODY_PADDING_SIDE_PX"))
+        assertTrue("卡组名超长要截断（复用 ellipsize，不另造一套）", code.contains("ellipsize(deckName,"))
+        assertTrue("画完卡组名要把 textAlign 复位，别给后续绘制串味", code.contains("textAlign = Paint.Align.LEFT"))
+    }
+
+    // ---- ⑦ V39-F3：页脚按**墨迹**边缘对齐（drawText 的 origin 带 left side bearing） ----
+
+    /**
+     * 真机导出图像素实测：行动牌网格墨迹左缘 x=52、右缘 x=698，而页脚 UID 墨迹左缘 x=54（+2）、
+     * 卡组名墨迹右缘 x=695（−3）⇒ 差值正好是字形的 side bearing。
+     * 纯函数把「目标边缘 + 墨迹包围盒」反推成 origin，JVM 直接锁算术（`Paint.getTextBounds` 依赖
+     * Android，测不了，故渲染层只负责喂 bounds.left / bounds.right）。
+     */
+    @Test
+    fun footerTextOriginX_shiftsInkLeftEdgeOntoGridEdge() {
+        // bearing = 2（实测 UID 行内缩 2px）⇒ origin 往左让 2，墨迹才落在 52
+        assertEquals(50, footerTextOriginX(edgePx = 52, inkLeftPx = 2))
+        assertEquals("墨迹左缘 = origin + bearing 回到目标边", 52, footerTextOriginX(52, 2) + 2)
+        assertEquals("bearing = 0（无前伸）时 origin 就等于目标边", 52, footerTextOriginX(52, 0))
+        assertEquals("bearing 更大也照样贴边（不同字号/字族）", 46, footerTextOriginX(52, 6))
+        assertEquals("负 bearing（斜体 f 一类左突）⇒ origin 右移，不能夹成 0", 55, footerTextOriginX(52, -3))
+    }
+
+    /** 右列同理：bounds.right 是墨迹右缘相对 origin 的正偏移（实测 ≈3px），origin 要往右挪 */
+    @Test
+    fun footerTextOriginXRight_shiftsInkRightEdgeOntoGridEdge() {
+        assertEquals(695, footerTextOriginXRight(edgePx = 698, inkRightPx = 3))
+        assertEquals("墨迹右缘 = origin + bounds.right 回到目标边", 698, footerTextOriginXRight(698, 3) + 3)
+        assertEquals("bounds.right 含字宽（Align.LEFT 下是从 origin 到墨迹右缘的全长）", 498, footerTextOriginXRight(698, 200))
+        assertEquals("bearing = 0 时不漂", 698, footerTextOriginXRight(698, 0))
+    }
+
+    /** 每行各算自己的 bounds：UID 行与昵称行字族不同 ⇒ bearing 不能复用 */
+    @Test
+    fun footerOriginX_perLineBounds_canDifferAcrossLines() {
+        val uidOrigin = footerTextOriginX(52, 2)
+        val nicknameOrigin = footerTextOriginX(52, 0)
+        assertTrue("两行 bearing 不同 ⇒ origin 就该不同（只算第一行复用会留下 1~2px 残差）", uidOrigin != nicknameOrigin)
+        assertEquals("但墨迹左缘都落到同一条网格线", 52, uidOrigin + 2)
+        assertEquals(52, nicknameOrigin + 0)
+    }
+
+    /** 绘制层闸门：页脚必须逐行取墨迹包围盒并走两个纯函数，右列不得再用 Align.RIGHT */
+    @Test
+    fun renderer_footerAlignsInkEdgesNotOrigins() {
+        val code = File("src/main/java/com/gigi/tcg/ui/export/DeckImageRenderer.kt").readText()
+            .lines().filterNot { it.trim().startsWith("//") || it.trim().startsWith("*") }.joinToString("\n")
+        assertTrue("左列要走墨迹 origin 纯函数", code.contains("footerTextOriginX(layout.footerLeftPx"))
+        assertTrue("右列要走墨迹 origin 纯函数", code.contains("footerTextOriginXRight(layout.footerRightPx"))
+        assertTrue("必须逐行取墨迹包围盒（getTextBounds 才有 bounds.left/right）", code.contains("footerPaint.getTextBounds(line,"))
+        assertTrue("卡组名也要取自己的 bounds", code.contains("footerPaint.getTextBounds(nameText,"))
+        assertFalse("右列不得再用 Align.RIGHT（bearing 会留在另一边，实测内缩 3px）",
+            code.contains("footerPaint.textAlign = Paint.Align.RIGHT"))
+    }
 }

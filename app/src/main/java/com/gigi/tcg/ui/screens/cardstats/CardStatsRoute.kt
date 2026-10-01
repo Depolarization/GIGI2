@@ -17,6 +17,25 @@
 // 经 onShowExportResult（文案 + 已落盘 Uri 列表）交给宿主 Snackbar（宿主接线见本文件 KDoc 注释）。
 // V37-AD：PlayerInfoHeader 的昵称+段位合并成单个 Text（段位走 SpanStyle，任务 B）；
 // 表头改 stickyHeader 不再随行滚走（任务 E-1）；序号列改右对齐（任务 E-2）。
+// V39-B 任务 A：**整体滑动** —— V29 那次「固定头 + 页内滚动」的结构回退只解决了白屏
+// （pager 在无限高约束下塌成 0），代价是信息卡/tab 行永远占着顶部固定高，用户实测
+// 「展开个人信息栏后底部几乎没有滑动区域」。该轮把头部移进**每页自己的 LazyColumn** 最前面
+// 两个 item；**V40-A 起作废**（见下），V39-B 任务 B 的起始补偿常量随之删除。
+//
+// V40-A：头部（信息卡 + tab 行）**移出 HorizontalPager**、只保留一份 —— 用户报「切 tab
+// 连带着整个卡牌统计页一起切」的根因正是 V39-B「头部放进每页 LazyColumn」：那份实现下
+// 头部天然跟着翻页横向滑动。为不丢 V39-B 的「整体纵向滚动」（展开信息卡后列表仍有滑动
+// 空间），头部改**折叠式**：容器层挂 nestedScroll 连接 —— 列表上滑先折信息卡、折满才滚
+// 列表；到顶下拉反向展开；tab 行常驻、不折叠、不随翻页横移。两个页内 LazyColumn 顺带
+// 删掉头部 item，只剩 排序/筛选行 → 列名(sticky, 用户点名保留) → 数据行。
+// 🔴 白屏病根防线一个没动：PullToRefreshBox 仍包着 pager、weight(1f) 拿到的仍是**有界**高
+// （V29 病根＝pager 在无限高约束下翻页首帧塌成 0），全页仍不得出现 verticalScroll。
+// 🔴 折叠连接挂在 PullToRefreshBox 内、pager 外，而不是最外层 Column：nestedScroll 的
+// onPostScroll 按「由内向外」派发，刷新盒在更内层且空闲会把到顶下拉的正余量全额吃掉
+// （已按 material3 1.3.2 字节码核实：consumeAvailableOffset 无阈值即刻消费）⇒ 挂外层时
+// 「到顶下拉回展」永远拿不到余量、成死代码；挂内层后先回展、展开完才轮到下拉圈。
+// onPreScroll 派发方向是「外向内」：刷新盒先收自己的（无拉出量时为 0），剩余量到达折叠
+// 连接，与「先折头部、再滚列表」的先后关系天然一致。
 
 package com.gigi.tcg.ui.screens.cardstats
 
@@ -43,6 +62,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -74,7 +94,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -82,7 +104,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier as ComposeModifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -117,8 +146,9 @@ import kotlinx.coroutines.launch
 /** 统计数值列定义：固定列宽 + 右对齐 + 等宽数字，保证四列纵向对齐。 */
 private data class StatColumn(@StringRes val labelRes: Int, val width: Dp)
 
-private val StatCountWidth: Dp = 48.dp
-private val StatPercentWidth: Dp = 60.dp
+// internal 同 [RankColumnWidth]：三位数余量算式由 StatsRowMetricsTest 断言，不靠截图
+internal val StatCountWidth: Dp = 48.dp
+internal val StatPercentWidth: Dp = 60.dp
 private val ListRowVerticalPadding = 8.dp
 
 /**
@@ -138,9 +168,21 @@ internal val RankNameGap: Dp = 8.dp
 /** 行动牌「类型」列宽（V29：与角色牌表头同构，类型名最长 3 字：修改/支援/事件） */
 private val ActionTypeColumnWidth: Dp = 52.dp
 
-/** 列表行左右/上下留白：LazyColumn 的 contentPadding（横向 16dp 与页面边距一致；internal 同理由测试引用） */
+/** 列表行上下/右侧留白：LazyColumn 的 contentPadding（右侧 16dp 与页面边距一致；internal 同理由测试引用） */
 internal val ContentHorizontalPadding = 16.dp
 private val ContentVerticalPadding = 12.dp
+
+/**
+ * 列表起始内距（V39-B 任务 B）：序号列右对齐、列宽 24dp 已定，再叠 16dp 页面边距 ⇒
+ * 用户实测「序号列距离左侧边距较大」。收到 8dp，省下的 8dp 全部还给牌名列（[RankNameGap] 不变）。
+ */
+internal val ContentStartPadding = 8.dp
+
+// V40-A：原先给头部补「列表起始内距差（16 − 8）」的那个常量已删除 —— 信息卡 / tab 行移出
+// 列表后不再吃 8dp 起始内距，各自直接补页面边距（见两处包装函数），常量留着只会误导。
+
+/** 信息卡顶部额外留白：不贴刷新圈（V29 起就是这个值，本轮只是换了容器） */
+private val HeaderTopPadding = 8.dp
 
 /** 列表滚到底的额外留白（避免最后一行贴导航栏；同样落在 contentPadding 上） */
 private val ContentBottomPadding = 16.dp
@@ -258,41 +300,40 @@ private fun CardStatsContent(
     val charExportCount = remember(state.charList) { exportRowCount(state.charList) }
     val actionExportCount = remember(state.actionList) { exportRowCount(state.actionList) }
 
-    // 固定头 + 页内滚动（照 RankRoute:128-182）：pager 拿到的是 Column 给的**有界高**，
-    // 不再塌陷成 0 高白屏。下拉刷新挂在 pager 外层（RankRoute 同一层级）。
+    // 整体纵向滚动（V40-A）：信息卡 + tab 行搬出 pager 后不再随翻页横移，纵向的
+    // 「先折头、再滚列表」由这对 state + 下面的 nestedScroll 连接补回来。用
+    // mutableFloatState 而非普通值：连接只 remember 一次、读写同一对引用，不必每帧重建。
+    val headerCollapsePx = remember { mutableFloatStateOf(0f) }
+    val headerNaturalHeightPx = remember { mutableFloatStateOf(0f) }
+    val headerCollapseConnection = remember { HeaderCollapseConnection(headerCollapsePx, headerNaturalHeightPx) }
+    val exportEnabled = exportAction.enabled && !exportAction.exporting
     Column(modifier = modifier.fillMaxSize()) {
-        state.summary?.let { summary ->
-            // 顶部 8dp 让信息卡不贴 tab 行/刷新圈；padding 不能混用 horizontal+top（无该重载）
-            Column(ComposeModifier.padding(top = 8.dp).padding(horizontal = ContentHorizontalPadding)) {
-                PlayerInfoCard(
-                    summary = summary,
-                    avatarUrl = state.avatarUrl,
-                    tier = state.tier,
-                    uid = uid,
-                    detailOpen = state.detailOpen,
-                    onToggle = viewModel::toggleDetail,
-                    exportEnabled = exportAction.enabled && !exportAction.exporting,
-                    onExportClick = { exportDialogOpen = true },
-                )
-            }
+        CollapsibleHeaderContainer(headerCollapsePx, headerNaturalHeightPx) {
+            StatsInfoCardItem(state, uid, viewModel::toggleDetail, exportEnabled) { exportDialogOpen = true }
         }
-
-        StatsTabRow(pagerState = pagerState)
-
+        // tab 行常驻：不折叠、不进 pager ⇒ 翻页时纹丝不动（用户报的病根就是它跟着横滑）
+        StatsTabRowItem(pagerState)
         PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = viewModel::refresh,
-            // V37-1 任务 E-1：列表区吃满剩余高度用 weight(1f)（原先是 fillMaxSize，
-            // 在 Column 里恰好也只拿到剩余高，但语义上是"我要全部高度"，与上面固定区争空间；
-            // weight 明确"要剩余"，固定区 + tab 行 + 本区三段的比例关系才可读）。
-            // 🔴 权重子项拿到的仍是**有界**约束 ⇒ 页内 LazyColumn 不会遇到无限高（V29 白屏病根不复发）。
+            // V37-1 任务 E-1：列表区吃满剩余高度用 weight(1f)。🔴 本棒折叠头占的是同一
+            // 列布局里的**真实高度**（不是浮层），weight 让 P2R/pager 继续拿到有界剩余高
+            // ⇒ 页内 LazyColumn 不会遇到无限高（V29 白屏病根防线，一个字没动）。
             modifier = ComposeModifier.weight(1f),
         ) {
-            HorizontalPager(state = pagerState, modifier = ComposeModifier.fillMaxSize()) { page ->
-                if (isCharTable(page)) {
-                    CharStatsPage(state, viewModel)
-                } else {
-                    ActionStatsPage(state, viewModel)
+            // 🔴 折叠连接挂点：P2R 内、pager 外。nestedScroll 的 onPostScroll 按「由内向外」
+            // 派发（compose-ui 1.9.1 字节码核实），而 P2R 空闲态会把到顶下拉的正余量全额吃掉
+            // （material3 1.3.2 字节码核实；它没有 enabled 参数，没法「折叠未归零时暂停刷新」
+            // 绕开顺序）⇒ 挂到 P2R 外面则「到顶下拉回展」永远轮不到、成死代码；挂这里则先回展、
+            // 展平后的正余量才继续外抛给 P2R 拉刷新圈。onPreScroll 是「外向内」派发，P2R 先收
+            // 自己的（未拉出时为 0），余量照样先到折叠连接：先折头、再滚列表，顺序天然正确。
+            Box(ComposeModifier.fillMaxSize().nestedScroll(headerCollapseConnection)) {
+                HorizontalPager(state = pagerState, modifier = ComposeModifier.fillMaxSize()) { page ->
+                    if (isCharTable(page)) {
+                        CharStatsPage(state, viewModel)
+                    } else {
+                        ActionStatsPage(state, viewModel)
+                    }
                 }
             }
         }
@@ -321,6 +362,84 @@ private fun CardStatsContent(
             },
             onDismiss = { exportDialogOpen = false },
         )
+    }
+}
+
+/**
+ * 折叠容器（V40-A 整体纵向滚动的载体）：外框高 = 信息卡自然高 − 折叠量，
+ * clipToBounds 把折出去的部分裁掉（不裁会盖住下面的 tab 行与列表区）。
+ * 折叠量/自然高读在**本函数内**：滚动期间逐帧变化只重组这一小块，pager 与大列表不陪跑。
+ *
+ * 🔴 onSizeChanged 必须挂在内层「不限高」的 Column 上：外框高本来就是这两个状态的函数，
+ * 挂外层量到的会是折叠后的可见高（自锁：一折就把自然高改小，再也展不回来）。
+ * 首帧自然高未知（=0）先按自然排版、量到后再交给公式接管 —— 否则首帧先以 0 高画一帧，
+ * 头部会白闪一下。
+ */
+@Composable
+private fun CollapsibleHeaderContainer(
+    collapsePx: MutableFloatState,
+    naturalHeightPx: MutableFloatState,
+    content: @Composable () -> Unit,
+) {
+    val naturalHeight = naturalHeightPx.floatValue
+    val boxModifier = if (naturalHeight > 0f) {
+        ComposeModifier
+            .fillMaxWidth()
+            .clipToBounds()
+            .height(
+                with(LocalDensity.current) {
+                    (naturalHeight - collapsePx.floatValue).coerceAtLeast(0f).toDp()
+                },
+            )
+    } else {
+        ComposeModifier.fillMaxWidth()
+    }
+    Box(boxModifier) {
+        Column(
+            ComposeModifier
+                .wrapContentHeight(unbounded = true, align = Alignment.Top)
+                .onSizeChanged { naturalHeightPx.floatValue = it.height.toFloat() },
+        ) {
+            content()
+        }
+    }
+}
+
+/**
+ * 折叠手势链（V40-A）：上滑先折信息卡，折满余量才轮到列表滚；列表到顶后下拉反向展开，
+ * 展平后才把正余量继续外抛给 PullToRefreshBox 去拉刷新圈。只吃拖拽（UserInput）——
+ * 惯性滑动（Fling）不带动头部，免得抬手后头部自己跳一段。
+ *
+ * 状态用 [MutableFloatState] 引用进出（而不是每帧回传新值）：连接只 remember 一次，
+ * 读写都落在同一对 state 上。
+ */
+private class HeaderCollapseConnection(
+    private val collapsePx: MutableFloatState,
+    private val naturalHeightPx: MutableFloatState,
+) : NestedScrollConnection {
+
+    /** 折叠量的合法范围：0（完全展开）~ 自然高（完全收起） */
+    private fun clampCollapse(value: Float): Float = value.coerceIn(0f, naturalHeightPx.floatValue)
+
+    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+        // 只接拖拽；上滑（负）才折，下拉的正数留给 onPostScroll（要先等列表自己滚到顶）
+        if (source != NestedScrollSource.UserInput || available.y >= 0f) return Offset.Zero
+        val old = clampCollapse(collapsePx.floatValue)
+        val next = clampCollapse(old - available.y)
+        collapsePx.floatValue = next
+        // 返回值必须与 available 同号且不超过它（nestedScroll 的消耗约定），即 old − next：
+        // 上滑段为负（先吃掉这段 ⇒ 头部先收），收到顶 next==old ⇒ 归零、余量放给列表。
+        return Offset(0f, old - next)
+    }
+
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+        // 到达这里的正余量 = 列表已在顶、自己吃不下的下拉量（列表没在顶时轮不到它）
+        if (source != NestedScrollSource.UserInput || available.y <= 0f) return Offset.Zero
+        val old = clampCollapse(collapsePx.floatValue)
+        val next = clampCollapse(old - available.y)
+        collapsePx.floatValue = next
+        // 同号为正（回展吃掉多少），展平（0）后余量继续外抛给 P2R 拉刷新圈
+        return Offset(0f, old - next)
     }
 }
 
@@ -372,6 +491,43 @@ private fun StatsTabRow(pagerState: PagerState) {
                 text = { Text(stringResource(labelRes)) },
             )
         }
+    }
+}
+
+/**
+ * 头部之一：玩家信息卡（V40-A 从每页 LazyColumn 搬回外层折叠容器，全页只此一份）。
+ * 调用参数沿用 V39-B 版 ⇒ 行为不变；`state.detailOpen` 仍由 VM 驱动。
+ * 左缘直接用页面边距 16dp：搬出 LazyColumn 后外面没有 8dp contentPadding 可叠，
+ * V39-B 的 8dp 起始补偿常量随之作废。
+ */
+@Composable
+private fun StatsInfoCardItem(
+    state: StatsUiState,
+    uid: String,
+    onToggleDetail: () -> Unit,
+    exportEnabled: Boolean,
+    onExportClick: () -> Unit,
+) {
+    val summary = state.summary ?: return
+    Column(ComposeModifier.padding(top = HeaderTopPadding).padding(start = ContentHorizontalPadding)) {
+        PlayerInfoCard(
+            summary = summary,
+            avatarUrl = state.avatarUrl,
+            tier = state.tier,
+            uid = uid,
+            detailOpen = state.detailOpen,
+            onToggle = onToggleDetail,
+            exportEnabled = exportEnabled,
+            onExportClick = onExportClick,
+        )
+    }
+}
+
+/** 头部之二：tab 行（V40-A 起常驻在 pager 外，翻页时不动）。左缘与信息卡同为 16dp 页面边距 */
+@Composable
+private fun StatsTabRowItem(pagerState: PagerState) {
+    Column(ComposeModifier.padding(start = ContentHorizontalPadding)) {
+        StatsTabRow(pagerState = pagerState)
     }
 }
 
@@ -432,14 +588,19 @@ private fun ExportOptionRow(label: String, checked: Boolean, onCheckedChange: (B
 }
 
 @Composable
-private fun CharStatsPage(state: StatsUiState, viewModel: CardStatsViewModel) {
+private fun CharStatsPage(
+    state: StatsUiState,
+    viewModel: CardStatsViewModel,
+) {
     // 页内自己滚（LazyColumn + fillMaxSize，照 RankRoute:214 的榜一列表写法）：
     // pager 在有界高里给出确定页高，LazyColumn 的 nestedScroll 把下拉手势上抛给 PullToRefreshBox。
     // key 带下标 ⇒ 天然唯一（牌名可能重复，不能只按名做 key）。
+    // V40-A：信息卡 + tab 行已上移出 pager（本页不再有头部 item），只剩
+    // 排序行 → 列名(sticky) → 数据行；头部的折叠/展开由外层容器统一负责。
     LazyColumn(
         ComposeModifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = ContentHorizontalPadding,
+            start = ContentStartPadding,
             end = ContentHorizontalPadding,
             top = ContentVerticalPadding,
             bottom = ContentVerticalPadding + ContentBottomPadding,
@@ -461,10 +622,8 @@ private fun CharStatsPage(state: StatsUiState, viewModel: CardStatsViewModel) {
         if (state.sortedCharList.isEmpty()) {
             item(key = "char-empty") { NoMatchHint(R.string.stats_no_match_char) }
         } else {
-            // V37-1 任务 E-1：表头改为 **stickyHeader**（用户实测「表头 y=1063 随滚动移动」的病根）。
-            // 统计区/tab 行本来就是固定的（V29 结构回退后就在 verticalScroll 之外），
-            // 唯一跟着行内容一起滚走的是这个表头 ⇒ 粘在列表视口顶部即可，
-            // 不需要把表头搬出 HorizontalPager（搬出去会失去左右滑动时的跟手，且要额外处理翻页时的表头翻转）。
+            // V37-1 任务 E-1：表头 **stickyHeader**；V40-A 起信息卡/tab 行已移出本列表，
+            // 列名依旧是本页唯一吸顶的元素（用户点名保留的正是它）——滚过排序行后吸在视口顶部。
             stickyHeader(key = "char-header") { CharTableHeader() }
             // V29 需求 8：# 列名次按「当前排序键」判并列（1-2-2-4），换排序键时名次跟着重算
             val charRanks = ranksWithTies(state.sortedCharList) { charSortKey(it, state.charSort) }
@@ -491,12 +650,16 @@ private fun charSortKey(card: GcgCard, sort: CharSortKey): Comparable<*> = when 
 }
 
 @Composable
-private fun ActionStatsPage(state: StatsUiState, viewModel: CardStatsViewModel) {
+private fun ActionStatsPage(
+    state: StatsUiState,
+    viewModel: CardStatsViewModel,
+) {
     // 同 CharStatsPage：LazyColumn 承载页内滚动（这一页行最多，正是滑动白屏最明显的一页）
+    // V40-A：信息卡 + tab 行已上移出 pager，顺序 = 筛选行 → 列名(sticky) → 数据行
     LazyColumn(
         ComposeModifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = ContentHorizontalPadding,
+            start = ContentStartPadding,
             end = ContentHorizontalPadding,
             top = ContentVerticalPadding,
             bottom = ContentVerticalPadding + ContentBottomPadding,

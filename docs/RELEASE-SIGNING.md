@@ -1,8 +1,21 @@
 # GIGI Release 签名说明（V38-C）
 
 `app/build.gradle.kts` 的 release signingConfig **只从环境变量读取口令，没有任何回退**：
-缺失（或为空）时配置阶段直接抛 `GradleException` 并给出修复指引。
-不允许再出现"未配置 ⇒ 悄悄产出未签名包"的行为。
+缺失（或为空）时抛 `GradleException` 并给出修复指引。不允许再出现"未配置 ⇒ 悄悄产出未签名包"的行为。
+
+## 哪些任务需要口令（V39-S：条件守卫）
+
+守卫改成**条件触发**——只有真正要打 release 产物的任务才校验口令：
+
+- **需要口令**：`assembleRelease` / `bundleRelease` / `build` 等含 `Release` / `Bundle` 的任务，
+  缺失时照旧在配置阶段抛 `GradleException`。
+- **不需要口令**：`compileDebugKotlin` / `testDebugUnitTest` / `lintDebug` / `assembleDebug` /
+  `cleanTestDebugUnitTest` 等 debug 路径。`debug` 构建类型走 Android 默认 debug keystore，
+  根本不引用 release signingConfig，即便两个环境变量都没设也应正常构建。
+
+> 🔴 **不要用 `reg query` 去翻注册表救急**。V39-A1 棒曾因旧版无条件抛挡死 debug 任务，
+> 排障时用 `reg query` 读回口令、把 keystore 明文打进了会话日志。现在 debug 不再需要口令，
+> 撞墙 ⇒ 说明你跑的确实是 release 任务，按上面 `setx` 正规设置即可，**绝不要把口令打进终端/日志**。
 
 ## keystore 基本信息
 

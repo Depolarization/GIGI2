@@ -45,6 +45,7 @@
     <string name="my_profile_level">Player level</string>
     <string name="cd_avatar">Avatar</string>
     <string name="my_deck_entry">My decks</string>
+    <string name="my_deck_detail_title">Deck Details</string>
     <string name="my_cardback_entry">Card backs</string>
     <string name="my_favorites_entry">Favorite matches</string>
     <string name="my_challenge_entry">Champions\' Trial</string>
@@ -128,7 +129,6 @@
     <string name="toast_save_failed">Save failed, please retry</string>
     <string name="toast_copied_uid">UID copied: %1$s</string>
     <string name="toast_copied_opponent_uid">Opponent UID copied: %1$s</string>
-    <string name="toast_server_switched">Switched to %1$s, refetching data from this server</string>
 
     <!-- Login -->
     <string name="login_title">GIGI · Genius Invokation TCG Companion</string>
@@ -150,6 +150,8 @@
     <string name="login_status_success">Signed in</string>
     <!-- V33: takes over the info role of the removed server picker (one line under the QR code) -->
     <string name="login_servers_supported">Supports both official (Sky Island) and channel (World Tree) accounts</string>
+    <!-- V39-E: glue between the two merged sentences under the button -->
+    <string name="login_status_join">. </string>
     <string name="login_choose_role_title">Choose roles to sign in</string>
     <string name="login_choose_role_rescan">Scan again</string>
     <!-- V34: multi-select confirm button and partial-failure notice -->
@@ -309,8 +311,6 @@
     <string name="about_section_software">About This App</string>
     <string name="about_fact_project">Project</string>
     <string name="about_value_project">GIGI (Genshin Impact Genius Invokation TCG Tool)</string>
-    <string name="about_fact_form">Form</string>
-    <string name="about_value_form">Native Android app — install and go; sign in with a QR code via HoYoLAB or Cloud·Genshin</string>
     <string name="about_section_tips">Usage Tips</string>
     <string name="about_tip_delay">Like the wish history, new match data arrives with some delay; if the latest record is not there yet, try again shortly.</string>
     <string name="about_tip_restart">In a hurry to refresh, exit to the main menu (the door screen) and re-enter to speed up data updates.</string>
@@ -321,15 +321,16 @@
     <string name="about_section_data">Data Sources &amp; Permissions</string>
     <string name="about_data_statement">Card image downloads come from public APIs and contain no personal match records; card usage details require login credentials.</string>
     <string name="about_data_bullet_source">All info comes from Genius Invokation tournaments and HoYoLAB; card data and images come from the HoYoLAB TCG Wiki.</string>
-    <string name="about_data_bullet_credential">Credentials are stored only in the encrypted keystore on this device and are never uploaded to any server.</string>
+    <string name="about_data_bullet_credential">Credentials are stored only in the encrypted storage on this device and are never uploaded to any server.</string>
     <string name="about_data_bullet_qr">The QR code is issued by the HoYoverse Pass; once you confirm, the credential exchange runs automatically on the server you selected.</string>
     <string name="about_section_thanks">How It Works &amp; Credits</string>
-    <string name="about_thanks_intro">The original idea of looking up opponents via the official tournament site: </string>
-    <string name="about_thanks_link">Bilibili explainer video</string>
+    <string name="about_thanks_intro">"The earliest idea of looking up opponents through the official tournament site came from this "</string>
+    <string name="about_thanks_link">Bilibili video</string>
     <string name="about_thanks_period">.</string>
     <string name="about_thanks_body">Built on public HoYoLAB APIs and official tournament data. Thanks to every community contributor who shared public data and API research.</string>
     <string name="about_section_feedback">Feedback</string>
-    <string name="about_feedback_hint">If you run into any errors while using the app, feedback is welcome.</string>
+    <string name="about_feedback_hint">"If you run into any errors while using the app, feel free to report them on my "</string>
+    <string name="about_feedback_tail">". "</string>
     <string name="about_section_version">Version</string>
     <string name="about_version">Version %1$s</string>
 
@@ -337,8 +338,6 @@
     <string name="about_bullet">"- "</string>
     <string name="about_label_separator">": "</string>
     <string name="about_version_line">Version %1$s (%2$d)</string>
-    <string name="about_fact_license">License</string>
-    <string name="about_value_license">Apache License 2.0, fully open source</string>
     <string name="about_bullet_repo">"Source repository: "</string>
     <string name="about_bullet_license">"License: "</string>
     <string name="about_bullet_license_value">Apache License 2.0</string>
@@ -355,6 +354,8 @@
     <string name="about_update_dialog_versions">Current %1$s → Latest %2$s</string>
     <string name="about_update_dialog_source">Source: %1$s</string>
     <string name="about_update_dialog_download">Download</string>
+    <!-- V40-D: shown after the APK is handed to the system downloader -->
+    <string name="about_update_download_started">Handed to the system downloader — see the notification for progress</string>
     <string name="about_announcement_title">Announcement</string>
     <string name="about_announcement_hint">Tap to view details</string>
     <string name="about_announcement_ok">Got it</string>

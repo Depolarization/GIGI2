@@ -7,6 +7,9 @@
 // ②③ 的入口行带数值摘要（卡组数 / 已收集卡背 / 收藏条数 / 旬数），数据缺失时整段不显示；
 // 内容本身在四个二级页（MyDecksPage 等，设计 §3.3）。
 // 一级页只做导航枢纽，重内容一律进二级页（设计 §3.2「为什么用分区列表而不是嵌套 Tab」）。
+// V39-D2：整页套 PullToRefreshBox（范式照 HomeRoute:128-136），下拉=本页唯一的手动刷新入口，
+// 走 VM.refreshAll()（force 穿透内存缓存）；进页/切账户的装载由 VM 的 shouldLoadMyPage 闸门拦住重复发起，
+// 所以「切到本页数字就重算一遍」只剩两种触发：换账户、用户主动下拉。
 
 package com.gigi.tcg.ui.screens.my
 
@@ -28,11 +31,13 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,6 +58,7 @@ import com.gigi.tcg.i18n.displayShortName
 import com.gigi.tcg.ui.components.Avatar
 import com.gigi.tcg.ui.login.LocalAccountActions
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MyRoute(
     onOpenDeck: () -> Unit,
@@ -79,6 +85,10 @@ fun MyRoute(
     // 页面重入（离开 Composition 后 LaunchedEffect 重启）静默替换缓存值，数字不再闪（用户第 12 项）。
     LaunchedEffect(activeUid) { viewModel.loadAllStaggered() }
 
+    // 下拉刷新指示器：只由用户主动下拉（VM.refreshing）驱动，不从「是否在装载」派生 ——
+    // 首屏/切页装载走 loadAllStaggered(force=false)，不置位 ⇒ 顶部圈不与内容同转（口径同 HomeRoute）。
+    val isRefreshing by viewModel.refreshing.collectAsStateWithLifecycle()
+
     // 摘要口径：数据没到 / 列表为空 ⇒ 整段不显示（显示 0 会把「还没拉到」误报成「真的没有」）
     val deckSummary = deckList?.deckList?.size?.takeIf { it > 0 }
         ?.let { stringResource(R.string.my_summary_decks, it) }
@@ -92,53 +102,62 @@ fun MyRoute(
     val scheduleSummary = challengeSchedule?.scheduleList?.size?.takeIf { it > 0 }
         ?.let { stringResource(R.string.my_summary_schedules, it) }
 
-    LazyColumn(
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = viewModel::refreshAll,
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item(key = "accounts") {
-            SectionCard(title = stringResource(R.string.my_section_accounts)) {
-                accounts.forEach { account ->
-                    AccountRow(
-                        account = account,
-                        active = account.uid == activeUid,
-                        // 牌手等级只有当前会话的接口数据（profile），非激活账户行不拼这段
-                        level = if (account.uid == activeUid) profile?.level else null,
-                        onSelect = { actions.switchAccount(account.uid) },
+        // LazyColumn 自己就是嵌套滚动的发起方（与 HomeRoute 里的 verticalScroll Column 同一角色），
+        // 外层没有第二个滚动容器 ⇒ 下拉手势收得到，嵌套滚动不失效。路由 modifier 只给外层，
+        // 内层改填 PullToRefreshBox 的内容区（StateViews 那类把 fillMaxWidth 写在后面的坑不在这条路径上）。
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            item(key = "accounts") {
+                SectionCard(title = stringResource(R.string.my_section_accounts)) {
+                    accounts.forEach { account ->
+                        AccountRow(
+                            account = account,
+                            active = account.uid == activeUid,
+                            // 牌手等级只有当前会话的接口数据（profile），非激活账户行不拼这段
+                            level = if (account.uid == activeUid) profile?.level else null,
+                            onSelect = { actions.switchAccount(account.uid) },
+                        )
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    AddAccountRow(onClick = actions.addAccount)
+                    LogoutRow(onClick = { logoutConfirmOpen = true })
+                }
+            }
+            item(key = "assets") {
+                SectionCard(title = stringResource(R.string.my_section_assets)) {
+                    EntryRow(
+                        label = stringResource(R.string.my_deck_entry),
+                        trailing = deckSummary,
+                        onClick = onOpenDeck,
+                    )
+                    EntryRow(
+                        label = stringResource(R.string.my_cardback_entry),
+                        trailing = cardBackSummary,
+                        onClick = onOpenCardBack,
                     )
                 }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                AddAccountRow(onClick = actions.addAccount)
-                LogoutRow(onClick = { logoutConfirmOpen = true })
             }
-        }
-        item(key = "assets") {
-            SectionCard(title = stringResource(R.string.my_section_assets)) {
-                EntryRow(
-                    label = stringResource(R.string.my_deck_entry),
-                    trailing = deckSummary,
-                    onClick = onOpenDeck,
-                )
-                EntryRow(
-                    label = stringResource(R.string.my_cardback_entry),
-                    trailing = cardBackSummary,
-                    onClick = onOpenCardBack,
-                )
-            }
-        }
-        item(key = "records") {
-            SectionCard(title = stringResource(R.string.my_section_records)) {
-                EntryRow(
-                    label = stringResource(R.string.my_favorites_entry),
-                    trailing = matchSummary,
-                    onClick = onOpenFavorites,
-                )
-                EntryRow(
-                    label = stringResource(R.string.my_challenge_entry),
-                    trailing = scheduleSummary,
-                    onClick = onOpenChallenge,
-                )
+            item(key = "records") {
+                SectionCard(title = stringResource(R.string.my_section_records)) {
+                    EntryRow(
+                        label = stringResource(R.string.my_favorites_entry),
+                        trailing = matchSummary,
+                        onClick = onOpenFavorites,
+                    )
+                    EntryRow(
+                        label = stringResource(R.string.my_challenge_entry),
+                        trailing = scheduleSummary,
+                        onClick = onOpenChallenge,
+                    )
+                }
             }
         }
     }

@@ -2,6 +2,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- 暗色档：系统栏仍透明，但状态栏/导航栏图标必须是浅色 -->
     <style name="Theme.GIGI" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- V39-T：见 values/themes.xml，禁用系统强制深色对已知色板的二次改写 -->
+        <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>

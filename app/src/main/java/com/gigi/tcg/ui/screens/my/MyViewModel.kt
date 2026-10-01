@@ -84,6 +84,17 @@ internal const val CHALLENGE_RECORD_COALESCE_MS: Long = 300L
 internal fun challengeRecordFetchDelayMs(previousFetchInFlight: Boolean): Long =
     if (previousFetchInFlight) CHALLENGE_RECORD_COALESCE_MS else 0L
 
+/**
+ * 装载一次性闸门（纯函数，JVM 单测可钉死）：**同 uid 且已装载过 ⇒ 不再装载**。
+ * 这是「切页零重装」的第二道防线——真根因在导航层（`NavHost(startDestination = 每次变的值)`
+ * 会让整张导航图重建、页面 VM 随之销毁重建，V39-C 修），那层一旦再被人改坏，
+ * 本闸门仍保证「我的」页不每次进入都打接口。
+ * 🔴 两条放行路径：换 uid（含登出置 null）必须真重载，否则新账户顶着旧账户数据；
+ * `force = true`（手动下拉刷新）无条件放行。
+ */
+internal fun shouldLoadMyPage(uid: String?, loadedUid: String?, force: Boolean): Boolean =
+    force || uid != loadedUid
+
 class MyViewModel(app: Application) : AndroidViewModel(app) {
 
     private val container: AppContainer = (app as GigiApp).container
@@ -122,11 +133,26 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
     /** 当前选中的一旬战绩；null = 加载中或该旬不可用。切旬时先清 null，避免残留上一旬数字 */
     val challengeRecord: StateFlow<GcgChallengeRecordData?> = _challengeRecord.asStateFlow()
 
+    /**
+     * 下拉刷新指示器（V39-D）：🔴 **只由用户主动下拉置位**，绝不从「是否在装载」派生。
+     * 进页装载（LaunchedEffect(activeUid)）走的是 loadAllStaggered，不碰这里 ⇒ 首屏顶部圈不亮，
+     * 不与页面内 loading 同转（口径同 HomeRoute / RankRoute，判据见 StatsLoadingGateTest）。
+     */
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
     /** 每个 StateFlow 对应一条在途请求，重新加载同一格时先取消它 */
     private val jobs = mutableMapOf<MutableStateFlow<*>, Job?>()
 
     /** 账户归属守卫：见 [AccountScopeGuard]，只有换账户才清空、页面重入不清空 */
     private val accountGuard = AccountScopeGuard()
+
+    /**
+     * 装载归属（V39-D2）：本页**已经装载过**的 uid，是 [shouldLoadMyPage] 闸门的另一半。
+     * 与 [accountGuard] 分工不同：accountGuard 决定「要不要清空」（换账户才清），
+     * 本字段决定「要不要重新发起装载」（同 uid 的重入直接不发起 ⇒ 切页零重装、零请求）。
+     */
+    private var loadedUid: String? = null
 
     /** 单旬缓存归属的账户；uid 变了就整表作废（切账户不许带着上一账户的战绩继续翻旬） */
     private var challengeRecordUid: String? = null
@@ -137,6 +163,9 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
 
     /** [loadAllStaggered] 的在途串行链，重新触发时先取消，避免两条链并发 */
     private var staggeredJob: Job? = null
+
+    /** [refreshAll] 的在途等待链（收圈那一次）：同一时刻只允许一个等待者，否则先结束的那个会提前熄灭指示器 */
+    private var refreshJob: Job? = null
 
     /** 头像回填链的在途 job（同一时刻只允许一条链，重复进页/换账户先取消上一条） */
     private var avatarJob: Job? = null
@@ -188,21 +217,54 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
      * **串行 + 错峰**（间隔 [MY_LOAD_STAGGER_MS]）。
      * 🔴 一次性并发 5 个私有接口正中米游社 -500004 保流窗口，失败率抬升；
      * 首页首刷早已改错峰（`runStaggeredFirstLoad`），本页沿用同一口径与同一间隔。
+     *
+     * V39-D2：入口过 [shouldLoadMyPage] 闸门 —— 同一 uid 的重复进入（切页往返、组合重入）**不再发起装载**，
+     * 数字就不会每次切到本页都刷一遍；放行只有两条路：换 uid（含登出置 null）与 `force = true`（手动下拉）。
+     * 🔴 `force` 一路传到 5 组摘要的 `loadXxx(force)` ⇒ `GigiRepository.cachedPrivate(..., force)` 绕开 TtlCache；
+     * 头像回填步骤**不吃 force**（`planAvatarBackfill` 已筛掉有头的账户，稳态零请求，闸门语义不受影响）。
      */
-    fun loadAllStaggered(staggerMs: Long = MY_LOAD_STAGGER_MS) {
+    fun loadAllStaggered(force: Boolean = false, staggerMs: Long = MY_LOAD_STAGGER_MS) {
+        val uid = container.activeAccountUid.value
+        if (!shouldLoadMyPage(uid, loadedUid, force)) return
+        loadedUid = uid
         staggeredJob?.cancel()
         staggeredJob = viewModelScope.launch {
             runStaggeredSteps(
                 staggerMs,
                 listOf(
-                    { loadProfile() },
+                    { loadProfile(force) },
                     { backfillAllAvatars() },
-                    { loadDeckList() },
-                    { loadCardBackList() },
-                    { loadMatchList() },
-                    { loadChallengeSchedule() },
+                    { loadDeckList(force) },
+                    { loadCardBackList(force) },
+                    { loadMatchList(force) },
+                    { loadChallengeSchedule(force) },
                 ),
             )
+        }
+    }
+
+    /**
+     * 手动下拉刷新（V39-D2，本页唯一会点亮下拉指示器的入口）：整链 `force = true` 穿透内存缓存重取。
+     * 🔴 置位在 uid 守卫之后（未登录的 return 不得留下无人清零的 true，口径同 `HomeViewModel.refresh`）；
+     * `try/finally` 保证异常路径也收圈。
+     * 🔴 首屏装载走的是 `loadAllStaggered(force = false)`（`MyRoute` 的 `LaunchedEffect(activeUid)`），
+     * 那条路径不碰 `_refreshing` ⇒ 顶部圈不会与页面内容一起转（判据同 StatsLoadingGateTest / HomeReloadModeTest）。
+     * 收圈要等**全部**在途请求落定：串行链只保证「发起」错峰，每格请求本身是独立 Job，
+     * 链一结束就收圈会让圈先灭、数字后换（V36 审计 P3 同源）。
+     */
+    fun refreshAll() {
+        if (container.activeAccountUid.value == null) return
+        // 下拉途中再拉不叠加：旧等待者会抢先收圈，指示器还没灭数据就换了一轮
+        if (refreshJob?.isActive == true) return
+        _refreshing.value = true
+        refreshJob = viewModelScope.launch {
+            try {
+                loadAllStaggered(force = true)
+                staggeredJob?.join()
+                (listOfNotNull(avatarJob) + jobs.values.filterNotNull()).forEach { it.join() }
+            } finally {
+                _refreshing.value = false
+            }
         }
     }
 

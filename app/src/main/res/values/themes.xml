@@ -6,6 +6,15 @@
       不要在此设 colorPrimary 等，会被 Compose 覆盖，两边不一致反而更糟。
     -->
     <style name="Theme.GIGI" parent="Theme.Material3.DayNight.NoActionBar">
+        <!--
+          V39-T：**必须显式声明禁用系统「强制深色」。**
+          真机（Redmi Note 7 / MIUI）实测：夜间模式下 MIUI 会对本应用做颜色自适应变换，
+          把 Button 容器 primary(#D0BCFF) 与文字 onPrimary(#381E72) 一起改写
+          （实测文字被提亮成 #FBD2FF，对比度掉到 1.28:1；硬编码 Text color 也拦不住）。
+          判据：同一份硬编码 #381E72 的代码，系统切白天 ⇒ 渲染 #381E72 ✓；
+          系统夜间 ⇒ 渲染 #FBD2FF ✗。故与色板/Compose/Typography 无关，是系统层干预。
+        -->
+        <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>

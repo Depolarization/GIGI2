@@ -97,9 +97,10 @@ private const val PROFILE_SCORES_GAP_DP = 12
 /** 积分表头 ↔ 数值：两列共用同一间距（与身份组内留白同值，保持"同一层内 4dp"的一致性） */
 private const val SCORE_LABEL_VALUE_GAP_DP = 4
 
-/** 对局卡内边距 / 头像直径 / 积分列↔胜负列间距（导出图 CARD_PADDING_PX、AVATAR_SIZE_PX、RESULT_GAP_PX） */
+/** 对局卡内边距 / 积分列↔胜负列间距（沿用原导出图 CARD_PADDING_PX、RESULT_GAP_PX；导出渲染器 V29 已删） */
 private const val RECORD_CARD_PADDING_DP = 12
-private const val RECORD_AVATAR_SIZE_DP = 56
+/** 对局卡头像直径。V40-C：与排行榜页同尺寸 44dp（事实源 = RankRoute 的 `Avatar(..., size = 44.dp, ...)`） */
+private const val RECORD_AVATAR_SIZE_DP = 44
 private const val RECORD_RESULT_GAP_DP = 12
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -216,6 +217,9 @@ fun HomeRoute(
                         }
                     } else {
                         when (records) {
+                            // 🔴 保持原样（V40-C 越权改动已回退）：本分支渲染时 scrollable=true
+                            // （外层 Column 挂着 verticalScroll），此时用 weight(1f) 拿的是**无限高**，
+                            // 与上方 recordsEmpty 分支（那一条外层不滚动、weight 才有界）不是一回事。
                             is Async.Loading -> LoadingView(label = stringResource(R.string.state_home_records_loading))
                             is Async.Content -> {
                                 // 服务端最多返回 10 条：外层整页已可滚，直接顺序渲染。
@@ -379,22 +383,23 @@ private fun RecordItem(
                 },
             ),
     ) {
-        // V28（对齐导出图「右缘组顶对齐到昵称行」）：三块文本改为共用昵称行的基线，
-        // 胜负 / 天梯 / 巅峰不再各自垂直居中而落到 UID 那一行上；头像保持贴顶，
-        // 卡高仍由 56dp 头像 + 上下 12dp 内边距决定（与导出图同一尺寸）。
+        // V40-C（V28 口径反转，用户原话：「头像过大，改为和排行榜一页一致大小，确保头像居中对齐，
+        // 包括右方的积分变化和胜负情况也要居中对齐于材料中轴线」）：旧 V28 的 Top + 三处
+        // alignByBaseline 是为对齐导出图「右缘组顶对齐到昵称行」定的（导出渲染器 V29 已删），
+        // 现按用户要求反转——头像 44dp 与排行榜同尺寸，头像 / 昵称列 / 积分变化 / 胜负
+        // 四块一律垂直居中于卡片内容区中轴。卡高随之变矮（44dp 头像 + 上下 12dp 内边距），属预期。
         Row(
             Modifier
                 .fillMaxWidth()
                 .padding(RECORD_CARD_PADDING_DP.dp),
-            verticalAlignment = Alignment.Top,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Avatar(url = record.avatarUrl, size = RECORD_AVATAR_SIZE_DP.dp, contentDescription = record.nickname)
             // 对手区域：点击跳转对手详情（UNKNOWN 不响应由 clickable enabled 承担）
             Column(
                 Modifier
                     .weight(1f)
-                    .padding(horizontal = RECORD_CARD_PADDING_DP.dp)
-                    .alignByBaseline(),
+                    .padding(horizontal = RECORD_CARD_PADDING_DP.dp),
             ) {
                 Text(
                     text = record.nickname ?: stringResource(R.string.common_unknown),
@@ -431,8 +436,7 @@ private fun RecordItem(
                 // 胜负列不额外定宽：三个取值（胜/负/空、W/L/–）都是**单字**，天然等宽，
                 // 且整组右贴齐卡片内容右缘 ⇒ 跨卡右缘恒定，无需再套一个宽度常量。
                 modifier = Modifier
-                    .width(IntrinsicSize.Max)
-                    .alignByBaseline(),
+                    .width(IntrinsicSize.Max),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
@@ -476,9 +480,7 @@ private fun RecordItem(
                     isLose -> semantic.lose
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
-                modifier = Modifier
-                    .padding(start = RECORD_RESULT_GAP_DP.dp)
-                    .alignByBaseline(),
+                modifier = Modifier.padding(start = RECORD_RESULT_GAP_DP.dp),
             )
         }
     }

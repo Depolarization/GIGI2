@@ -475,7 +475,8 @@ private fun FilterDropdown(
     }
 }
 
-/** 选项只显示选项值本身；选中项整行 secondaryContainer 背景块 + 其上的 onSecondaryContainer 文本色 */
+/** 选项只显示选项值本身；选中项整行 secondaryContainer 背景块 + 其上的 onSecondaryContainer
+ *  填到 itemColors 的**全部三槽**（text / leadingIcon / trailingIcon），见函数体内 V39-H2 注释 */
 @Composable
 private fun FilterOption(
     text: String,
@@ -492,7 +493,18 @@ private fun FilterOption(
             Modifier
         },
         colors = if (selected) {
-            MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.onSecondaryContainer)
+            // 🔴 V39-H2（G2 清单④ D-2 收口）：`MenuDefaults.itemColors` 的
+            // textColor / leadingIconColor / trailingIconColor 是**三个独立槽**，只填一个就是半成品——
+            // 现在这一行没有图标所以看不出问题，一旦有人加对勾（leading/trailing icon），
+            // 没填的那两槽会去吃 M3 默认值（onSurfaceVariant / primary）⇒「块换了、图标没换」，
+            // 同一个容器里文字与图标两条通道不同源。**三槽必须同时给、同值**，这是本文件的规约。
+            // 实测（onSecondaryContainer × secondaryContainer，正文门槛 4.5）：夜 7.19 / 白 13.24
+            //（改前只填 textColor 时同值，本条收口不改对比度，只堵分叉；三槽同值后即便加图标仍是这组值）
+            MenuDefaults.itemColors(
+                textColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                leadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                trailingIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
         } else {
             MenuDefaults.itemColors()
         },

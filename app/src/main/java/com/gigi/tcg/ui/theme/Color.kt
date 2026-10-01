@@ -4,8 +4,8 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
-// 暗色档深绿：深色 Card 容器(0xFF36343B) 上过 WCAG AA（实测 4.63:1，旧值 0xFF439865 仅 3.46:1；
-// 对 dark surface 0xFF1C1B1F 达 6.47:1）。
+// 暗色档深绿：深色 Card 容器(= material3 1.3.2 无变体 Card 的 surfaceContainerHighest 0xFF36343B) 上过 WCAG AA
+// （实测 4.63:1，旧值 0xFF439865 仅 3.46:1；对 dark surface 0xFF1C1B1F 达 6.47:1）。
 // 全部语义色仅作文字/图标前景色，无一处作背景块，提亮只升对比度。
 // HSL 色相约 144°不变、只提亮度（观感保持深绿），亮度受 AA 下限约束。
 val WinColor = Color(0xFF58B07E)
@@ -15,12 +15,23 @@ val WinColor = Color(0xFF58B07E)
 val LoseColor = Color(0xFFE88080)
 // 暗色档金（tokens.css --color-gold，排行榜前三固定色也用它，勿改值）
 val GoldColor = Color(0xFFD4A643)
-// 亮色档深金：亮底 surface 上 WCAG AA（对白底对比度约 5.1:1），仅供语义色按主题取用
-val GoldColorLight = Color(0xFF8A6A16)
-// 亮色档深绿：亮底 surface 上 WCAG AA（对白底对比度约 5.0:1），仅供语义色按主题取用
-val WinColorLight = Color(0xFF2E7D4F)
-// 亮色档深红：亮底 surface 上 WCAG AA（对白底对比度约 5.1:1），仅供语义色按主题取用
-val LoseColorLight = Color(0xFFB84A4A)
+
+// 🔴 亮色档三枚的定档底 = **真 Card 容器** `surfaceContainerHighest` = 0xFFE6E0E9（material3 1.3.2
+// `FilledCardTokens.ContainerColor`，V39-G 用 M3 sources 核实）。此前按 0xFFF7F2FA 调是**调错了档**：
+// `surfaceContainerLow` 那一档属 ElevatedCard / 底部弹Sheet，普通 `Card()` 根本不吃它，
+// 于是白天 Card 上的胜负文案实测只有 3.89~3.94，稳定不达标（正文门槛 4.5）。
+// 现按「同 HSL 色相+饱和度、只压亮度」重定档，四底全过正文级 AA（门槛 4.5，[ContrastUtils] 实测）：
+// ```
+//                     浅 Card      浅 surface   浅弹窗底      surfaceContainerLow   纯白
+//                     #E6E0E9      #FEF7FF      #ECE6F0       #F7F2FA              #FFFFFF
+//   WinColorLight     4.69          5.78         4.96          5.51                 6.08   (旧 #2E7D4F: 3.89)
+//   LoseColorLight    4.66          5.74         4.93          5.48                 6.04   (旧 #B84A4A: 3.94)
+//   GoldColorLight    4.69          5.78         4.96          5.51                 6.08   (旧 #8A6A16: 3.90)
+// ```
+// 越往浅的底越宽松 ⇒ 浅 Card 是绑定档；改这几枚必须连这段表一起改。
+val GoldColorLight = Color(0xFF7B5E14)
+val WinColorLight = Color(0xFF296F46)
+val LoseColorLight = Color(0xFFA74141)
 
 /**
  * WCAG 2.1 相对亮度 / 对比度工具。放在主源码里，是为了让「色板达标」这件事既能被

@@ -2,7 +2,7 @@
 // 明文仅出现在 [save] 参数与 [cookieHeader] 返回值；磁盘上只有 Base64(IV + 密文)。
 // 槽位模型：每个账户一个 Keystore 别名 gigi_credentials_key_<uid> 与一个密文 prefs 键 ciphertext_<uid>；
 // 另有账户索引（uid/nickname/serverId/lastActiveEpochMs，JSON 串）与 activeUid 键存于同一 prefs，
-// 索引头 = 最近使用账户。旧版单槽（ciphertext / gigi_credentials_key）保留为兼容与升级回退：
+// 索引序稳定：新登录提到最前，切换激活只**原位**更新 lastActiveEpochMs（V39-D，不重排列表）。旧版单槽（ciphertext / gigi_credentials_key）保留为兼容与升级回退：
 // 无激活账户时 cookieHeader() 回退读取旧槽（androidTest 注入与升级用户），
 // 登录校验成功时由 Gate 经 adoptActiveCookie 收养为正式账户。
 
@@ -82,7 +82,7 @@ class CredentialStore(context: Context) : CredentialSource {
     override fun cookieHeader(uid: String?): String? =
         if (uid.isNullOrEmpty()) cookieHeader() else cookieHeaderFor(uid)
 
-    /** 账户索引（头 = 最近使用）；索引损坏时返回空列表，视为无账户 */
+    /** 账户索引（顺序稳定：新登录在最前，切换激活不重排）；索引损坏时返回空列表，视为无账户 */
     fun accounts(): List<StoredAccount> = parseAccountIndex(prefs.getString(KEY_INDEX, null))
 
     /** 当前激活账户 uid（无/非法 → null） */
@@ -119,13 +119,15 @@ class CredentialStore(context: Context) : CredentialSource {
         }
     }
 
-    /** 仅把 [uid] 置为激活（索引重排：提到最前 = 最近使用） */
+    /**
+     * 仅把 [uid] 置为激活（🔴 **原位更新**：只改该条 lastActiveEpochMs，索引顺序不动）。
+     * V39-D：旧实现把选中项提到最前（列表重排），用户视角=「切账户时账户列表跳顺序」；
+     * 勾选符号本就由 UI 端 `uid == activeUid` 决定，顺序不动才只有勾在动。
+     */
     fun setActiveUid(uid: String) {
         if (!isSafeUid(uid)) return
-        val all = accounts()
-        val hit = all.firstOrNull { it.uid == uid } ?: return
-        val recent = hit.copy(lastActiveEpochMs = System.currentTimeMillis())
-        writeIndex(listOf(recent) + all.filterNot { it.uid == uid })
+        val next = activateInPlace(accounts(), uid, System.currentTimeMillis()) ?: return
+        writeIndex(next)
         prefs.edit().putString(KEY_ACTIVE_UID, uid).apply()
     }
 
@@ -162,7 +164,7 @@ class CredentialStore(context: Context) : CredentialSource {
 
     /**
      * 退出 [uid]：清该账户密文 + 删其 Keystore 别名 + 从索引移除（激活键仅当被退账户为激活时清除）。
-     * 返回剩余账户（索引序，头 = 最近使用）；调用方决定切换下一个还是回登录页。
+     * 返回剩余账户（索引序不变）；调用方决定切换下一个还是回登录页。
      */
     fun removeAccount(uid: String): List<StoredAccount> {
         if (!isSafeUid(uid)) return accounts()
@@ -343,6 +345,22 @@ class CredentialStore(context: Context) : CredentialSource {
             } catch (e: IllegalArgumentException) {
                 emptyList()
             }
+        }
+
+        /**
+         * 激活账户的**原位**更新判据（[setActiveUid] 的纯函数内核，JVM 单测锁死）。
+         * 返回 null = 不落盘：uid 非法或未命中索引。
+         * 命中 ⇒ 只把该条的 lastActiveEpochMs 换成 [nowMs]，**其余条目与整个顺序原样保留**
+         * （V39-D：切换账户不重排列表；「最近使用」只体现在这一列时间戳上）。
+         */
+        fun activateInPlace(
+            accounts: List<StoredAccount>,
+            uid: String,
+            nowMs: Long,
+        ): List<StoredAccount>? {
+            if (!isSafeUid(uid)) return null
+            if (accounts.none { it.uid == uid }) return null
+            return accounts.map { if (it.uid == uid) it.copy(lastActiveEpochMs = nowMs) else it }
         }
 
         /**

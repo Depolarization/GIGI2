@@ -1,5 +1,8 @@
 package com.gigi.tcg.ui.dialogs.about
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -26,12 +30,22 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gigi.tcg.BuildConfig
 import com.gigi.tcg.R
 import com.gigi.tcg.data.github.GITHUB_RELEASES_URL
+import com.gigi.tcg.data.github.UpdateDownloader
 import com.gigi.tcg.ui.about.AboutScreen
 import com.gigi.tcg.ui.about.UpdateState
 import com.gigi.tcg.ui.about.isCheckFinished
 import com.gigi.tcg.ui.about.rememberAboutViewModel
 import com.gigi.tcg.ui.about.rememberLinkOpener
+import com.gigi.tcg.ui.components.LocalToast
+import com.gigi.tcg.ui.dialogs.cardcover.hasWriteExternalPermission
+import com.gigi.tcg.ui.dialogs.cardcover.requiresWriteExternalPermission
 
+// V40-D：「去下载」优先走**系统下载器**（通知栏进度 + 完成后可点开安装），不再一律丢给浏览器。
+// 🔴 系统下载器改变的是「下载体验」（进度、断点续传、装完可点），**不改变可达性**：
+// 维护者给的是 GitHub release 直链时，github.com 本机实测 000（超时），浏览器与下载器同样连不上；
+// 想让国内用户真能下到，只能由维护者在仓库 update.json 里配一个国内可达的直链（详见 UpdateDownloader KDoc）。
+// 非直链（releases 列表页 / tag 详情页）与系统下载器不可用 ⇒ 一律回落浏览器，绝不静默。
+//
 // 关于对话框外壳（V10-B / V10-E）：正文交给 AboutScreen，按钮语义收拢到本对话框底部一行。
 // V10-E：三枚按钮在窄屏下互相挤压（用户真机反馈），移除「反馈」只保留
 // [检查更新]（Checking 期禁用防重复触发）[关闭]。反馈入口不丢 —— AboutScreen 正文里
@@ -105,6 +119,27 @@ private fun UpdateResultDialog(
         is UpdateState.Available -> {
             val info = state.info
             val unknown = stringResource(R.string.common_unknown)
+            val context = LocalContext.current
+            val toast = LocalToast.current
+            val startedText = stringResource(R.string.about_update_download_started)
+            val target = info.downloadUrl?.takeIf { it.isNotBlank() } ?: GITHUB_RELEASES_URL
+
+            // 入队成功才算「已开始下载」；返回 null 一律回落浏览器（判据见 UpdateDownloader.enqueue）
+            val startSystemDownload: () -> Boolean = {
+                val id = UpdateDownloader.enqueue(context, target, info.latestVersionName)
+                if (id != null) toast(startedText)
+                id != null
+            }
+            // Q- 写公共 Download 目录要运行时权限：先申请，拿到再入队；被拒则回落浏览器
+            var awaitingPermission by remember { mutableStateOf(false) }
+            val permissionLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission(),
+            ) { granted ->
+                val pending = awaitingPermission
+                awaitingPermission = false
+                if (pending && granted && startSystemDownload()) return@rememberLauncherForActivityResult
+                if (pending) onOpenUrl(target)
+            }
             AlertDialog(
                 onDismissRequest = onClose,
                 title = { Text(stringResource(R.string.about_update_dialog_title)) },
@@ -133,7 +168,16 @@ private fun UpdateResultDialog(
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            onOpenUrl(info.downloadUrl?.takeIf { it.isNotBlank() } ?: GITHUB_RELEASES_URL)
+                            when {
+                                // 只有「文件直链」才配走系统下载器；页面型 URL 交给浏览器
+                                !UpdateDownloader.isDirectApk(target) -> onOpenUrl(target)
+                                requiresWriteExternalPermission() && !hasWriteExternalPermission(context) -> {
+                                    awaitingPermission = true
+                                    permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                                }
+                                // 系统下载器不可用（被停用等）也不静默
+                                else -> if (!startSystemDownload()) onOpenUrl(target)
+                            }
                             onClose()
                         },
                     ) { Text(stringResource(R.string.about_update_dialog_download)) }

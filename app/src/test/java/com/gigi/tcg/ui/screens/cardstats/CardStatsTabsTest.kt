@@ -16,6 +16,11 @@
 // 9) 对话框条目文案带真正导出的条数（stats_export_option_char / _action 占位符资源），
 //    条数谓词必须与 CardStatsExport 的 useCount > 0 过滤同口径；
 // 10) 新文案三语齐全（values / values-en / values-zh-rTW），杜绝切语言后缺字。
+// V39-B 任务 A：第 5) 条「固定头 + 页内滚动」**反转** —— 信息卡 + tab 行进页内 LazyColumn，
+//    整页一起滚；PullToRefreshBox→HorizontalPager→LazyColumn 三层关系与「无 verticalScroll」照旧锁死。
+// V40-A 又反转 V39-B（用户报「切 tab 连带着整个卡牌统计页一起切」）：头部**移出 pager、
+//    全页只一份**，纵向整体滑动改由折叠式头部补（容器层 nestedScroll：上滑先折头、到顶下拉回展）。
+//    pager 内容里不得再出现头部；P2R 包着折叠连接、折叠连接包着 pager；V29 有界高/无滚条防线照旧。
 package com.gigi.tcg.ui.screens.cardstats
 
 import com.gigi.tcg.R
@@ -155,18 +160,85 @@ class CardStatsTabsTest {
         )
     }
 
+    /**
+     * 🔴 V40-A **再次反转**（V39-B 的「头部进每页 LazyColumn」作废）：用户报「切 tab 连带着整个
+     * 卡牌统计页一起切」——根因就是信息卡/tab 行在每页各复制一份，天然随翻页横移。现在头部
+     * **移出 pager、全页只此一份**；V39-B 的「整体纵向滚动」不丢，改由折叠式头部补（容器层
+     * nestedScroll：上滑先折头、到顶下拉回展）。本测试锁新结构三件事：
+     * ① pager 的 content 里不得再出现头部（出现即又会被翻页带走）；
+     * ② 折叠链路在场且内外次序正确（P2R → 折叠连接 → pager）；
+     * ③ 白屏病根防线原样：pager 仍吃有界高（weight(1f)），全页仍无 verticalScroll。
+     */
     @Test
-    fun headerAndTabsAreFixedAboveTheScrollingArea() {
-        val rootColumn = routeCode.indexOf("Column(modifier = modifier.fillMaxSize())")
-        val infoCard = routeCode.indexOf("PlayerInfoCard(")
-        val tabRow = routeCode.indexOf("StatsTabRow(pagerState = pagerState)")
+    fun headerAndTabsLiveOutsideThePagerWithNestedScrollCollapse() {
         val pull = routeCode.indexOf("PullToRefreshBox(")
+        val nested = routeCode.indexOf("nestedScroll(")
         val pager = routeCode.indexOf("HorizontalPager(state = pagerState")
-        assertTrue("根必须是 fillMaxSize 的 Column（不是滚动容器）", rootColumn >= 0)
-        assertTrue("信息卡必须在根 Column 内、滚动区之前（固定头）", infoCard in rootColumn until pull)
-        assertTrue("tab 行必须在滚动区之前（固定头）", tabRow in rootColumn until pull)
         assertTrue("必须有 PullToRefreshBox（下拉刷新仍可用）", pull >= 0)
+        assertTrue("折叠连接必须走 nestedScroll", nested >= 0)
         assertTrue("pager 必须在 PullToRefreshBox 的 content 内（RankRoute 同层级）", pager > pull)
+        assertTrue("折叠连接必须在 pager 之外（P2R 内、pager 前）", nested in pull until pager)
+
+        // ① pager 的 lambda body 里不得再出现头部 —— 上一轮的病根（头部进页内 ⇒ 翻页横移）
+        val pagerBody = bracedBlockAfter(routeCode, "HorizontalPager(state = pagerState")
+        assertFalse("pager 页内不得再出现信息卡", pagerBody.contains("StatsInfoCardItem"))
+        assertFalse("pager 页内不得再出现 tab 行", pagerBody.contains("StatsTabRowItem"))
+        // 全页各只有一处调用（函数定义被 (?<!fun ) 排掉），且都在 pager 之前
+        assertEquals("信息卡全页只此一份", 1, Regex("(?<!fun )StatsInfoCardItem\\(").findAll(routeCode).count())
+        assertEquals("tab 行全页只此一份", 1, Regex("(?<!fun )StatsTabRowItem\\(").findAll(routeCode).count())
+
+        // ② 两页函数体：头部 item 已删干净，吸顶列名（用户点名保留）还在
+        listOf("CharStatsPage", "ActionStatsPage").forEach { page ->
+            val body = functionBodyOf(routeCode, "private fun $page(")
+            assertFalse("$page 不再持有信息卡 item", body.contains("StatsInfoCardItem"))
+            assertFalse("$page 不再持有 tab 行 item", body.contains("StatsTabRowItem"))
+            assertTrue("$page 的列名仍 sticky（用户点名保留）", body.contains("stickyHeader("))
+        }
+        // 旧头部 item key 不得复活（出现了就说明有页又偷偷把头部塞回去了）
+        listOf("char-info", "char-tabs", "action-info", "action-tabs").forEach { staleKey ->
+            assertFalse("旧头部 item key 不得复活: $staleKey", routeCode.contains(staleKey))
+        }
+
+        // ③ 白屏病根防线（V29）原样：pager 吃 weight(1f) 的**有界**高、全页仍无 verticalScroll
+        assertTrue("列表区必须继续 weight(1f)（有界高防线）", routeCode.contains("ComposeModifier.weight(1f)"))
+        assertEquals(
+            "全页不得出现 verticalScroll（V29 白屏病根）",
+            0,
+            Regex("verticalScroll\\(").findAll(routeCode).count(),
+        )
+        // 折叠机制必须在场（防止「移出 pager」退化成 V29 的固定头）
+        assertTrue("折叠连接类必须在场", routeCode.contains("NestedScrollConnection"))
+        assertTrue("折叠量必须走 state 引用（连接只建一次）", routeCode.contains("mutableFloatStateOf(0f)"))
+        // 旧的固定头横向 padding 容器不得回来
+        assertFalse("旧的固定头横向 padding 容器已随本轮删除", routeCode.contains("padding(horizontal = ContentHorizontalPadding)"))
+    }
+
+    /** 按花括号配平取 [anchor] 后第一个 `{...}` 块（含括号）；源码里字符串模板的花括号天然成对，不影响配平 */
+    private fun bracedBlockAfter(code: String, anchor: String): String {
+        val anchorAt = code.indexOf(anchor)
+        assertTrue("源码里找不到锚点: $anchor", anchorAt >= 0)
+        val open = code.indexOf('{', anchorAt + anchor.length)
+        assertTrue("锚点后缺少 `{`: $anchor", open >= 0)
+        var depth = 0
+        for (i in open until code.length) {
+            when (code[i]) {
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return code.substring(open, i + 1)
+                }
+            }
+        }
+        throw AssertionError("锚点代码块未配平: $anchor")
+    }
+
+    /** 函数体：从签名到列 0 的首个 `}`（体内的闭括号都有缩进，不会误截断） */
+    private fun functionBodyOf(code: String, signature: String): String {
+        val start = code.indexOf(signature)
+        assertTrue("找不到函数: $signature", start >= 0)
+        val end = code.indexOf("\n}", start)
+        assertTrue("函数体未闭合: $signature", end > start)
+        return code.substring(start, end)
     }
 
     @Test

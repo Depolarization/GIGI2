@@ -198,6 +198,10 @@ data class DeckImageLayout(
     val actionCardHeightPx: Int,
     /** 页脚顶（UID 行起点） */
     val footerTopPx: Int,
+    /** 页脚左缘 = 卡牌网格左缘 [cardsLeftPx]（V39：UID/昵称行左对齐网格，不是 body padding） */
+    val footerLeftPx: Int,
+    /** 页脚右缘 = 卡牌网格右边界 [cardsLeftPx] + [cardsContentWidthPx]（V39：卡组名右对齐到它） */
+    val footerRightPx: Int,
 )
 
 /** 角色牌张数判据：恒钳制到 [0, 3]（参考图与实测都是 3 张，多出的牌不进图） */
@@ -212,6 +216,9 @@ fun computeDeckImageLayout(spec: DeckImageSpec, measurer: TextMeasurer): DeckIma
     val textContentWidthPx = DECK_CANVAS_WIDTH_PX - 2 * DECK_BODY_PADDING_SIDE_PX
     val cardsLeftPx = textLeftPx + DECK_GROUP_PADDING_SIDE_PX
     val cardsContentWidthPx = DECK_CANVAS_WIDTH_PX - 2 * cardsLeftPx
+    // 页脚左右缘贴卡牌网格（V39 用户指令），渲染层直接用这两值，不再自己加 padding
+    val footerLeftPx = cardsLeftPx
+    val footerRightPx = cardsLeftPx + cardsContentWidthPx
 
     val roleCardWidthPx = DECK_ROLE_CARD_WIDTH_PX
     val roleCardHeightPx = DECK_ROLE_CARD_HEIGHT_PX
@@ -292,6 +299,8 @@ fun computeDeckImageLayout(spec: DeckImageSpec, measurer: TextMeasurer): DeckIma
         actionCardWidthPx = actionCardWidthPx,
         actionCardHeightPx = actionCardHeightPx,
         footerTopPx = footerTopPx,
+        footerLeftPx = footerLeftPx,
+        footerRightPx = footerRightPx,
     )
 }
 

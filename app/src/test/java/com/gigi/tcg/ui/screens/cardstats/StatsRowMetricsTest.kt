@@ -61,12 +61,45 @@ class StatsRowMetricsTest {
         // 也不该宽到把牌名列挤瘦（V36 那版 32dp 右对齐就是被嫌"整列表看着右坠"）
         assertTrue("序号列不该超过 24dp，实际 $RankColumnWidth", RankColumnWidth <= 24.dp)
         assertTrue("序号列与牌名列必须留呼吸位", RankNameGap >= 4.dp && RankNameGap <= 12.dp)
-        // 牌名列左缘 = 页边距 + 序号文字区 + 呼吸位（右对齐后这个值与名次位数无关）
+        // 牌名列左缘 = 列表起始内距 + 序号文字区 + 呼吸位（右对齐后这个值与名次位数无关）
+        // V39-B 任务 B：起始内距 16dp → 8dp（序号列距屏幕左边距过大），省下的 8dp 还给牌名列
         assertEquals(
-            "牌名列左缘 = ContentHorizontalPadding + RankColumnWidth + RankNameGap",
-            ContentHorizontalPadding + RankColumnWidth + RankNameGap,
-            16.dp + 24.dp + 8.dp,
+            "牌名列左缘 = ContentStartPadding + RankColumnWidth + RankNameGap",
+            ContentStartPadding + RankColumnWidth + RankNameGap,
+            8.dp + 24.dp + 8.dp,
         )
+        // 三列在三位数下的余量（字号 × Roboto/等宽数字步进）：
+        // 序号 labelMedium 12sp ×0.55em ×3 位 ≈19.8dp ≤ 24dp；
+        // 出场/胜场 bodyMedium 14sp 等宽 ×3 位 ≈25.2dp ≤ 48dp；百分比 "100.0%" 6 字 ≈50.4dp ≤ 60dp。
+        val countThreeDigits = 14f * 0.6f * 3f
+        val percentSixChars = 14f * 0.6f * 6f
+        assertTrue("出场/胜场列要放得下三位数（≈${countThreeDigits}dp），实际 $StatCountWidth", StatCountWidth >= countThreeDigits.dp)
+        assertTrue("百分比列要放得下 100.0%（≈${percentSixChars}dp），实际 $StatPercentWidth", StatPercentWidth >= percentSixChars.dp)
+    }
+
+    /**
+     * V40-A：头部（信息卡 + tab 行）移出 pager 后直接挂页面边距 16dp —— 它们外面已没有
+     * LazyColumn 的 8dp contentPadding 可叠，V39-B 的 8dp 起始补偿常量随之作废。
+     * 列表内距口径不变：两页 LazyColumn 起始仍 8dp（序号列距屏幕左边距过大那次的定稿）。
+     */
+    @Test
+    fun listStartInsetKeepsPageMarginOnHeadersDirectly() {
+        val code = codeOnly(src)
+        assertEquals("列表起始内距必须是 8dp（序号列距左边距过大）", 8.dp, ContentStartPadding)
+        assertEquals("右侧内距保持 16dp 页面边距", 16.dp, ContentHorizontalPadding)
+        // 头部两件（信息卡 + tab 行）各自直接挂 16dp 页面边距（全页各一处）
+        assertEquals(
+            "信息卡与 tab 行都直接用页面边距（不用再「8+补偿」拼凑）",
+            2,
+            Regex("padding\\(start = ContentHorizontalPadding\\)").findAll(code).count(),
+        )
+        // 两页的 LazyColumn 都按原口径起始内距
+        assertEquals("两页 contentPadding 起始都用 ContentStartPadding", 2, Regex("start = ContentStartPadding").findAll(code).count())
+        // 🔴 序号列宽与右对齐一律不动（红线：本轮只挪头部内距）
+        assertEquals("序号列宽保持 24dp", 24.dp, RankColumnWidth)
+        assertEquals("序号↔牌名呼吸位保持 8dp", 8.dp, RankNameGap)
+        // V39-B 的 8dp 起始补偿常量已随头部移出 LazyColumn 作废，标识符不得复活
+        assertFalse("起始补偿常量已删除（头部不再叠在列表内距上）", code.contains("HeaderStartCompensation"))
     }
 
     @Test

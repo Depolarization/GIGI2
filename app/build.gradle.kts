@@ -5,12 +5,23 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-// 🔴 release 签名口令只从环境变量取，不回退默认值：缺失时配置阶段直接失败并给出设置方法。
+// release 签名口令只从环境变量取，不回退默认值：**仅当**本次请求了 release 产物时才校验并拦下。
 // ⚠️ Windows 下用 setx 写的是用户级环境变量，只对「之后新启动」的进程生效——改完必须重启终端/Android Studio。
 // 详见 docs/RELEASE-SIGNING.md。密码本身严禁写入任何入库文件。
+//
+// 为什么改成条件守卫（勿改回无条件抛）：V39-A1 棒实测——旧版在配置阶段无条件抛，挡死了
+// debug/test/lint 等根本不用 release signingConfig 的任务（debug 走 Android 默认 debug keystore），
+// 逼得排障者去 `reg query` 读注册表、把 keystore 口令明文打进会话日志。条件守卫后，
+// 只有真正要打 release 包的任务才需要口令，其余棒可正常构建。
+val requestedTasks = gradle.startParameter.taskNames
+val needsReleaseSigning = requestedTasks.any { name ->
+    name.contains("Release", ignoreCase = true) ||
+        name.contains("Bundle", ignoreCase = true) ||
+        name == "build" || name.endsWith(":build")
+}
 val gigiStorePassword = System.getenv("GIGI_STORE_PASSWORD")
 val gigiKeyPassword = System.getenv("GIGI_KEY_PASSWORD")
-if (gigiStorePassword.isNullOrEmpty() || gigiKeyPassword.isNullOrEmpty()) {
+if (needsReleaseSigning && (gigiStorePassword.isNullOrEmpty() || gigiKeyPassword.isNullOrEmpty())) {
     throw GradleException(
         "缺少 release 签名所需环境变量 GIGI_STORE_PASSWORD / GIGI_KEY_PASSWORD（或为空）。\n" +
             "修复（Windows 用户级，无需管理员，cmd 执行）：\n" +

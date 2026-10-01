@@ -2,8 +2,9 @@
 // 巅峰/赛事两 Tab（TabRow 指示器 + HorizontalPager 左右滑动）+ 分页 LazyColumn
 // （首屏 60 条，滚到底自动追加）+ 下拉刷新当前 Tab（PullToRefreshBox → viewModel.retry，
 // Loading/Error/Empty 三态同样可下拉）；
-// 名次 = 下标 + 1，前三名固定金/银/铜语义色（不参与动态取色，设计红线 8，
-// 色值对齐 tokens.css --color-gold/silver/bronze）；点击行回调 onOpenPlayerDetail(uid, avatarUrl)。
+// 名次 = 下标 + 1，前三名是金/银/铜奖牌色；V39-H2 起**随主题取浅/深两档**（口径见 medalArgb 上方注释表），
+// 第 1 名直接吃 LocalSemanticColors.gold（H 棒已按 Card/surface 双档验过），不再跨档引用 GoldColor 常量；
+// 点击行回调 onOpenPlayerDetail(uid, avatarUrl)。
 // V26：行点击把本行头像一并带出去——排行榜接口必定返回头像，而详情接口在无权访问
 // （is_shield）时不给头像，弹窗靠这份入口头像兜底，避免退化成占位图标。
 
@@ -23,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
@@ -63,12 +65,65 @@ import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.components.ErrorState
 import com.gigi.tcg.ui.components.LoadingView
 import com.gigi.tcg.ui.components.LocalToast
-import com.gigi.tcg.ui.theme.GoldColor
+import com.gigi.tcg.ui.theme.ContrastUtils
+import com.gigi.tcg.ui.theme.LocalSemanticColors
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.contentOrNull
 
-private val RankSilverColor = Color(0xFF9AA2AD)
-private val RankBronzeColor = Color(0xFFB07A4A)
+// 🔴 V39-H2 奖牌色（G2 审计清单③，仅白天不达标）：名次数字上屏在**页面底** `colorScheme.background`
+// （夜 #141218 / 白 #FEF7FF，LazyColumn 无自有底），字号档 = titleMedium(16sp) 常规字重 ⇒ 按 WCAG 属
+// **正文**，门槛 4.5（不是大字/图标档的 3.0）。
+// 旧写法三处都翻车在同一条根因上：
+//   ① 第 1 名直接 `import GoldColor`（暗色档鎏金）用在浅底 ⇒ 白天 2.14 ✗（跨档取色，没走 semantic.gold）。
+//   ②③ 银/铜是**单值私有色**（不属于色板），单套定色不随主题 ⇒ 浅底要暗、深底要亮，
+//      一套值数学上做不到（V39-G2 §4 的两区间不相交证明）。
+// 改法与段位色同构：**色相/饱和锁死，只沿亮度轴做最小位移**，浅档新值直接取
+// `.task/probe/tier_target_G2.py` 算出的保色相达标色（#697482 / #986940）。
+// 对比度实测（[ContrastUtils.wcagContrast]，正文门槛 4.5；RankContrastTest 逐底钉死）：
+// ```
+//                                夜 × background #141218   白 × background #FEF7FF
+//   第 1 名 semantic.gold        8.26  (#D4A643)           5.78  (#7B5E14)   ← 走主题槽，非本文件常量
+//   第 2 名 深 #9AA2AD / 浅 #697482   7.21                     4.52  (旧单值 #9AA2AD 白天 2.45 ✗)
+//   第 3 名 深 #B07A4A / 浅 #986940   5.07                     4.51  (旧单值 #B07A4A 白天 3.48 ✗)
+// ```
+/** 星银（深色档，V27 起的原值，夜 background 上 7.21） */
+internal const val RANK_ARGB_SILVER = 0xFF9AA2AD.toInt()
+
+/** 星银（亮色档，V39-H2 新增）：同色相/饱和压亮度，白 background 上 4.52 */
+internal const val RANK_ARGB_SILVER_LIGHT = 0xFF697482.toInt()
+
+/** 铜（深色档，原值，夜 background 上 5.07） */
+internal const val RANK_ARGB_BRONZE = 0xFFB07A4A.toInt()
+
+/** 铜（亮色档，V39-H2 新增）：白 background 上 4.51 */
+internal const val RANK_ARGB_BRONZE_LIGHT = 0xFF986940.toInt()
+
+/**
+ * 名次 → 奖牌色 ARGB（第 2/3 名）；返回 null 表示不吃本表（第 1 名走 `semantic.gold`，
+ * 第 4 名及以后走主题默认色）。纯函数、不依赖 Compose/Android，供 JVM 单测直接锁值与对比度。
+ */
+internal fun medalArgb(rank: Int, darkTheme: Boolean): Int? = when (rank) {
+    2 -> if (darkTheme) RANK_ARGB_SILVER else RANK_ARGB_SILVER_LIGHT
+    3 -> if (darkTheme) RANK_ARGB_BRONZE else RANK_ARGB_BRONZE_LIGHT
+    else -> null
+}
+
+/**
+ * 深浅两档判据照 `TierColors.kt` 的 `isDarkTierTheme()`：取 `colorScheme.background` 的相对亮度，
+ * 不用 `isSystemInDarkTheme()`（深浅是 GigiTheme 的入参，只有色板本身才等于屏幕实际的底）。
+ * 名次行就落在 background 上，所以这个判据同时就是「前景档」与「实际底」的同一件事。
+ */
+private fun ColorScheme.isDarkRankTheme(): Boolean =
+    ContrastUtils.relativeLuminance(ContrastUtils.toArgb(background)) < 0.5
+
+/** 名次奖牌色：第 1 名随主题吃 semantic.gold，第 2/3 名吃上面那两档，其余回落 onSurfaceVariant */
+@Composable
+private fun medalColor(rank: Int): Color {
+    val colorScheme = MaterialTheme.colorScheme
+    if (rank == 1) return LocalSemanticColors.current.gold
+    return medalArgb(rank, colorScheme.isDarkRankTheme())?.let { Color(it) }
+        ?: colorScheme.onSurfaceVariant
+}
 
 // V27 行内间距常量（用户在真机上要求：名次列贴左缘、收紧名次列自身留白、拉开头像与文字块）。
 // 刻意用 const Int + `.dp`：JVM 单测（RankRowSpacingTest 对源码文本断言）能直接解析数值做区间校验。
@@ -251,12 +306,7 @@ private fun RankRow(
     tab: RankTab,
     onClick: () -> Unit,
 ) {
-    val medalColor = when (rank) {
-        1 -> GoldColor
-        2 -> RankSilverColor
-        3 -> RankBronzeColor
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val rankColor = medalColor(rank)
     // V24（用户真机反馈图 3）：原先第二行是「巅峰积分:2310　UID:253991234」，
     // 两个文字标签把整行挤到 Ellipsis 截断。现按用户拍板去掉标签、只留数值：
     // 页头 Tab 已交代积分口径，靠「位置 + 颜色层级」区分 —— 积分主色稍重，UID 弱化色。
@@ -290,7 +340,7 @@ private fun RankRow(
         Text(
             text = "$rank",
             style = MaterialTheme.typography.titleMedium,
-            color = medalColor,
+            color = rankColor,
             textAlign = TextAlign.Center,
             maxLines = 1,
             modifier = Modifier.width(RANK_SLOT_WIDTH_DP.dp),

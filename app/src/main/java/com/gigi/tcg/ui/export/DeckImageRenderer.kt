@@ -3,8 +3,8 @@
 // 「解码素材 + 拉卡图 + Canvas 直画 + 交 CardImageSaver 落盘」，落盘策略（Pictures/GIGI/<类型>/<UID>/、
 // 异常→可读 IOException、Q+/≤Q 两条路径）全部复用 CardImageSaver，不另起一套。
 // 🔴 V38-B：顶部 banner（米游社 logo + 七圣召唤文本）整段移除（用户明确要求）；画面 = 米白纸面 +
-// 四角云纹（程序化近似，官方素材不在网页 CSS 内联里）+ 两个金棕分区标题 + 卡框牌阵 + 左下 UID/昵称 +
-// 右下游戏 logo（文字近似）。
+// 四角云纹（程序化近似，官方素材不在网页 CSS 内联里）+ 两个金棕分区标题 + 卡框牌阵 +
+// 页脚两列：左下 UID/昵称（左缘对齐卡牌网格）、右下牌组名（右缘对齐网格右边界），两者同基线。
 // 🔴 不用 GraphicsLayer.toImageBitmap：它要求整页完成 Compose 布局且受 GPU 纹理上限约束，
 // TableImageRenderer.kt:319 同一结论，直画 Bitmap 才可控。
 // 🔴 单张卡图 404 / 解码失败 ⇒ 画占位块继续走，绝不掀翻整次导出（派单硬要求）。
@@ -185,15 +185,61 @@ fun renderDeckImageBitmap(
     drawCards(canvas, layout.roleSlots, roleImages, spec.roleCards, assets, fillPaint, strokePaint, imagePaint, placeholderPaint, srcRect, dstRect)
     drawCards(canvas, layout.actionSlots, actionImages, spec.actionCards, assets, fillPaint, strokePaint, imagePaint, placeholderPaint, srcRect, dstRect)
 
-    // 4. 页脚：左下 UID/昵称两行
+    // 4. 页脚：左缘贴卡牌网格左边界（V39，此前用 body padding 15 会比网格少 11 设计 px），
+    //    UID/昵称两行左对齐；同一基线的右侧、网格右边界下方画牌组名（只写名字，无说明前缀）。
     //    🔴 右下**不画任何 logo**（V38 用户指令）：官方背景素材 `export_bg.png` 里本就不含 logo，
     //    此前那版程序化「原神」文字近似（白字+描边+投影四层）已整体删除。
+    //    🔴 V39-F3：`drawText` 的 origin **不是墨迹边缘**——字形有 left side bearing，墨迹从 origin
+    //    右侧才开始。真机导出图逐像素实测（网格左缘 52 / 右缘 698 为基准）：
+    //    UID 行墨迹左缘落在 x=54（内缩 2px）、卡组名墨迹右缘落在 x=695（内缩 3px）。
+    //    ⇒ 每行先 `getTextBounds` 取自己的墨迹包围盒（不同字符串 bearing 不同，不能复用第一行的值），
+    //    再用纯函数把「目标边缘 + 墨迹」反推出 origin，让**墨迹**贴边。两列都用 Align.LEFT，
+    //    右列不再靠 Align.RIGHT——那会把 bearing 留在另一边，实测就是那 3px。
+    val footerLines = deckFooterLines(spec.authorText, uid)
+    val footerInk = Rect()
     footerPaint.textAlign = Paint.Align.LEFT
-    deckFooterLines(spec.authorText, uid).forEachIndexed { index, line ->
-        canvas.drawText(line, DECK_BODY_PADDING_SIDE_PX.toFloat(), (layout.footerTopPx + (index + 1) * UID_LINE_HEIGHT_PX).toFloat(), footerPaint)
+    footerLines.forEachIndexed { index, line ->
+        footerPaint.getTextBounds(line, 0, line.length, footerInk)
+        val originX = footerTextOriginX(layout.footerLeftPx, footerInk.left).toFloat()
+        canvas.drawText(line, originX, (layout.footerTopPx + (index + 1) * UID_LINE_HEIGHT_PX).toFloat(), footerPaint)
+    }
+    // 卡组名与 UID 行同基线。左行优先 ⇒ 右行预算 = 网格宽 − 左行最宽字宽 − 间隙；
+    // 预算不够（截到空串）就整行不画，两行绝不重叠。
+    val deckName = spec.title.trim()
+    if (deckName.isNotEmpty()) {
+        val leftLineWidthPx = footerLines.maxOfOrNull { footerPaint.measureText(it) } ?: 0f
+        val nameBudgetPx = layout.footerRightPx - layout.footerLeftPx - leftLineWidthPx - FOOTER_LINE_GAP_PX
+        val nameText = ellipsize(deckName, nameBudgetPx.coerceAtLeast(0f)) { footerPaint.measureText(it) }
+        if (nameText.isNotEmpty()) {
+            footerPaint.getTextBounds(nameText, 0, nameText.length, footerInk)
+            val originX = footerTextOriginXRight(layout.footerRightPx, footerInk.right).toFloat()
+            canvas.drawText(nameText, originX, (layout.footerTopPx + UID_LINE_HEIGHT_PX).toFloat(), footerPaint)
+            footerPaint.textAlign = Paint.Align.LEFT
+        }
     }
     return bitmap
 }
+
+/**
+ * 左列（UID / 昵称）：让墨迹**左缘**贴 [edgePx]，返回 drawText 的 origin X。
+ *
+ * 为什么不是直接 origin = edge：`Paint.drawText` 从 origin 起画的是**字形原点**，
+ * 原点与墨迹左缘之间隔着 left side bearing（正数，实测本字号 2px 左右）⇒ 直接贴 origin
+ * 会让墨迹整体右移，视觉上比卡牌网格左缘内缩（实测 x=54 对 x=52）。
+ * 纯函数、不依赖 android.graphics ⇒ JVM 单测直接锁算术；[inkLeftPx] 由渲染层喂 bounds.left。
+ */
+internal fun footerTextOriginX(edgePx: Int, inkLeftPx: Int): Int = edgePx - inkLeftPx
+
+/**
+ * 右列（卡组名）：让墨迹**右缘**贴 [edgePx]，返回 drawText 的 origin X（配合 Align.LEFT 绘制）。
+ * Align.LEFT 下 [inkRightPx] = bounds.right = origin 到墨迹右缘的距离 ⇒ origin 落到 edge − bounds.right，
+ * 墨迹右缘才正好回到 edge。此前用 Align.RIGHT 把 origin 钉在 698，right side bearing 留在墨迹内侧，
+ * 实测墨迹右缘只到 695（差 3px）。
+ */
+internal fun footerTextOriginXRight(edgePx: Int, inkRightPx: Int): Int = edgePx - inkRightPx
+
+/** 页脚左右两列（UID 行 / 卡组名行）之间的最小间隙 */
+private const val FOOTER_LINE_GAP_PX = 16
 
 private const val UID_FOOTER_TEXT_PX = 20
 private const val UID_LINE_HEIGHT_PX = 26

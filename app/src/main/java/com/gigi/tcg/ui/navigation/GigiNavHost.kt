@@ -2,12 +2,23 @@
 // 顶栏 actions：玩家查询 / 服务器切换（Menu 单选）/ 关于 / 退出登录（LocalLogout）。
 // 全局弹窗（PlayerQuery/PlayerDetail/CardCover/About）与 ToastController 统一挂载在本层，四页面共享。
 // 服务器切换：key(server) 整体重建导航图（含各页 ViewModel），对齐 web App.tsx key={server.id} 重挂载语义，
-// 旧服务器数据态不带入新服务器；startRoute 记住当前 tab，重建后停留原页。
+// 旧服务器数据态不带入新服务器；tabMemory 记住当前 tab，重建后停留原页。
 // 顶栏标题：一级 tab 按一级段（substringBefore('/')），「我的」的四个二级页按**完整 route**
 // 出二级标题并显示返回箭头（V36/2：二级页是独立页面，页面内不再自绘标题行）。
 // V37-F：卡组详情也升成独立路由（my/deck/{deck_index}?deck_name=…）——此前它是页内状态，
 // 主壳出不了牌组名，页内才自绘一行「返回 + 标题」叠成双标题栏。现在牌组名走导航参数进顶栏，
 // 返回同样归主壳（详情 → 卡组列表 → 我的页 逐级弹出），页内只留两个 trailing icon 动作。
+//
+// 🔴 V39-C：`NavHost(startDestination=…)` 必须在**一张图的生命周期内恒定**，只有换账号/换服
+// （key 变）才允许换新起点。实证：navigation-compose 2.9.8 的 NavHostKt 里图是
+// `remember(navController, startDestination, route) { NavGraphBuilder(...).build() }`
+// —— 记忆键**不含 builder**。所以此前每点一次底部导航都把 startRoute 写进 NavHost，
+// 等于每次换 tab 都重建整张 NavGraph ⇒ setGraph ⇒ 全部 NavBackStackEntry 连同各自
+// ViewModelStore 销毁重建 ⇒「我的资产」数字每次切页重填、统计页每次转菊花
+// （数据层 TtlCache 其实是命中的，坏的不是缓存）。
+// 现在 startRoute 只作「最近 tab」记录（TabMemory，不进重组），
+// 图起点由 key() 作用域内的一次 remember 快照 ⇒ 换 tab 不重建图，换账号/换服仍重建。
+// 后人若图省事把 NavHost 的 startDestination 改回实时变量，等于把这个 bug 原样放回。
 
 package com.gigi.tcg.ui.navigation
 
@@ -74,7 +85,6 @@ import androidx.navigation.compose.rememberNavController
 import com.gigi.tcg.GigiApp
 import com.gigi.tcg.R
 import com.gigi.tcg.i18n.LocaleStrings
-import com.gigi.tcg.i18n.displayNameSync
 import com.gigi.tcg.ui.components.LocalToast
 import com.gigi.tcg.ui.components.LocalToastAction
 import com.gigi.tcg.ui.components.ToastController
@@ -137,6 +147,16 @@ private val destinations = listOf(
 private val RAIL_BREAKPOINT = 840.dp
 
 /**
+ * V39-C：「最近一次停留的一级 tab」的纯记录盒 —— **故意**不用 mutableStateOf。
+ * 它唯一的用途是：换账号/换服触发 key() 重建时给新图当起点（保留 V35 的「重建后停在原页」语义）。
+ * 用 State 的话，每次换 tab 写入都会带着整棵壳重组并把新值喂进 NavHost，
+ * 而 navigation-compose 的图 `remember(navController, startDestination, route)` 一旦
+ * startDestination 变就重建整张 NavGraph ⇒ 各页 ViewModel 归零（正是本轮要修的病灶）。
+ * 普通 class 的写入不进快照比较 ⇒ 换 tab 只记账、不重组、不动图。
+ */
+private class TabMemory(var route: String = ROUTE_HOME)
+
+/**
  * 「我的」二级页 → 顶栏标题。命中本表 ⇒ 顶栏按**完整 route** 出二级标题 + 返回箭头，
  * 页面自身不再自绘标题行（V36/2 用户拍板：二级页是独立页面，标题栏归主壳，避免双标题）。
  * 标题复用一级页入口行已有的 string（my_deck_entry 等），不新增文案键。
@@ -177,8 +197,7 @@ fun GigiNavHost() {
     var coverId by remember { mutableStateOf<Long?>(null) }
     var aboutOpen by remember { mutableStateOf(false) }
     val toastController = remember { ToastController() }
-    var startRoute by remember { mutableStateOf(ROUTE_HOME) }
-    var announcedServer by remember { mutableStateOf(server) }
+    val tabMemory = remember { TabMemory() }
 
     // 卡组导出结果的反馈：与统计页导出同一条「成功带『查看』→ openInGallery」链路（V36 已修它的 NEW_TASK 崩溃）。
     // uris 为空（失败 / ≤API 28 拿不到 MediaStore uri）时只出纯文本，action 不挂。
@@ -200,12 +219,9 @@ fun GigiNavHost() {
         aboutOpen = false
     }
 
-    LaunchedEffect(server) {
-        if (server != announcedServer) {
-            announcedServer = server
-            toastController.show(LocaleStrings.get(R.string.toast_server_switched, server.displayNameSync()))
-        }
-    }
+    // V39-C：切账户/切服务器的 toast_server_switched snackbar 按用户要求删除
+    // （顶栏/「我的」页已即时反映当前服务器与账户，弹窗是冗余打扰），
+    // 连带删掉三份 strings 里的该键与 announcedServer 去重状态。
 
     CompositionLocalProvider(
         LocalToast provides { toastController.show(it) },
@@ -219,31 +235,45 @@ fun GigiNavHost() {
         // 切账号会整棵导航树重建，停在「我的」二级页时切账户被无声弹回一级页。
         // 好处是各页 ViewModel 随账号一起作废、不带上一账户状态；代价是导航位置丢失。
         // 想保住位置需把 key 收窄到 server，并给各页 ViewModel 加账号归属判定 —— 影响所有 tab。
+        // V39-C 复核：**换账号/换服仍重建**（key 变 ⇒ 下方 remember 重算起点），
+        // 但**换 tab 不再重建**（起点恒定于本张图创建时那次快照）。
         key(server to sessionUid) {
+            // 🔴 V39-C 任务 A：本张图的起点 —— 在 key() 作用域内只快照一次。
+            // key 不变（= 同一账号 + 同一服务器）期间，换 tab 只写 tabMemory.route，
+            // 这里的 remember 不会重算 ⇒ 喂给 NavHost 的 startDestination 恒定
+            // ⇒ navigation-compose 的 `remember(navController, startDestination, route)`
+            // 三个键全不变 ⇒ NavGraph 不重建 ⇒ 各页 ViewModel 保住。
+            // key 变（换账号/换服）时整个 key() 作用域重建，本 remember 重算，
+            // 读到 tabMemory 里记录的最新 tab ⇒ 仍停在原页（V35 语义原样保留）。
+            val graphStartDestination = remember { tabMemory.route }
             val navController = rememberNavController()
             val backStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = backStackEntry?.destination?.route
             // 一级段：底部导航/Rail 的选中态按一级段（substringBefore('/')）归属到所属 tab
             val baseRoute = currentRoute?.substringBefore('/')
             // 二级标题按**完整 route** 命中（V36/2）：命中即出二级标题 + 返回箭头，页面不自绘标题行。
-            // V37-F：牌组详情是三级页，标题用导航参数里的牌组名（动态），route 命中的 map 兜底「我的卡组」。
-            val deckDetailTitle = if (currentRoute == ROUTE_MY_DECK_DETAIL) {
-                backStackEntry?.arguments?.getString(ARG_DECK_NAME)?.takeIf { it.isNotBlank() }
-            } else {
-                null
-            }
+            // V39-G2：用户要求详情页顶栏主标题改成固定「卡组详情」、牌组名下沉到页内小标题
+            // （MyDecksPage 动作行），deckDetailTitle 的「标题来源」语义退役，只留「是否牌组详情页」判定。
+            // 牌组名仍随路由传入（导航参数不动，页内取数与深链兼容）。
+            val isDeckDetailPage = currentRoute == ROUTE_MY_DECK_DETAIL
             val subpageTitleRes = when {
-                deckDetailTitle != null -> null
-                currentRoute == ROUTE_MY_DECK_DETAIL -> R.string.my_deck_entry
+                isDeckDetailPage -> R.string.my_deck_detail_title
                 else -> MY_SUBPAGE_TITLES[currentRoute]
             }
+
+            // V39-F5：返回按钮判据独立于标题来源，防止详情页被误关掉返回入口；
+            // V39-G2 详情页标题虽已并入 subpageTitleRes，仍显式带上 ROUTE_MY_DECK_DETAIL，
+            // 保证未来标题链再怎么改，三级详情页的返回箭头都不丢。
+            val showBackButton = subpageTitleRes != null || currentRoute == ROUTE_MY_DECK_DETAIL
 
             // 持续记录当前 tab：账户切换 / 服务器切换触发下方 key() 重建后，startDestination
             // 用最近记录的一级路由 ⇒ 停留在原页（V35 前该记录由顶栏账户菜单写入，菜单迁入
             // 「我的」页后改由导航变化驱动，语义不变）。
+            // 🔴 V39-C：这里写的只是**记录**（TabMemory，非 State），不再直接或实时喂给 NavHost；
+            // 图起点是上面那个只算一次的 remember 快照。
             LaunchedEffect(baseRoute) {
                 if (baseRoute != null && destinations.any { it.route == baseRoute }) {
-                    startRoute = baseRoute
+                    tabMemory.route = baseRoute
                 }
             }
 
@@ -260,14 +290,16 @@ fun GigiNavHost() {
                                 val tabLabel = destinations.firstOrNull { dest -> dest.route == baseRoute }
                                     ?.let { dest -> stringResource(dest.labelRes) }
                                 Text(
-                                    deckDetailTitle ?: subpageTitleRes?.let { stringResource(it) } ?: tabLabel ?: "GIGI",
+                                    // V39-G2：主标题不再消费牌组名（deckDetailTitle 已退役），
+                                    // 详情页与二级页统一走 subpageTitleRes 的资源表。
+                                    subpageTitleRes?.let { stringResource(it) } ?: tabLabel ?: "GIGI",
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             },
                             // 二级页的返回入口在主壳顶栏（页面内自绘标题行 + 返回会与它叠成双标题）
                             navigationIcon = {
-                                if (subpageTitleRes != null) {
+                                if (showBackButton) {
                                     IconButton(onClick = { navController.navigateUp() }) {
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
@@ -354,7 +386,7 @@ fun GigiNavHost() {
                         }
                         NavHost(
                             navController = navController,
-                            startDestination = startRoute,
+                            startDestination = graphStartDestination,
                             modifier = Modifier.fillMaxSize().weight(1f),
                         ) {
                             composable(ROUTE_HOME) {
@@ -423,7 +455,8 @@ fun GigiNavHost() {
                                         type = NavType.IntType
                                         defaultValue = -1
                                     },
-                                    // 牌组名可能为空串（玩家没改名）⇒ 可空参数，缺失时顶栏回落「我的卡组」
+                                    // V39-G2：顶栏主标题改固定「卡组详情」后此参数不再被顶栏消费，
+                                    // 但保留以维持路由形状与深链兼容（牌组名可为空串 ⇒ 可空参数）
                                     navArgument(ARG_DECK_NAME) {
                                         type = NavType.StringType
                                         nullable = true

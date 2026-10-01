@@ -8,6 +8,11 @@
 // about_label_separator 等资源提供，否则英文设备会带着全角标点。
 // 链接跳转必须兜 ActivityNotFoundException：国内设备无默认浏览器、或浏览器被停用时，
 // 不兜就是点一下崩一次；兜法是「复制链接 + 提示」，用户仍有路可走。
+//
+// V40-B 文案精简：「关于本软件」只留项目名（软件形态不必解释、开源协议已在「版本」段列出，
+// 不再重复）；数据凭据一条去掉 Keystore 等实现名词，只对用户说「本机加密存储」；
+// 反馈段把 B 站主页链接融进句子（前句 + 链接 + 尾巴 about_feedback_tail）；
+// 致谢链接不再自称「原理讲解视频」，改述为「思路参考 B 站视频」。
 
 package com.gigi.tcg.ui.about
 
@@ -54,11 +59,12 @@ import com.gigi.tcg.ui.components.LocalToast
 /** 原「反馈」入口：B 站主页，AboutDialog 的「反馈」按钮与正文共用同一跳转兜底 */
 internal const val BILIBILI_FEEDBACK_URL = "https://space.bilibili.com/560719483"
 
-/** label/value 均存 @StringRes id，渲染期再解析（顶层 val 拿不到 Compose 作用域） */
+/**
+ * label/value 均存 @StringRes id，渲染期再解析（顶层 val 拿不到 Compose 作用域）。
+ * V40-B：只剩项目名一行——软件形态用户装了就知道，开源协议在「版本」段已有，均不再重复。
+ */
 private val PROJECT_FACTS = listOf(
     R.string.about_fact_project to R.string.about_value_project,
-    R.string.about_fact_form to R.string.about_value_form,
-    R.string.about_fact_license to R.string.about_value_license,
 )
 
 private val USAGE_TIP_IDS = listOf(
@@ -183,11 +189,14 @@ fun AboutScreen(
         AboutParagraph { append(thanksBody) }
 
         SectionTitle(stringResource(R.string.about_section_feedback))
-        val feedbackHint = stringResource(R.string.about_feedback_hint)
+        // V40-B：链接不再孤零零挂在句尾，改为「前句 + 链接 + 尾巴」读作一句完整的话
+        val feedbackIntro = stringResource(R.string.about_feedback_hint)
+        val feedbackTail = stringResource(R.string.about_feedback_tail)
         val bilibiliHome = stringResource(R.string.about_link_bilibili_home)
         AboutParagraph {
-            append("$bullet$feedbackHint")
+            append("$bullet$feedbackIntro")
             appendLink(bilibiliHome, BILIBILI_FEEDBACK_URL)
+            append(feedbackTail)
         }
     }
 

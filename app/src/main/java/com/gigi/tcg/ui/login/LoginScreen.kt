@@ -247,26 +247,18 @@ fun LoginScreen(
                     }
                 }
 
-                // 唯一一段说明文字（V29-B：原先这里是「扫码并确认登录」+「成功后自动删图」
-                // 两段灰字，语义相邻却各说各话 ⇒ 合并进 login_status_waiting 一句讲完，
-                // 三语文案见 strings）。Failed 态透出失败原因，走 error 色。
+                // V39-E：按钮下方原先两段灰字（状态文字 + 支持范围说明）合成为**一个**文本视图。
+                // 内容 = statusText(state) + 粘连符 + login_servers_supported，拼接逻辑收进 statusBlockText。
+                // Failed 态整段走 error 色（沿用原判定，合成后只有一种颜色），其余 onSurfaceVariant；
+                // 字号沿用第一段 bodyMedium。
                 Text(
-                    statusText(state),
+                    statusBlockText(state),
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (state is LoginUiState.Failed) {
                         MaterialTheme.colorScheme.error
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                    textAlign = TextAlign.Center,
-                )
-
-                // 支持范围说明（V33）：承接原「服务器二选一」控件拆除后的信息功能 ——
-                // 用户扫码前就能确认"我这个渠道服/官服账号能不能用"，不再靠一个切换开关暗示。
-                Text(
-                    stringResource(R.string.login_servers_supported),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
             }
@@ -327,14 +319,33 @@ private fun QrBox(state: LoginUiState) {
                 }
             }
         } else {
+            // 🔴 V39-H2（G2 审计清单②，仅夜间不达标）：占位底原先**写死** Color.White，
+            // 而 CircularProgressIndicator 的前景随主题 ⇒ 夜间浅紫 primary(#D0BCFF) 压白底只有 1.70:1 ✗
+            // （白档 6.44 ✓，是"半随主题"的典型错配）。
+            // **是否真需白底？判定：不需要。** 依据：① 这个 Box 只在 `qr == null`（生成中/失败）时组合，
+            // 与二维码永不同时出现；② 二维码位图自带白像素（LoginViewModel.encodeQrBitmap 把亮模块写成
+            // 0xFFFFFFFF，并带 MARGIN=1 静区），扫码所需的白底由位图自己提供，跟容器无关；
+            // ③ Failed 态这里是个**空的**白方块，没有任何可扫内容。⇒ 白底纯属观感延续，不是业务约束，
+            // 按最小改法换色槽。
+            // 改法：底换 `surfaceContainerLowest`（白档恰好 = 0xFFFFFFFF，**白天观感一字不变**；夜档 #0F0D13），
+            // 并把前景显式钉成 `primary`——这与 M3 1.3.2 该组件的默认档同值（字节码直证：
+            // `ProgressIndicatorDefaults.getCircularColor` → `ProgressIndicatorTokens.ActiveIndicatorColor`
+            // = `ColorSchemeKeyTokens.Primary`），写出来是为了让"前景/背景同源"在源码里可见、可测，
+            // 照 GigiToast.kt:122 的成对钉死口径。
+            // 实测（图标级门槛 3.0，LoginQrPlaceholderContrastTest）：
+            //   夜 primary #D0BCFF / onSurface #E6E0E9 × #0F0D13 = 11.33 / 14.90
+            //   白 primary #6750A4 / onSurface #1D1B20 × #FFFFFF =  6.44 / 17.07
+            //   （改前：夜 1.70 ✗ / 白 6.44 ✓）
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.White, RoundedCornerShape(8.dp)),
+                    .background(MaterialTheme.colorScheme.surfaceContainerLowest, RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center,
             ) {
                 if (state !is LoginUiState.Failed) {
-                    CircularProgressIndicator()
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
         }
@@ -354,6 +365,15 @@ private fun statusText(state: LoginUiState): String = when (state) {
     is LoginUiState.Failed -> stringResource(R.string.login_status_failed, state.message)
     is LoginUiState.LoggedIn -> stringResource(R.string.login_status_success)
 }
+
+/** 按钮下方唯一文本视图的内容（V39-E）：状态文字 + 粘连符 + 支持范围说明，合成一句。
+ *  🔴 占位粘连符——C 棒 strings 锁未释放，待 V39-C.md=done 后替换为
+ *  stringResource(R.string.login_status_join)（zh / zh-rTW「。」、en「. 」。*/
+@Composable
+private fun statusBlockText(state: LoginUiState): String =
+    statusText(state) + statusJoinPlaceholder + stringResource(R.string.login_servers_supported)
+
+private const val statusJoinPlaceholder = "。"
 
 /**
  * 角色选择对话框（V33 引入，V34 改多选）：该米游社账号绑定了多个可登录角色时展示候选

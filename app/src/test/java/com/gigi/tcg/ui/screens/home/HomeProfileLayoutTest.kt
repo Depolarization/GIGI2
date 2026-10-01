@@ -1,5 +1,5 @@
 // 首页个人信息卡 / 对局卡的版式口径锁（V28 立规，V36/3 任务 B 迁移到共享 PlayerInfoHeader，
-// V37-AD 任务 B/C/D 按用户澄清口径重排）。
+// V37-AD 任务 B/C/D 按用户澄清口径重排，V40-C 对局卡反转 V28 基线口径改垂直居中 + 头像 44dp）。
 //
 // V37 变更（🔴 本版断言与 V36 相反，逐条理由写在这里，防止"看起来像回退"）：
 //   任务 B：昵称与段位**合并成单个 Text**（段位走 SpanStyle 行内染色，用户方案原话
@@ -19,7 +19,8 @@
 //   3) 字号层级 昵称行 > UID ≈ 表头，积分数值 > 昵称行；
 //   4) 表头样式区别于数值（labelMedium + SemiBold + letterSpacing vs titleLarge + Bold）；
 //   5) 卡片内不出现硬编码颜色；
-//   6) 对局卡右缘组与昵称同基线。
+//   6) 对局卡四块内容（头像/昵称列/积分变化/胜负）垂直居中于卡片中轴、头像与排行榜同尺寸
+//      ——V40-C 反转 V28「右缘组与昵称同基线」（旧口径原为对齐导出图，V29 已删导出）。
 // 另加「最近对局」标题行与刷新按钮的回归锁、对话框信息头同构锁。
 
 package com.gigi.tcg.ui.screens.home
@@ -252,13 +253,33 @@ class HomeProfileLayoutTest {
         }
     }
 
-    /** 不变量 6：对局卡右缘组（两行积分 + 胜负）基线对齐到昵称行 */
+    /**
+     * 不变量 6（V40-C，口径反转）：对局卡四块内容（头像 / 昵称列 / 积分变化 / 胜负）以卡片内容区
+     * 中轴垂直居中，且头像 44dp 与排行榜页同尺寸。
+     * 旧 V28 口径「Top + 三处 alignByBaseline（右缘组顶对齐到昵称行）」是配合导出图定的，
+     * 导出渲染器 V29 已删，用户点名改为「与排行榜一致大小 + 一律居中于材料中轴线」。
+     * 🔴 结构断言跑在 codeOnly 上：本版注释引用了 alignByBaseline 旧特征串（见其 KDoc）。
+     */
     @Test
-    fun `对局卡右缘组与昵称同基线`() {
-        assertTrue("Row 应改为贴顶（垂直居中会把右缘组推到 UID 行）", recordBody.contains("verticalAlignment = Alignment.Top"))
-        val baselines = Regex("alignByBaseline\\(\\)").findAll(recordBody).count()
-        assertTrue("昵称列 / 积分列 / 胜负都应挂 alignByBaseline()，实际 $baselines 处", baselines >= 3)
-        assertTrue("对局卡头像 56dp", constDp(src, "RECORD_AVATAR_SIZE_DP") == 56)
+    fun `对局卡四块内容垂直居中且头像与排行榜同尺寸`() {
+        val code = codeOnly(recordBody)
+        assertTrue(
+            "Row 应垂直居中（用户：头像居中，积分变化与胜负也居中于卡片中轴）",
+            code.contains("verticalAlignment = Alignment.CenterVertically"),
+        )
+        assertFalse("旧的 Top 贴顶不得残留", code.contains("verticalAlignment = Alignment.Top"))
+        assertFalse("旧的基线 hack（V28 为对齐导出图所定）作废", code.contains("alignByBaseline()"))
+        assertEquals("对局卡头像应为 44dp", 44, constDp(src, "RECORD_AVATAR_SIZE_DP"))
+        // 「和排行榜一页一致大小」锁到排行榜源码本身：两边各写一个数字必漂移，比对实参值
+        val rankSrc = readSource("ui", "screens", "rank", "RankRoute.kt")
+        assertTrue("排行榜页头像应为 44dp（用户点名的参照物）", rankSrc.contains("size = 44.dp"))
+        val rankAvatarDp = Regex("""Avatar\([^)]*size = (\d+)\.dp""").find(rankSrc)
+        assertTrue("应能从 RankRoute 解析出 Avatar 尺寸实参", rankAvatarDp != null)
+        assertEquals(
+            "首页对局卡头像尺寸必须与排行榜 Avatar 实参一致",
+            rankAvatarDp!!.groupValues[1].toInt(),
+            constDp(src, "RECORD_AVATAR_SIZE_DP"),
+        )
     }
 
     /**

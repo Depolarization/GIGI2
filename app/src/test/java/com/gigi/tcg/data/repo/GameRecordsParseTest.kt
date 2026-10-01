@@ -7,6 +7,7 @@ package com.gigi.tcg.data.repo
 import com.gigi.tcg.data.ServerId
 import com.gigi.tcg.data.api.ApiError
 import com.gigi.tcg.data.api.API_ERROR_KIND_RETCODE
+import com.gigi.tcg.data.api.MihoyoClient
 import com.gigi.tcg.domain.TtlCache
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
@@ -43,13 +44,19 @@ private class NoopDisk : WikiDiskStore {
     override suspend fun put(serverId: String, rawJson: String) = Unit
 }
 
-private fun repo(transport: GigiApiTransport, delayMs: Long = 0, jitterMs: Long = 0) =
+/**
+ * 基准退避延时用**生产默认值**（[MihoyoClient.RETRY_BASE_DELAY_MS] = 700ms），与 GigiRepository
+ * 自己的默认值同口径：只有 jitter 才是用例可调的那一半。
+ * 🔴 别把它写成 0 —— 抖动用例断言 `elapsed in 700..1000`（= 基准 700 + jitter 0~300），
+ * 基准归 0 后实测 elapsed 落在 0~300，用例必然红（2026-10-01 修的就是这处破窗）。
+ */
+private fun repo(transport: GigiApiTransport, jitterMs: Long = 0) =
     GigiRepository(
         transport,
         NoopDisk(),
         testJson,
         TtlCache(),
-        retryDelayMs = delayMs,
+        retryDelayMs = MihoyoClient.RETRY_BASE_DELAY_MS,
         retryJitterMs = jitterMs,
     )
 
@@ -129,7 +136,7 @@ class GameRecordsParseTest {
             ),
         )
         val start = currentTime
-        repo(transport, delayMs = 700, jitterMs = 300).fetchGameRecords("261958214", ServerId.Official)
+        repo(transport, jitterMs = 300).fetchGameRecords("261958214", ServerId.Official)
         val elapsed = currentTime - start
         assertEquals(2, transport.callCount)
         assertTrue("elapsed=$elapsed", elapsed in 700..1000)
