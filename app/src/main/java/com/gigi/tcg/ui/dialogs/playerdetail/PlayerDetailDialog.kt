@@ -1,10 +1,10 @@
 // 玩家信息弹窗：移植 web/src/components/PlayerDetailDialog.tsx 的内容与布局，适配 M3 居中 Dialog。
 // 四入口共用，参数 (uid, onClose)；弹窗开关由调用页持有，本组件不持全局 controller。
-// 版式：头部（头像/昵称+段位/UID）+ 天梯/巅峰积分 + 展示角色 + 参赛经历；
-// 头部与主页 ProfileCard 同一套口径（V37-3 任务 B）：昵称与段位**合并成单个 Text**
-// （段位走 SpanStyle 行内染色），其下 UID 独立一行、与整行同左缘；UID 不带 "UID:" 前缀（位置即语义）；
-// 段位色按档位取 ui/theme/TierColors.kt（不再一律染金），无段位不占位；
-// is_shield / 无 pageInfo 走独立分支；胜负语义色来自 LocalSemanticColors。
+// 版式：头部（头像/昵称 + 段位 + UID 三行同左缘）+ 天梯/巅峰积分 + 展示角色 + 参赛经历；
+// V41 起头部**纵向分列**：昵称独占 maxLines=3 行，段位另起一行（titleSmall + 档位色），
+// UID 第三行；三行同属一个 Column 的同一 start ⇒ 左缘天然对齐，且长昵称再也吃不掉段位。
+// UID 不带 "UID:" 前缀（位置即语义）；段位色按档位取 ui/theme/TierColors.kt（不再一律染金），
+// 无段位不占位；is_shield / 无 pageInfo 走独立分支；胜负语义色来自 LocalSemanticColors。
 // 头像兜底（V26）：列表接口（排行榜 rank_infos / 对局 game_records）必定带回头像，
 // 而 other_home_page 在 is_shield 时 page_info.avatar_url 为空 ⇒ 弹窗只剩灰底占位图标。
 // 故入口把列表头像随 [PlayerDetailTarget] 带进来，在 UI 层回落，不写进 VM 缓存。
@@ -43,11 +43,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -203,19 +200,18 @@ private fun HeaderRow(
     tier: TierStars? = null,
     fallbackAvatarUrl: String? = null,
 ) {
-    // V37-3 任务 B（用户「对话框同上重构」）：昵称与段位合并成**单个 Text**，段位是行内一段
-    // SpanStyle 染色（等价于 Android 的 SpannableString + ForegroundSpan）。
-    // 旧结构 `Row { Text(昵称) + Spacer(8) + Text(段位) }` + widthIn(max=88dp) 是为"段位别被挤出可视区"
-    // 打的补丁，但两个 Text 各自成块 ⇒ 真机 bounds 实测段位 LEFT=467、UID LEFT=297（差 170px），
-    // 就是用户报的「段位和 ID 不对齐」。合并后行内只有一个布局节点：
-    // 整行左缘 == UID 左缘，昵称↔段位的基线由文本排版自己保证，alignByBaseline() 全部移除。
-    // 省略号现在按**整行**可用宽度截断（旧代码那套 88/148dp 上限是给两段 Text 分账用的，已无意义）：
-    // 昵称过长时段位会被截进省略号里，这是单 Text 方案的已知取舍（弹窗文本列窄，实测未触发）。
-    // 🔴 tierLabel / tierColor / stringResource 都是 @Composable，buildAnnotatedString 的 lambda
-    // 不是组合上下文 ⇒ 全部在体内取成成品值再进 lambda。
+    // V41（用户 2026-10-02 反馈「玩家名字太长时显示不全段位」）：昵称与段位改为**纵向分列**，
+    // 昵称独占 maxLines = 3 行。
+    // 起因：V37-3 把两者合并成单个 Text（段位走行内 SpanStyle 染色），maxLines = 1 ⇒ 整行共用
+    // 一个省略号，昵称一长段位就被截进「…」里。当时源码注释写的"实测未触发"是错的，
+    // 玩家侧一上报就复现。分列后段位独占一行，**结构上**不可能再被昵称挤掉。
+    // 附带收益：
+    //   ① 段位回到 titleSmall（V37-3 把它抬到 16sp 与昵称同字号，本就是"看着不齐"的一个来源）；
+    //   ② 不再需要 buildAnnotatedString + SpanStyle —— 它的 lambda 不是组合上下文，
+    //      强制把 tierLabel/tierColor 提前取成成品值再进 lambda，是本文件最容易写错的一处；
+    //   ③ V37-3 要修的"段位与 UID 左缘不齐"依然结构性成立：三段 Text 同属一个 Column 的同一 start。
     val nicknameText = nickname ?: stringResource(R.string.common_unknown)
     val tierText = tier?.let { tierLabel(it) }
-    val tierSpan = tierText?.let { SpanStyle(color = tierColor(it)) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Avatar(
             url = resolveAvatarUrl(avatarUrl, fallbackAvatarUrl),
@@ -225,23 +221,34 @@ private fun HeaderRow(
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                text = buildAnnotatedString {
-                    append(nicknameText)
-                    // tier == null（天梯分不足 1 分）时整段不渲染：不留占位、不留尾随空格。
-                    // 不能用「tierLabel 结果为空串」判无段位——无段位会被本地化成「无段位」字样。
-                    if (tierText != null && tierSpan != null) {
-                        append(' ')
-                        withStyle(tierSpan) { append(tierText) }
-                    }
-                },
+                text = nicknameText,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                maxLines = 1,
+                // 3 行是按实测宽度定的：弹窗文本列 ≈ 230dp，16sp 下中文约 14 字/行
+                // ⇒ 2 行 28 字已覆盖绝大多数昵称，3 行 42 字给双宽标点/表情留足余量，再多没有收益。
+                maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
             )
+            // tier == null（天梯分不足 1 分）时整段不渲染：不留占位、不留空行。
+            // 判空只能用结构化的 tier == null，不能用「tierLabel 结果为空串」——无段位会被本地化成
+            // 「无段位」字样，按字符串判不掉。
+            if (tierText != null) {
+                Text(
+                    text = tierText,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                    // 段位名未命中色表时 tierColor 回落到 onSurfaceVariant：文字照旧显示，只是不着色
+                    // （与 V37-3 之前的老结构同一口径）。语义色只作前景，不作背景块。
+                    color = tierColor(tierText),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            Spacer(Modifier.height(4.dp))
             // 不加 "UID:" 前缀：与主页 ProfileCard 同一套设计语言——昵称在上、数字在下，
-            // 位置本身即语义，前缀只会与昵称争宽度。左缘与上一行同轴（同一个 Column 的同一个 start）。
+            // 位置本身即语义，前缀只会与昵称争宽度。左缘与上面两行同轴（同一个 Column 的同一个 start）。
             Text(
                 text = uid,
                 style = MaterialTheme.typography.bodyMedium,

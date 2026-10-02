@@ -95,23 +95,26 @@ class HomeReloadModeTest {
     }
 
     /**
-     * 缺陷 C：昵称行 maxLines=1 必须配 ellipsis，禁止硬裁切。
-     * V36/3 起信息头在 cardstats/PlayerInfoHeader；🔴 V37-3 任务 B 把昵称+段位合并成**单个 Text**
-     * （段位走 SpanStyle），结构特征串从位置参数 `nickname,` 改成 `text = buildAnnotatedString {`，
-     * 断言口径不变：整行仍然必须带 overflow = TextOverflow.Ellipsis。
+     * 缺陷 C：昵称行必须配 ellipsis，禁止硬裁切。
+     * V41 起信息头**纵向分列**：昵称 `maxLines = 3`、段位 `maxLines = 1`，**两段都要 ellipsis**
+     * （段位名 + 至多 5 颗星虽短，但三语/extremes 下仍不写死"不可能折行"）。
+     * 🔴 断言口径跟着结构变：不能沿用"整行只有一处 maxLines"的旧前提 ——
+     * 现在有两处，必须**分段定位**（昵称块到 `if (tier.isNotEmpty())`、段位块到 `Spacer`），
+     * 否则会拿段位的 `maxLines = 1` 当成昵称的，判挂也判错对象。
      */
     @Test
     fun profileNickname_usesEllipsis() {
         val stats = readSource("../cardstats/CardStatsRoute.kt")
         assertTrue("PlayerInfoHeader 应引入 TextOverflow", stats.contains("import androidx.compose.ui.text.style.TextOverflow"))
-        val nicknameBlock = stats.substringAfter("text = buildAnnotatedString {")
+        val header = stats.substringAfter("internal fun PlayerInfoHeader(")
+        val nickBlock = header.substringAfter("text = nickname,").substringBefore("if (tier.isNotEmpty())")
         assertTrue(
             "昵称行 Text 应带 overflow = TextOverflow.Ellipsis",
-            nicknameBlock.substringBefore("Spacer").contains("overflow = TextOverflow.Ellipsis"),
+            nickBlock.contains("overflow = TextOverflow.Ellipsis"),
         )
-        assertTrue(
-            "合并后昵称与段位共用一个 Text（maxLines=1 也只剩这一处）",
-            nicknameBlock.substringBefore("Spacer").contains("maxLines = 1"),
-        )
+        assertTrue("昵称行应允许多行（maxLines = 3）", nickBlock.contains("maxLines = 3"))
+        val tierBlock = header.substringAfter("if (tier.isNotEmpty())").substringBefore("Spacer")
+        assertTrue("段位行同样要 ellipsis", tierBlock.contains("overflow = TextOverflow.Ellipsis"))
+        assertTrue("段位行 maxLines = 1", tierBlock.contains("maxLines = 1"))
     }
 }

@@ -57,8 +57,9 @@ class TierColorsTest {
     private companion object {
         const val BODY_LEVEL = 4.5
 
-        // 🔴 V39-H：段位是 `titleMedium`(16sp) Bold 上屏，按 WCAG 属**正文**（large text 要 ≥18.66sp 粗体），
-        // 门槛 4.5 而不是 V37-4 的 3.0；而浅底要求前景暗、深底要求前景亮，单套色物理上做不到 ⇒ 拆两档。
+        // 🔴 V39-H：段位是 `titleMedium`(16sp) Bold 上屏（V41 起玩家详情弹窗里为 `titleSmall` 14sp Medium），
+        // 按 WCAG 属**正文**（large text 要 ≥18.66sp 粗体），门槛 4.5 而不是 V37-4 的 3.0；
+        // 而浅底要求前景暗、深底要求前景亮，单套色物理上做不到 ⇒ 拆两档。
         //
         // 两档各自要覆盖的容器，是 M3 固定色板里**该主题真会落到段位文本上**的那几张底。
         // 段位文案的两个上屏点（CardStatsRoute 的昵称行、PlayerDetailDialog 的昵称行）

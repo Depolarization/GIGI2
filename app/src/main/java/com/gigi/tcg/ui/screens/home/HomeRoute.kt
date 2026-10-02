@@ -78,6 +78,7 @@ import com.gigi.tcg.ui.components.tierLabel
 import com.gigi.tcg.ui.screens.cardstats.PlayerInfoHeader
 import com.gigi.tcg.ui.theme.LocalSemanticColors
 import com.gigi.tcg.ui.theme.SemanticColors
+import com.gigi.tcg.ui.theme.scoreDeltaColor
 
 // ---- ProfileCard 版式常量（V28 起，V36 任务 B 后个人信息区几何归 PlayerInfoHeader）----
 // 头像/昵称/段位/UID 的版式常量收敛到 cardstats/PlayerInfoHeader（PLAYER_INFO_*），
@@ -439,10 +440,20 @@ private fun RecordItem(
                     .width(IntrinsicSize.Max),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                // V42（用户 2026-10-02 转达玩家建议「减分改成红色/橙色更直观」）：
+                // 此前天梯恒 `semantic.win`、巅峰恒 `semantic.gold` —— **颜色不携带任何符号信息**，
+                // 于是「(-7)」被染成绿色，玩家看到的是"绿色=掉了分"，语义反了。
+                // 现按 [scoreDeltaColor] 的统一口径：涨=win / 跌=lose / 平=onSurfaceVariant（中性）。
+                // 🔴 两个色值必须先在 Composable 体内取好再进 buildAnnotatedString：
+                // 它的 lambda 不是组合上下文（与本函数上方 ladderPrefix 同一理由）。
+                // 巅峰行不再用 gold：那一抹金不携带信息，且与"跌=红"并排时会把符号读乱；
+                // 「巅峰」的身份由前缀文字承担（分数区的巅峰数值仍是 gold，见 PlayerDetailDialog.ScoresRow）。
+                val ladderDeltaColor = scoreDeltaColor(ladderChange)
+                val peakDeltaColor = scoreDeltaColor(peakChange)
                 Text(
                     text = buildAnnotatedString {
                         append("$ladderPrefix $ladderScore ")
-                        withStyle(SpanStyle(color = semantic.win)) {
+                        withStyle(SpanStyle(color = ladderDeltaColor)) {
                             append(formatScoreChange(ladderChange))
                         }
                     },
@@ -456,7 +467,7 @@ private fun RecordItem(
                             append(peakPlaceholder)
                         } else {
                             append("$peakPrefix $peakScore ")
-                            withStyle(SpanStyle(color = semantic.gold)) {
+                            withStyle(SpanStyle(color = peakDeltaColor)) {
                                 append(formatScoreChange(peakChange))
                             }
                         }

@@ -13,10 +13,18 @@
 //   任务 D：对局卡天梯/巅峰两行共用列宽（width(IntrinsicSize.Max)，按内容实测不写死 dp）并居中
 //     （旧 horizontalAlignment = Alignment.End 只右贴齐，实测两行 LEFT=700 / 843）。
 //
+// V41 变更（🔴 V37-3 任务 B 的「合并成单个 Text」在本文件**全线作废**，弹窗与共享头两处都改）：
+//   玩家反馈「玩家名字太长时显示不全段位」。根因是单 Text + maxLines=1 ⇒ 昵称与段位共用一个省略号，
+//   昵称一长段位就被截掉（V37-3 注释里预判过这个取舍，但"实测未触发"的判断是错的）。
+//   改为昵称（maxLines=3）/ 段位（titleSmall + 档位色）/ UID 三行纵向分列，同一 Column 同一 start。
+//   先改 PlayerDetailDialog.HeaderRow（弹窗，文本列 ≈230dp，最易触发），后改共享 PlayerInfoHeader
+//   （首页资料卡 + 统计页信息卡，文本列 ≈284dp）—— 用户 2026-10-02 确认"要一起改"，两处口径现已一致。
+//   字号层级随之恢复为 昵称 titleMedium > 段位 titleSmall > UID bodySmall（合并期把段位抬到 16sp 是败笔）。
+//
 // 保留的 V28 不变量（口径映射到新版式）：
 //   1) 四层留白单调（组内 4dp、跨组 12dp，跨组 ≥3× 组内）；
-//   2) UID 与「昵称+段位」同左缘（同一 Column 的同一 start）；
-//   3) 字号层级 昵称行 > UID ≈ 表头，积分数值 > 昵称行；
+//   2) 昵称/段位/UID 三行同左缘（同一 Column 的同一 start）；
+//   3) 字号层级 昵称行 > 段位行 > UID ≈ 表头，积分数值 > 昵称行；
 //   4) 表头样式区别于数值（labelMedium + SemiBold + letterSpacing vs titleLarge + Bold）；
 //   5) 卡片内不出现硬编码颜色；
 //   6) 对局卡四块内容（头像/昵称列/积分变化/胜负）垂直居中于卡片中轴、头像与排行榜同尺寸
@@ -130,9 +138,10 @@ class HomeProfileLayoutTest {
         assertTrue("头像直径应为 64dp", constDp(statsSrc, "PLAYER_INFO_AVATAR_DP") == 64)
         val statsCode = codeOnly(statsSrc)
         val homeCode = codeOnly(src)
-        // V37-3 任务 B：昵称↔段位的 8dp Spacer 常量随"合并成单 Text"一起删除（只剩一个空格字符）
+        // V41：昵称与段位改回纵向分列（不再合并成单 Text），但 8dp Spacer 常量**依旧不该回来**——
+        // 身份块内部靠"字号 + 档位色"区分，不靠留白；间距只发生在段位↔UID 之间。
         assertFalse(
-            "段位与昵称已合并成单个 Text，PLAYER_INFO_NICK_TIER_GAP_DP 的声明应删除",
+            "昵称↔段位 8dp Spacer 常量不应复活（身份块内不靠留白区分）",
             Regex("const val PLAYER_INFO_NICK_TIER_GAP_DP").containsMatchIn(statsCode),
         )
         // V37-3 任务 C：首页不再按「头像直径 + 列间距」缩进积分区，这两个常量在 HomeRoute 已无引用
@@ -145,27 +154,30 @@ class HomeProfileLayoutTest {
     }
 
     /**
-     * 不变量 2a（V37-3 任务 B 改版）：昵称与段位是**同一个 Text**，段位是行内一段染色 span。
-     * 旧口径"两段 Text + alignByBaseline"作废：真机实测段位 LEFT=467、UID LEFT=297，
-     * 分块才是错位的根因；合并后单 Text 内部基线由文本排版保证，整行左缘即 UID 左缘。
+     * 不变量 2a（V41 改版，V37-3 任务 B 的合并方案在本组件**作废**）：昵称与段位是**两段独立
+     * Text、纵向分列**。旧口径"合并成单 Text"同样作废，理由是它自身的缺陷：
+     * `maxLines = 1` ⇒ 整行共用一个省略号，昵称一长段位就被截掉（玩家侧实测复现）。
+     * V37-3 真正要修的目标（左缘对齐）依然成立——三行同属一个 Column 的同一 start。
      */
     @Test
-    fun `昵称与段位合并成单个 Text（段位走 SpanStyle 染色）`() {
+    fun `昵称与段位纵向分列且长昵称不吞段位`() {
         assertTrue("外层头像 Row 应垂直居中", nickLineChunk.contains("verticalAlignment = Alignment.CenterVertically"))
         assertFalse("V36 红线 1 的 Bottom+baseline 互斥形态不得出现", nickLineChunk.contains("Row(verticalAlignment = Alignment.Bottom)"))
-        assertTrue("昵称+段位应为单个 Text + buildAnnotatedString", nickLineChunk.contains("text = buildAnnotatedString {"))
-        assertTrue("段位部分用 withStyle 定向染色", nickLineChunk.contains("withStyle(tierSpan) { append(tier) }"))
-        assertTrue("段位色来自 tierColor（不硬编码）", nickLineChunk.contains("SpanStyle(color = tierColor(tier))"))
-        assertEquals("昵称行只剩一个 Text 节点（段位不再是第二个）", 1, Regex("Text\\(").findAll(nickLineChunk).count())
-        assertFalse("合并后不再需要 alignByBaseline hack", nickLineChunk.contains("alignByBaseline()"))
-        // 🔴 buildAnnotatedString 的 lambda 不是组合上下文，@Composable 的 tierColor 必须在体内先取好，
-        // lambda 里只能用取好的 SpanStyle（写成 tierColor(tier) 会直接编译不过，这里做源码闸门）
-        val lambdaChunk = nickLineChunk.substringAfter("buildAnnotatedString {")
-            .substringBefore("modifier = ComposeModifier.fillMaxWidth()")
-        assertFalse("lambda 内不得调 @Composable tierColor：\n$lambdaChunk", lambdaChunk.contains("tierColor("))
-        // 段位为空 ⇒ 不渲染、也不留尾随空格（空格和 span 一起被 if 包住）
-        assertTrue("空格只在有段位时才 append", lambdaChunk.contains("append(' ')"))
-        assertTrue(lambdaChunk.contains("if (tierSpan != null)"))
+        assertFalse("不得再合并成单个 Text（共用省略号会截掉段位）", nickLineChunk.contains("buildAnnotatedString"))
+        assertFalse("SpanStyle 行内染色随分列作废", nickLineChunk.contains("SpanStyle"))
+        assertFalse("withStyle 随分列作废", nickLineChunk.contains("withStyle"))
+        assertEquals("昵称块内应是两个 Text 节点（昵称 + 段位）", 2, Regex("Text\\(").findAll(nickLineChunk).count())
+        assertTrue("昵称允许多行以容纳长昵称", nickLineChunk.contains("maxLines = 3"))
+        assertTrue("段位色来自 tierColor（不硬编码）", nickLineChunk.contains("color = tierColor(tier)"))
+        assertTrue("段位不得折行", nickLineChunk.contains("maxLines = 1"))
+        assertTrue("无段位时整段不渲染，不留空行占位", nickLineChunk.contains("if (tier.isNotEmpty())"))
+        assertFalse("不再需要 alignByBaseline hack", nickLineChunk.contains("alignByBaseline()"))
+        // 🔴 段位作为独立 Text 后，tierColor 可以在 Composable 调用点直接用；
+        //    旧版"lambda 内不得调 @Composable"的约束随 buildAnnotatedString 一起消失。
+        assertTrue(
+            "段位 Text 应直接调 @Composable tierColor（已不在 lambda 里）",
+            Regex("""Text\(\s*text = tier,""").containsMatchIn(codeOnly(nickLineChunk)),
+        )
     }
 
     /** 不变量 2b：UID 独占一行、左对齐于「昵称+段位」整行的左缘（禁止居中/右对齐/额外缩进） */
@@ -203,10 +215,10 @@ class HomeProfileLayoutTest {
         assertFalse(scoreBody.contains("TextAlign"))
     }
 
-    /** 不变量 3：昵称行（含段位 span）> UID ≈ 表头；积分数值是全卡最重的一档 */
+    /** 不变量 3：昵称行 > 段位行 > UID ≈ 表头；积分数值是全卡最重的一档 */
     @Test
     fun `字号层级：昵称行大于UID与表头、积分数值最重`() {
-        val nick = styleOf(headerBody, "text = buildAnnotatedString {")
+        val nick = styleOf(headerBody, "text = nickname,")
         val uid = styleOf(headerBody, "uid,")
         val label = styleOf(scoreBody, "text = label,")
         val value = styleOf(scoreBody, "text = value.toString()")
@@ -217,9 +229,11 @@ class HomeProfileLayoutTest {
             "数值($value) 应 ≥ 昵称行($nick)——数值是全卡最重的一档",
             sizeSp(value) >= sizeSp(nick),
         )
-        // V37-3 任务 B：段位与昵称同字号（旧结构段位是 titleSmall 14sp，合并进单 Text 后 span 只改色不改字号；
-        // 同一行混排字号才是"看着不齐"的另一个来源，统一字号是这次方案的一部分）
-        assertFalse("段位 span 不得覆写字号（只染色）", headerBody.contains("SpanStyle(fontSize"))
+        // V41：段位改回独立 Text ⇒ 层级 titleMedium(昵称) > titleSmall(段位) > bodySmall(UID)，
+        // 段位夹在中间当"身份注解"，正是分列前的老口径（合并期把它抬到 16sp 才是那次方案的败笔）。
+        val tier = styleOf(headerBody, "text = tier,")
+        assertTrue("段位($tier ${sizeSp(tier)}sp) 应小于昵称行($nick)", sizeSp(tier) < sizeSp(nick))
+        assertTrue("段位($tier) 应 ≥ UID($uid)", sizeSp(tier) >= sizeSp(uid))
     }
 
     /** 不变量 4：表头做成"小标题"（更小字号 + SemiBold + 拉开字距），与数值视觉分工明确 */
@@ -296,22 +310,62 @@ class HomeProfileLayoutTest {
         assertEquals("天梯/巅峰两行都要 textAlign = TextAlign.Center", 2, Regex("textAlign = TextAlign\\.Center").findAll(code).count())
         assertFalse("旧的 End 贴右（用户报的'没居中'就是它）不得回来", code.contains("horizontalAlignment = Alignment.End"))
         assertFalse("列宽不得改成写死 dp（三语长短不一，写死必截）", Regex("width\\(\\d+\\.dp\\)").containsMatchIn(code))
+        // V41 用户复核「右侧积分变动文本要对齐中轴线」时补的锁：
+        // 上面四条锁的是**块内**两行左右缘一致；这条锁**垂直方向**——整个右侧块
+        // （两行积分 + 胜负）必须居中于卡片内容中轴（V40-C 口径），否则整块会偏上/偏下。
+        // 此前无任何断言覆盖，改版时很容易被"顺手加个 Spacer/改 padding"破坏。
+        assertTrue(
+            "记录卡外层 Row 应垂直居中（V40-C：头像/昵称列/积分变化/胜负 四块居中于中轴）",
+            code.contains("verticalAlignment = Alignment.CenterVertically"),
+        )
     }
 
     /**
-     * V37-3 任务 B：玩家详情弹窗信息头与主页/统计页同构（用户「对话框中的段位和ID仍不对齐，建议同上重构」）。
-     * 旧结构靠 widthIn(max = 88/148dp) 给段位让位，合并成单 Text 后省略号按整行可用宽截断，补丁作废。
+     * V41（用户 2026-10-02 反馈「玩家名字太长时显示不全段位」）：玩家详情弹窗信息头改为**纵向分列**。
+     * V37-3 任务 B 的合并单 Text 方案作废——maxLines = 1 意味着昵称与段位**共用一个省略号**，
+     * 昵称一长段位就被截进「…」里（当时注释写的"实测未触发"是错的，玩家侧一上报即复现）。
+     * 本测试断言随之反向，V37-3 真正要修的目标（段位与 UID 左缘不齐）依然成立：
+     * 三段 Text 同属 `Column(Modifier.weight(1f))` 的同一 start，错位在结构上不可能出现。
      */
     @Test
-    fun `玩家详情弹窗信息头同样合并成单个 Text`() {
+    fun `玩家详情弹窗信息头昵称与段位纵向分列且长昵称不吞段位`() {
         val body = codeOnly(bodyOf(dialogSrc, "private fun HeaderRow("))
-        assertTrue(body.contains("text = buildAnnotatedString {"))
-        assertTrue("段位色在 Composable 体内取好", body.contains("SpanStyle(color = tierColor(it))"))
-        assertTrue(body.contains("withStyle(tierSpan) { append(tierText) }"))
+        assertFalse(
+            "不得再把昵称与段位合成单个 Text：单 Text + maxLines=1 共用一个省略号，长昵称会把段位截掉（V41 玩家反馈）",
+            body.contains("buildAnnotatedString"),
+        )
+        assertFalse("SpanStyle 行内染色随分列作废", body.contains("SpanStyle"))
+        assertFalse("withStyle 随分列作废", body.contains("withStyle"))
+        assertTrue("昵称行允许多行以容纳长昵称", body.contains("maxLines = 3"))
+        assertTrue("昵称过 3 行才截断", body.contains("overflow = TextOverflow.Ellipsis"))
+        assertTrue("段位是独立 Text 并按档位着色", body.contains("color = tierColor(tierText)"))
+        assertTrue("段位不得折行（tier 名 + 至多 5 颗星，一行足够）", body.contains("maxLines = 1"))
+        assertTrue("无段位时整段不渲染，不留空行占位", body.contains("if (tierText != null) {"))
+        assertTrue("文本列吃满剩余宽度（三行同左缘的结构前提）", body.contains("Column(Modifier.weight(1f))"))
         assertFalse("不再需要基线 hack", body.contains("alignByBaseline()"))
-        assertFalse("88/148dp 昵称上限补丁随合并作废", body.contains("widthIn"))
-        assertFalse("昵称↔段位 8dp Spacer 已删", body.contains("Spacer(Modifier.width(8.dp))"))
-        assertTrue("文本列吃满剩余宽度", body.contains("Column(Modifier.weight(1f))"))
+        assertFalse("88/148dp 昵称上限补丁早已作废", body.contains("widthIn"))
+        assertFalse("昵称↔段位 8dp Spacer 不得回来", body.contains("Spacer(Modifier.width(8.dp))"))
+    }
+
+    /**
+     * V42（用户 2026-10-02 转达玩家建议「减分改成红色/橙色更直观」）：变化值**按符号**染色。
+     * 旧写法天梯恒 `semantic.win`、巅峰恒 `semantic.gold` —— 颜色压根不携带符号信息，
+     * 于是「(-7)」被染成绿色，语义反了。断言随之反向。
+     * 统一口径见 `ui/theme/Theme.kt` 的 [scoreDeltaColor]：涨=win / 跌=lose / 平=onSurfaceVariant。
+     */
+    @Test
+    fun `对局卡积分变化按符号染色而非恒定win或gold`() {
+        val code = codeOnly(recordBody)
+        assertFalse("天梯变化不得恒用 win 色（会把减分染绿）", code.contains("SpanStyle(color = semantic.win)"))
+        assertFalse("巅峰变化不得恒用 gold 色（不携带符号信息，且与'跌=红'并排时读乱）", code.contains("SpanStyle(color = semantic.gold)"))
+        assertEquals(
+            "天梯/巅峰两处变化都要走 scoreDeltaColor",
+            2,
+            Regex("""SpanStyle\(color = (ladder|peak)DeltaColor\)""").findAll(code).count(),
+        )
+        // 🔴 buildAnnotatedString 的 lambda 不是组合上下文 ⇒ 色值必须先在 Composable 体内取好。
+        assertTrue("色值先取成品值再进 lambda（天梯）", code.contains("val ladderDeltaColor = scoreDeltaColor(ladderChange)"))
+        assertTrue("色值先取成品值再进 lambda（巅峰）", code.contains("val peakDeltaColor = scoreDeltaColor(peakChange)"))
     }
 
     /** 回归锁：「最近对局」标题行 + 刷新按钮仍在（V29-B 移除导出按钮，刷新入口是首页唯一的对局区动作） */

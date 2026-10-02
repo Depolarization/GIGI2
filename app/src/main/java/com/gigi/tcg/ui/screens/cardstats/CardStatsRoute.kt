@@ -15,7 +15,10 @@
 // Button + 下载图标；TabRow 因此恢复左右满宽。点击仍弹多选对话框，导出流程在 CardStatsExportAction.kt。
 // V29 反馈：导出结果从"每张一条纯文本 Toast"改成"整次一条带「查看」action 的消息"，
 // 经 onShowExportResult（文案 + 已落盘 Uri 列表）交给宿主 Snackbar（宿主接线见本文件 KDoc 注释）。
-// V37-AD：PlayerInfoHeader 的昵称+段位合并成单个 Text（段位走 SpanStyle，任务 B）；
+// V37-AD：PlayerInfoHeader 曾把昵称+段位合并成单个 Text（段位走 SpanStyle）——
+// 🔴 **V41 起作废**（见PlayerInfoHeader 的 KDoc）：单 Text + maxLines=1 共用一个省略号，
+// 长昵称会把段位截进省略号里（玩家侧实测复现，弹窗那边同轮已改纵向分列），
+// 本轮把首页/统计页共用的这个头也改成纵向分列，两处口径彻底一致。
 // 表头改 stickyHeader 不再随行滚走（任务 E-1）；序号列改右对齐（任务 E-2）。
 // V39-B 任务 A：**整体滑动** —— V29 那次「固定头 + 页内滚动」的结构回退只解决了白屏
 // （pager 在无限高约束下塌成 0），代价是信息卡/tab 行永远占着顶部固定高，用户实测
@@ -184,6 +187,40 @@ internal val ContentStartPadding = 8.dp
 /** 信息卡顶部额外留白：不贴刷新圈（V29 起就是这个值，本轮只是换了容器） */
 private val HeaderTopPadding = 8.dp
 
+/**
+ * 🔴 头部完全收起后**残留的可见高度**（V45；用户 2026-10-02 选定「完全折尽，tab 硬接顶」）。
+ *
+ * 取 0.dp：用户实测两张截图指认「**下方列表滑动时 tab 顶部不会接顶**」——
+ * 折叠停在 84~88px 时，tab 行上方悬着一截空隙，视觉上就是「没接顶」。
+ * ⇒ 折叠终点改为**把头部整个移出视野**，tab 行自然贴到列表区顶部。
+ *
+ * ⚠️ 要保留一小截（如 8dp）就改这一个数；但**别再用「行程上限」的名义改**——
+ * V44 的「行程常量 168dp」就是被误当成**容器总高**才出的 bug（见下）。
+ */
+private val HeaderCollapseResidualDp = 0.dp
+
+/**
+ * 🔴 折叠行程的**兜底下限**（V45 新增，**不是上界**）。
+ *
+ * 🔴 V45 修正 V44 的病根：V44 写死 `HeaderCollapseMaxDp = 168.dp` 当**行程上界**，
+ * 于是**展开详情后头部自然高从 542px 涨到 1307px，而行程仍是 168dp×2.75=462px**
+ * ⇒ 折叠后残留 = 1307 − 462 = **845px（占屏 35%）**，
+ * 用户实测指认「**展开详情后，距顶距离变得更大**」。
+ * **根因就是拿常量当上界**：行程必须能吃掉**整个头部自然高**（含详情区），
+ * 否则详情越长，顶部悬得越高。
+ *
+ * 正解（**刻意不引入任何 effect 推导** —— V44 第一版就栽在这）：
+ * 行程上界**直接读测量回调写入的同一个 [MutableFloatState]**（`naturalHeightPx`），
+ * 不经 `LaunchedEffect` / `derivedStateOf` 中转 ⇒ 不存在「key 传 state 对象不传值、
+ * effect 只跑一次、首帧读到 0 就永久定格」的问题。
+ * 测量首帧为 0 时上界取本兜底值（暂不折），量到后自然接管。
+ *
+ * 兜底值 168.dp 的来历：K30 实测「展开详情」按钮底缘距卡顶 458px = 166.5dp，
+ * 折叠不该切掉这个可点元素 ⇒ 首帧期间至少给到 168dp 行程。
+ * 它**只是首帧兜底**；一旦量到自然高，上界立刻变成自然高本身（可完全折尽）。
+ */
+private val HeaderCollapseMinTravelDp = 168.dp
+
 /** 列表滚到底的额外留白（避免最后一行贴导航栏；同样落在 contentPadding 上） */
 private val ContentBottomPadding = 16.dp
 
@@ -304,8 +341,28 @@ private fun CardStatsContent(
     // 「先折头、再滚列表」由这对 state + 下面的 nestedScroll 连接补回来。用
     // mutableFloatState 而非普通值：连接只 remember 一次、读写同一对引用，不必每帧重建。
     val headerCollapsePx = remember { mutableFloatStateOf(0f) }
+    // 🔴 V45：容器**总高**与折叠**行程上界**都取**同一个**「头部自然高」测量值。
+    //
+    // V44 的两个 bug 同源：把常量 `HeaderCollapseMaxDp = 168.dp` 分别当成
+    //  ① **容器总高** ⇒ 默认态容器 462px < 卡片 543px，底部被裁 81px（用户报「默认被遮挡住」）；
+    //  ② **行程上界** ⇒ 展开详情后自然高涨到 1307px 而行程仍 462px，折叠后残留 845px
+    //     （占屏 35%），用户报「展开详情后，距顶距离变得更大」；同理「tab 顶部不会接顶」。
+    //
+    // 🔴 上界**直接读这个 state 本身**（见 HeaderCollapseConnection.limitPx），
+    // **刻意不走 LaunchedEffect / derivedStateOf 中转** —— V44 第一版正是栽在
+    // 「`LaunchedEffect(stateA, stateB)` 的 key 传 state 对象而非值、effect 只跑一次、
+    // 首帧读到 0 就永久定格」上。直接读同一个 MutableFloatState 不存在这个时序问题。
     val headerNaturalHeightPx = remember { mutableFloatStateOf(0f) }
-    val headerCollapseConnection = remember { HeaderCollapseConnection(headerCollapsePx, headerNaturalHeightPx) }
+    val headerCollapseMinTravelPx = with(LocalDensity.current) { HeaderCollapseMinTravelDp.toPx() }
+    val headerCollapseResidualPx = with(LocalDensity.current) { HeaderCollapseResidualDp.toPx() }
+    val headerCollapseConnection = remember {
+        HeaderCollapseConnection(
+            collapsePx = headerCollapsePx,
+            naturalHeightPx = headerNaturalHeightPx,
+            minTravelPx = headerCollapseMinTravelPx,
+            residualPx = headerCollapseResidualPx,
+        )
+    }
     val exportEnabled = exportAction.enabled && !exportAction.exporting
     Column(modifier = modifier.fillMaxSize()) {
         CollapsibleHeaderContainer(headerCollapsePx, headerNaturalHeightPx) {
@@ -366,14 +423,27 @@ private fun CardStatsContent(
 }
 
 /**
- * 折叠容器（V40-A 整体纵向滚动的载体）：外框高 = 信息卡自然高 − 折叠量，
- * clipToBounds 把折出去的部分裁掉（不裁会盖住下面的 tab 行与列表区）。
- * 折叠量/自然高读在**本函数内**：滚动期间逐帧变化只重组这一小块，pager 与大列表不陪跑。
+ * 折叠容器（V40-A 整体纵向滚动的载体；V45 澄清「总高」与「行程」的分工）：
+ * 外框高 = 头部自然高 − 已折叠量，clipToBounds 把折出去的部分裁掉（不裁会盖住下面的 tab 行与列表区）。
  *
- * 🔴 onSizeChanged 必须挂在内层「不限高」的 Column 上：外框高本来就是这两个状态的函数，
- * 挂外层量到的会是折叠后的可见高（自锁：一折就把自然高改小，再也展不回来）。
- * 首帧自然高未知（=0）先按自然排版、量到后再交给公式接管 —— 否则首帧先以 0 高画一帧，
- * 头部会白闪一下。
+ * 🔴 **本函数只管「总高」，完全不管「折多少」**（行程在 [HeaderCollapseConnection] 里夹取）。
+ * 这两个量混在一起是 V44 连续出bug 的根源，务必分清：
+ *  - **总高** = 卡片自然高（运行时测量，K30 实测随「展开详情」在 **542px ↔ 1307px** 间变）。
+ *    V44 曾把行程常量 168dp 当总高用 ⇒ 默认态容器 462px < 卡片 543px ⇒ **底部被裁 81px**
+ *    （用户实测报「上方的卡片默认时被遮挡住了一部分」）。
+ *  - **行程** = 能折掉多少，恒等于 `自然高 − 残留`，由连接夹取。
+ *    V44 曾写死 168dp ⇒ 展开详情后自然高 1307px 而行程仍 462px ⇒ 残留 **845px（占屏 35%）**
+ *    （用户实测报「展开详情后，距顶距离变得更大」）。
+ *
+ * 两个实现约束（都是踩过的坑，别改回去）：
+ *  1. **测量回调必须挂内层** `wrapContentHeight(unbounded=true)` 的 Column。
+ *     挂外层 Box 会量到「折叠后的可见高」⇒ **自锁**：一折就把自然高改小，再也展不回来（V40-A 已踩）。
+ *  2. **首帧自然高未知（=0）时不要设 height**，先按自然排版，量到后再由公式接管；
+ *     否则首帧先以 0 高画一帧，头部白闪一下。
+ *
+ * 公式只有一处：`自然高 − 已折叠量`，并用 `coerceAtLeast(0f)` 兜底。
+ * 残留由 [HeaderCollapseResidualDp] 决定（V45 取 0dp = 完全折尽、tab 硬接顶）——
+ * 它作用在连接的**上界**上，容器这边不需要（也不该）再减一次。
  */
 @Composable
 private fun CollapsibleHeaderContainer(
@@ -382,6 +452,7 @@ private fun CollapsibleHeaderContainer(
     content: @Composable () -> Unit,
 ) {
     val naturalHeight = naturalHeightPx.floatValue
+    // 首帧自然高未知（=0）⇒ 先按自然排版（不裁剪），量到后再交给公式接管，否则首帧会先以 0 高画一帧、头部白闪。
     val boxModifier = if (naturalHeight > 0f) {
         ComposeModifier
             .fillMaxWidth()
@@ -406,36 +477,99 @@ private fun CollapsibleHeaderContainer(
 }
 
 /**
- * 折叠手势链（V40-A）：上滑先折信息卡，折满余量才轮到列表滚；列表到顶后下拉反向展开，
- * 展平后才把正余量继续外抛给 PullToRefreshBox 去拉刷新圈。只吃拖拽（UserInput）——
- * 惯性滑动（Fling）不带动头部，免得抬手后头部自己跳一段。
+ * 折叠手势链（V40-A 提出；**V45 重写上界来源**）：上滑先折信息卡，折尽后余量才轮到列表滚；
+ * 列表到顶后下拉反向展开，展平后才把正余量继续外抛给 PullToRefreshBox 去拉刷新圈。
  *
- * 状态用 [MutableFloatState] 引用进出（而不是每帧回传新值）：连接只 remember 一次，
- * 读写都落在同一对 state 上。
+ * 🔴 **V45 修掉的两个用户实测 bug（K30 截图取证）**：
+ * ① 「**下方列表滑动时 tab 顶部不会接顶**」—— V44 把折叠停在 84~88px 残留，
+ *    tab 行上方永远悬着一截空隙。
+ * ② 「**展开详情后，距顶距离变得更大**」—— V44 的行程上界是**常量 168dp**，
+ *    而展开详情后头部自然高 542px → **1307px**；行程仍 462px ⇒ 折叠后残留
+ *    1307 − 462 = **845px（占屏 35%）**，详情越长顶部悬得越高。
+ *
+ * **两者同源：把一个常量当成了上界。** 行程必须能吃掉**整个头部自然高**（含详情区），
+ * 否则不论残留设多少，顶部都会悬着一截。
+ *
+ * 🔴 **上界怎么来（V44 第一版栽过的坑，务必读完）**：
+ * 第一版让上界 =「整卡高 − 详情区高」，靠 Card / AnimatedVisibility 各挂 `onSizeChanged`
+ * 回传两个高度、再用 `LaunchedEffect(stateA, stateB)` 推导 ——
+ * **`LaunchedEffect` 的 key 传的是 state 对象而非值，effect 只在首次组合跑一次**，
+ * 首帧卡高仍为 0 ⇒ 上界恒为 0 ⇒ 头部彻底不折叠、展开详情后把列表挤扁到被遮住（真机复现）。
+ *
+ * **本轮正解：不中转，直接读。** [limitPx] 每次现算 `自然高 − 残留`，
+ * 自然高就是 `CollapsibleHeaderContainer` 里 `onSizeChanged` 写入的**同一个**
+ * [MutableFloatState]：没有 effect、没有 key、没有时序 ⇒ 首帧量到就立刻生效。
+ * 首帧自然高仍为 0（尚未测量）⇒ 上界取 [minTravelPx] 兜底、暂不折，量到后自然接管。
+ *
+ * 另有两处**手感**修正（不参与「折多少」这个视觉口径）：
+ *  - **折满即放行**：`old >= 上界` 时直接 `return Offset.Zero`，剩余 delta 一次性全给列表，
+ *    避免边界处再走一轮「old − next == 0」的空转而发涩。
+ *  - **吃 fling**（[NestedScrollSource.SideEffect]）：只认 `UserInput` 时抬手瞬间头部停住、
+ *    列表继续惯性滚 ⇒ 两段速度不连续，这是体感上另一半的「阻」。
+ *
+ * 🔴 **V46：两条路径必须对称（用户实测「向下滑动阻尼大、上滑跟手」）**
+ * 上滑（`onPreScroll`）上一轮已放行 `SideEffect`，回展（`onPostScroll`）却仍只认 `UserInput`
+ * ⇒ **快速下滑松手后的惯性滚动完全不带头部**，视觉上「头被拽住、拉不动」。
+ * 与其同源、方向相反，**已改成同样吃 fling**。改这两处时务必一起改，别只改一边。
  */
 private class HeaderCollapseConnection(
     private val collapsePx: MutableFloatState,
+    /** 头部自然高（px）：由 CollapsibleHeaderContainer 的 onSizeChanged 写入；**直接读、不中转** */
     private val naturalHeightPx: MutableFloatState,
+    /** 自然高尚未测到时的兜底行程（px） */
+    private val minTravelPx: Float,
+    /** 折尽后残留的可见高度（px）；0 = 完全折尽、tab 硬接顶 */
+    private val residualPx: Float,
 ) : NestedScrollConnection {
 
-    /** 折叠量的合法范围：0（完全展开）~ 自然高（完全收起） */
-    private fun clampCollapse(value: Float): Float = value.coerceIn(0f, naturalHeightPx.floatValue)
+    /**
+     * 本次手势可用的行程上界 = `自然高 − 残留`；自然高为 0（首帧未测量）⇒ 用 [minTravelPx] 兜底。
+     *
+     * 🔴 **每次现算、绝不缓存**：自然高会随「展开详情」变化（K30 实测 542px ↔ 1307px），
+     * 缓存就等于把上界冻在展开前的值 —— 那正是 V44「展开详情后顶部悬更高」的成因。
+     */
+    private val limitPx: Float
+        get() {
+            val natural = naturalHeightPx.floatValue
+            val base = if (natural > 0f) natural else minTravelPx
+            return (base - residualPx).coerceAtLeast(0f)
+        }
+
+    /** 折叠量的合法范围：0（完全展开）~ [limitPx]（折尽，只留 [residualPx]） */
+    private fun clampCollapse(value: Float): Float = value.coerceIn(0f, limitPx)
 
     override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-        // 只接拖拽；上滑（负）才折，下拉的正数留给 onPostScroll（要先等列表自己滚到顶）
-        if (source != NestedScrollSource.UserInput || available.y >= 0f) return Offset.Zero
+        // 上滑（负）才折；下拉的正数留给 onPostScroll（要先等列表自己滚到顶）。
+        // 🔴 fling（SideEffect）也带动头部 —— 只认 UserInput 时抬手瞬间头部停住，
+        // 与仍在惯性滚的列表脱节，用户描述的「阻尼」有一半来自这个断层。
+        if (source != NestedScrollSource.UserInput && source != NestedScrollSource.SideEffect) {
+            return Offset.Zero
+        }
+        if (available.y >= 0f) return Offset.Zero
+        val limit = limitPx
         val old = clampCollapse(collapsePx.floatValue)
+        // 🔴 折满即放行：剩余 delta 一次性全落给列表，边界处不空转。
+        if (limit <= 0f || old >= limit) return Offset.Zero
         val next = clampCollapse(old - available.y)
         collapsePx.floatValue = next
         // 返回值必须与 available 同号且不超过它（nestedScroll 的消耗约定），即 old − next：
-        // 上滑段为负（先吃掉这段 ⇒ 头部先收），收到顶 next==old ⇒ 归零、余量放给列表。
+        // 上滑段为负（先吃掉这段 ⇒ 头部先收），收到顶后由上面的短路放行。
         return Offset(0f, old - next)
     }
 
     override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
         // 到达这里的正余量 = 列表已在顶、自己吃不下的下拉量（列表没在顶时轮不到它）
-        if (source != NestedScrollSource.UserInput || available.y <= 0f) return Offset.Zero
+        // 🔴 V46：这里**也必须吃 fling**（SideEffect），与上滑的 onPreScroll 对称。
+        // 用户实测反馈「向下滑动阻尼大、上滑跟手」—— 上滑路径上一轮已放行 SideEffect，
+        // 回展路径却仍只认 UserInput ⇒ **快速下滑松手后的惯性滚动完全不带动头部回展**，
+        // 视觉上就是「头被拽住、拉不动」。这与上滑侧曾经的问题完全同源、只是方向相反。
+        if (source != NestedScrollSource.UserInput && source != NestedScrollSource.SideEffect) {
+            return Offset.Zero
+        }
+        if (available.y <= 0f) return Offset.Zero
         val old = clampCollapse(collapsePx.floatValue)
+        // 展平即放行：余量继续外抛给 P2R 拉刷新圈（否则到顶下拉会先卡一下才出圈）。
+        if (old <= 0f) return Offset.Zero
         val next = clampCollapse(old - available.y)
         collapsePx.floatValue = next
         // 同号为正（回展吃掉多少），展平（0）后余量继续外抛给 P2R 拉刷新圈
@@ -523,12 +657,19 @@ private fun StatsInfoCardItem(
     }
 }
 
-/** 头部之二：tab 行（V40-A 起常驻在 pager 外，翻页时不动）。左缘与信息卡同为 16dp 页面边距 */
+/**
+ * tab 行外层（V40-A 起常驻在 pager 外，翻页时不横移）。
+ *
+ * 🔴 V47：这里**不再加 `padding(start = ContentHorizontalPadding)`**。
+ * 旧代码给整行补了 16dp 起始内距（照抄的是 V37-1 任务 E-1「列表内缩进」的口径），
+ * 但那是**列表**的规矩；V40-A 把 tab 行搬出 pager、挂到根 Column 之后，
+ * 这条 padding 就变成了**纯副作用**：`TabRow` 自己的 `fillMaxWidth()` 填的是
+ * 「扣掉 16dp 后的宽度」⇒ **最左侧永远缺一条边距**（用户实测发现，理论上应铺满）。
+ * 榜一 [RankRoute] 的 tab 行就是直接挂在根 Column 上、不带任何 padding —— 与它对齐。
+ */
 @Composable
 private fun StatsTabRowItem(pagerState: PagerState) {
-    Column(ComposeModifier.padding(start = ContentHorizontalPadding)) {
-        StatsTabRow(pagerState = pagerState)
-    }
+    StatsTabRow(pagerState = pagerState)
 }
 
 /**
@@ -909,30 +1050,31 @@ private fun NoMatchHint(@StringRes messageRes: Int) {
 /**
  * ---- 玩家信息头几何（V36 任务 B：首页 ProfileCard 与统计页信息卡共用一套口径）----
  * V37-3 后只剩这三枚：头像直径、头像↔文本列间距、昵称行↔UID 行间距。
- * 🔴 原先第四枚 `PLAYER_INFO_NICK_TIER_GAP_DP`（昵称↔段位 8dp Spacer）随任务 B 一起删除——
- * 昵称与段位已合并成**单个** Text（见 [PlayerInfoHeader]），中间只剩一个空格字符，没有 Spacer 可量。
+ * 🔴 原先第四枚 `PLAYER_INFO_NICK_TIER_GAP_DP`（昵称↔段位 8dp Spacer）随 V37-3 一起删除——
+ * 那版把昵称与段位合并成单个 Text，中间只剩一个空格字符，没有 Spacer 可量。
+ * 🔴 **V41/V43 起该枚不必回避**：昵称/段位改回纵向分列（见 [PlayerInfoHeader]），
+ * 身份块内不加行间距、靠字号+颜色区分层级；段位 ↔ UID 仍走 [PLAYER_INFO_UID_LINE_GAP_DP]。
  */
 internal const val PLAYER_INFO_AVATAR_DP = 64
 internal const val PLAYER_INFO_TEXT_COLUMN_GAP_DP = 12
 internal const val PLAYER_INFO_UID_LINE_GAP_DP = 4
 
 /**
- * 玩家信息头：64dp 头像 + 文本列（第一行「昵称 + 段位」**合并成单个 Text**，第二行 UID）。
- * 首页个人信息卡照抄本结构（用户第 1 项），段位无值时整段不渲染（不是渲染占位）。
+ * 玩家信息头：64dp 头像 + 文本列（**昵称 / 段位 / UID 三行纵向分列**）。
+ * 首页个人信息卡照抄本结构，段位无值时整段不渲染（不是渲染占位）。
  *
- * 🔴 V37-3 任务 B（用户方案原话：「使用单个 textview，为段位部分设置 spannablestring +
- * foregroundspan，特定文本位置颜色定向改变」）：
- * 旧结构是 `Row { Text(昵称) + Spacer + Text(段位) }`，两个 Text 分属两个布局节点，
- * 真机 bounds 实测（1080×2340）昵称 LEFT=297、段位 LEFT=467、UID LEFT=297
- * ⇒ 段位与 UID 左缘差 170px，这就是用户报的「段位和 ID 不对齐」。
- * 合并为单个 Text 后：段位只是同一行内文本里的一段染色 span，
- * **整行左缘 == UID 左缘**（同一个 Column 的同一个 start），错位问题结构性消失；
- * 昵称与段位的基线也交给文本排版自己保证，不再需要 `alignByBaseline()`（V36 红线 1 的那套 hack 全部移除）。
- * 代价：段位与昵称同字号（titleMedium 16sp，旧结构段位是 titleSmall 14sp）——同一 Text 内混排
- * 字号才是"看着不齐"的另一个来源，统一字号是这次方案的一部分。
+ * 🔴 **V41/V43：昵称与段位必须纵向分列，不得合回单个 Text。**
+ * V37-3 曾按用户建议把两者合并成**单个** Text + `SpanStyle` 染色（见上方历史 KDoc），
+ * 但单Text + `maxLines=1` ⇒ **整行共用一个省略号**，长昵称会把段位截进省略号里
+ * （玩家侧实测复现，弹窗那边同轮已改）。现行口径：
+ *  昵称 `titleMedium`+Bold+`maxLines=3` / 段位 `titleSmall`+Medium+`tierColor` /
+ *  UID `bodySmall`+onSurfaceVariant，同一 `Column` 同一 start ⇒ 三行左缘天然对齐。
  *
- * 🔴 `tierColor()` 是 @Composable，`buildAnnotatedString { }` 的 lambda 不是组合上下文，
- * 直接在里面调会编译不过 ⇒ 段位的 `SpanStyle` 在 Composable 体内先取好，lambda 只用成品值。
+ * 🔴 **本函数所在文件在 V44 被整文件 `git checkout` 回退过一次，V41/V43 的纵向分列被连带撤销**
+ * ⇒ 连带打挂 `StatsRowMetricsTest` / `HomeProfileLayoutTest` / `HomeReloadModeTest` 三个测试。
+ * 教训：**不要对多轮共改的文件做整文件回退**，改前先 `git diff`确认没有别人的成果混在里面。
+ *
+ * 身份块内不加行间距（靠字号 + 颜色区分层级），仅段位 ↔ UID 走 [PLAYER_INFO_UID_LINE_GAP_DP]。
  */
 @Composable
 internal fun PlayerInfoHeader(
@@ -942,28 +1084,37 @@ internal fun PlayerInfoHeader(
     uid: String,
     modifier: ComposeModifier = ComposeModifier,
 ) {
-    // tier 为空 → null → 整段（含前导空格）不渲染；段位名未命中色表时 tierColor 回落到
+    // tier 为空 ⇒ 整段不渲染（不是渲染占位）；段位名未命中色表时 tierColor 回落到
     // onSurfaceVariant，文字照旧显示，只是不着色（与旧结构同一口径）。
-    val tierSpan = if (tier.isEmpty()) null else SpanStyle(color = tierColor(tier))
+    // 🔴 tierColor() 是 @Composable：Text 的**具名实参在组合期求值**，所以可以像弹窗侧
+    // （PlayerDetailDialog.HeaderRow，已真机验证）那样直接内联调用，不必先存成局部 val。
+    // ⚠️ 措辞纪律：本函数体位于 HomeProfileLayoutTest 的 nickLineChunk 切片内，而该切片
+    // **不剔除注释**，故此处不得出现 V37-3 时代的行内染色 API 名（写了会被断言判挂）。
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Avatar(url = avatarUrl, size = PLAYER_INFO_AVATAR_DP.dp, contentDescription = nickname)
         Column(ComposeModifier.weight(1f).padding(start = PLAYER_INFO_TEXT_COLUMN_GAP_DP.dp)) {
             Text(
-                text = buildAnnotatedString {
-                    append(nickname)
-                    if (tierSpan != null) {
-                        append(' ')
-                        withStyle(tierSpan) { append(tier) }
-                    }
-                },
+                text = nickname,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                maxLines = 1,
+                // 🔴 V41：允许多行，否则长昵称会与段位抢同一行的省略号
+                maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 modifier = ComposeModifier.fillMaxWidth(),
             )
+            if (tier.isNotEmpty()) {
+                Text(
+                    text = tier,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = tierColor(tier),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = ComposeModifier.fillMaxWidth(),
+                )
+            }
             Spacer(ComposeModifier.height(PLAYER_INFO_UID_LINE_GAP_DP.dp))
-            // UID 与「昵称+段位」同一 Column、同一 start ⇒ 左缘天然对齐（本任务要修的就是这件事）
+            // UID 与昵称/段位同一 Column、同一 start ⇒ 左缘天然对齐
             Text(
                 uid,
                 style = MaterialTheme.typography.bodySmall,

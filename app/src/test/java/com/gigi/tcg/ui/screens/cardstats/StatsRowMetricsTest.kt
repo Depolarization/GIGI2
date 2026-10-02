@@ -145,20 +145,28 @@ class StatsRowMetricsTest {
     }
 
     /**
-     * V37-3 任务 B：信息头昵称+段位合并成单个 Text（SpanStyle 定向染色），
-     * 结构特征串闸门——`alignByBaseline` 那套基线 hack 与 8dp Spacer 常量都不许回来。
+     * V41（用户 2026-10-02 反馈「玩家名字太长时显示不全段位」）：信息头**纵向分列**，
+     * 昵称与段位是两段独立 Text。V37-3 任务 B 的"合并成单个 Text"在本组件作废——
+     * 单 Text + `maxLines = 1` ⇒ 整行共用一个省略号，昵称一长段位就被截掉（玩家侧实测复现）。
+     * `alignByBaseline` 那套基线 hack 与 8dp Spacer 常量同样不许回来。
+     * V37-3 真正要修的目标（左缘对齐）仍由"同一 Column 同一 start"结构性保证。
      */
     @Test
-    fun `player info header merges nickname and tier into one text`() {
+    fun `player info header stacks nickname and tier into separate texts`() {
         val body = codeOnly(src).substringAfter("internal fun PlayerInfoHeader(").substringBefore("\n}")
-        assertTrue("昵称+段位应为单个 Text + buildAnnotatedString", body.contains("buildAnnotatedString {"))
-        assertTrue("段位走 SpanStyle 染色", body.contains("SpanStyle(color = tierColor(tier))"))
-        assertTrue("段位在 span 段里 append", body.contains("withStyle(tierSpan) { append(tier) }"))
-        assertFalse("合并成单 Text 后不再需要基线 hack", body.contains("alignByBaseline()"))
+        assertFalse("不得再合并成单个 Text（共用省略号会截掉段位）", body.contains("buildAnnotatedString"))
+        assertFalse("SpanStyle 行内染色随分列作废", body.contains("SpanStyle"))
+        assertFalse("withStyle 随分列作废", body.contains("withStyle"))
+        assertTrue("昵称独占一个 Text", body.contains("text = nickname,"))
+        assertTrue("昵称允许多行以容纳长昵称", body.contains("maxLines = 3"))
+        assertTrue("段位独占一个 Text", body.contains("text = tier,"))
+        assertTrue("段位色来自 tierColor（不硬编码）", body.contains("color = tierColor(tier)"))
+        assertTrue("段位不得折行", body.contains("maxLines = 1"))
+        assertTrue("无段位时整段不渲染，不留空行占位", body.contains("if (tier.isNotEmpty())"))
+        assertFalse("不再需要基线 hack", body.contains("alignByBaseline()"))
         assertFalse("昵称↔段位 8dp Spacer 常量声明应删除", Regex("const val PLAYER_INFO_NICK_TIER_GAP_DP").containsMatchIn(codeOnly(src)))
-        // 🔴 buildAnnotatedString 的 lambda 不是组合上下文：tierColor 必须在 Composable 体内先取好
-        val lambda = body.substringAfter("buildAnnotatedString {").substringBefore("modifier = ComposeModifier.fillMaxWidth()")
-        assertFalse("lambda 内不得调 @Composable 的 tierColor：\n$lambda", lambda.contains("tierColor("))
-        assertTrue("整行左缘即对齐轴：合并后的 Text 应 fillMaxWidth", body.contains("modifier = ComposeModifier.fillMaxWidth()"))
+        // 三行同属一个 Column 的同一 start ⇒ 左缘天然对齐；昵称行仍要吃满列宽（缩进由外层 padding 负责）
+        assertTrue("昵称行应 fillMaxWidth", body.contains("modifier = ComposeModifier.fillMaxWidth()"))
+        assertTrue("文本列仍是 weight(1f)", body.contains("ComposeModifier.weight(1f)"))
     }
 }

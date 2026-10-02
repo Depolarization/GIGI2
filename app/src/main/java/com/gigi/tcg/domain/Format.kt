@@ -43,3 +43,18 @@ private fun yearOf(millis: Long): Int =
 
 /** 积分变化展示：(123) / (+45) / (-67) —— 原版 format("(%d)") 不带正负号，正数无前缀 */
 fun formatScoreChange(change: Int): String = "($change)"
+
+/**
+ * 积分变化的**符号三态**。染色与文案都按它分派，别处不要再各写一遍 `if (change > 0)`。
+ *
+ * 🔴 归一的是"持平"：0 单独一档 [Flat]，不与涨/跌混同——染成红或绿都是在撒谎，
+ * 而染成中性灰才是"没变化"。调用方（UI 层）据此挑语义色。
+ */
+enum class ScoreDelta { Up, Down, Flat }
+
+/** 变化量 → 符号三态。纯函数，无 Compose 依赖，可 JVM 单测。 */
+fun scoreDelta(change: Int): ScoreDelta = when {
+    change > 0 -> ScoreDelta.Up
+    change < 0 -> ScoreDelta.Down
+    else -> ScoreDelta.Flat
+}

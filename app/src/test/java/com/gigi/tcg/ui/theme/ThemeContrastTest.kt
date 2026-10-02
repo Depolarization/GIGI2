@@ -130,6 +130,23 @@ class ThemeContrastTest {
     }
 
     /**
+     * V42：记录卡「积分变化」在 **0（持平）** 时用 `onSurfaceVariant`（不占用红绿，见
+     * [scoreDeltaColor]）。这个组合此前只挂在上面那条 3.0 大字/图标档里，从没锁过**正文级**，
+     * 而变化值是 `bodySmall`(12sp) ⇒ 属正文，必须按 4.5 验。
+     * 实测 7.20:1（暗 × #36343B）/ 7.21:1（亮 × #E6E0E9），两档都远超门槛。
+     */
+    @Test
+    fun onSurfaceVariant_meetsWcagAA_bodyLevel_onCardContainer() {
+        listOf("浅色" to LightColors, "深色" to DarkColors).forEach { (name, scheme) ->
+            val value = ContrastUtils.wcagContrast(scheme.onSurfaceVariant, scheme.surfaceContainerHighest)
+            assertTrue(
+                "$name onSurfaceVariant vs Card = ${"%.2f".format(value)}:1，需 >= $BODY_LEVEL",
+                value >= BODY_LEVEL,
+            )
+        }
+    }
+
+    /**
      * 🔴 本棒的回归锁（V37-8 真机 bug 的来龙去脉）：
      * M3 1.3.2 深色基线把「inverse」定义成**整对反相**——`inverseSurface = #E6E0E9`（浅底）配
      * `inverseOnSurface = #322F35`（深字）。这对本身合法，但 M3 Snackbar 默认就吃它，

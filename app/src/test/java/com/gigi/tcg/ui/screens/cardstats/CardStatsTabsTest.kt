@@ -213,6 +213,159 @@ class CardStatsTabsTest {
         assertFalse("旧的固定头横向 padding 容器已随本轮删除", routeCode.contains("padding(horizontal = ContentHorizontalPadding)"))
     }
 
+    // ---- V45：行程上界 = 自然高 − 残留（修「tab 不接顶」+「展开详情后顶部悬更高」） ----
+
+    /**
+     * 🔴 V45。用户实测（K30 截图 `/sdcard/DCIM/Screenshots/`）指认两个显示 bug：
+     *① 「**下方列表滑动时 tab 顶部不会接顶**」—— V44 折在 84~88px 残留处，tab 上方永远悬一截空隙。
+     * ② 「**展开详情后，距顶距离变得更大**」—— V44 行程上界是**常量 168dp**，
+     *    而展开详情后头部自然高 542px → **1307px**；行程仍 462px ⇒ 残留 **845px（占屏 35%）**。
+     *
+     * **两者同源：把常量当成了上界。** 行程必须能吃掉**整个头部自然高**（含详情区）。
+     *
+     * 本用例锁死 V45 的正确口径：
+     *  - **容器总高** = 卡片自然高（`onSizeChanged` 测量）。
+     *  - **行程上界** = `自然高 − 残留`，由连接**每次现算**（不缓存、不经 effect 中转）。
+     *
+     * 🔴 为什么必须「现算 + 不中转」：V44 第一版用 `LaunchedEffect(stateA, stateB)` 推导上界，
+     * 而**`LaunchedEffect` 的 key 传的是 state 对象而非值，effect 只在首次组合跑一次**，
+     * 首帧读0 就永久定格 ⇒ 上界恒 0 ⇒ 头部彻底不折叠、展开详情后把列表挤扁到被遮住（真机复现）。
+     * 本轮改成**直接读测量写入的那个 `MutableFloatState`** ⇒ 没有 key、没有时序问题。
+     */
+    @Test
+    fun collapseLimitTracksNaturalHeightSoNothingHangsBelowTabs() {
+        val conn = functionBodyOf(routeCode, "private class HeaderCollapseConnection(")
+        val container = functionBodyOf(routeCode, "private fun CollapsibleHeaderContainer(")
+
+        // ① 残留高度：V45 取 0dp（完全折尽 ⇒ tab 硬接顶），且必须是一个独立常量
+        assertTrue(
+            "折尽后的残留高度必须是显式常量 HeaderCollapseResidualDp",
+            routeCode.contains("private val HeaderCollapseResidualDp"),
+        )
+        assertTrue(
+            "🔴 残留必须取 0.dp：用户指认「tab 顶部不会接顶」，就是84~88px 残留造成的",
+            Regex("""private val HeaderCollapseResidualDp = 0\.dp""").containsMatchIn(routeCode),
+        )
+        // ② 上界必须由「自然高 − 残留」现算，不能是任何写死的常量
+        assertTrue(
+            "上界 limitPx 必须现算（getter），不能缓存成构造期的常量",
+            Regex("""private val limitPx: Float\s*\n\s*get\(\)""").containsMatchIn(conn),
+        )
+        assertTrue(
+            "上界必须读测量写入的 naturalHeightPx（直接读 state，不经 effect 中转）",
+            conn.contains("naturalHeightPx.floatValue"),
+        )
+        assertTrue(
+            "上界必须减去残留高度（自然高 − 残留 = 折尽后可见的那一截）",
+            conn.contains("(base - residualPx)") && conn.contains("residualPx: Float"),
+        )
+        assertFalse(
+            "🔴 上界不得写死常量：写死会让「展开详情」后自然高 1307px 而行程仍 462px ⇒ " +
+                "残留 845px（用户实测「距顶距离变得更大」）",
+            conn.contains("collapseLimitPx") || conn.contains("HeaderCollapseMaxDp"),
+        )
+        // ③ 自然高未测到时用兜底行程，而不是 0（否则首帧完全不折、头部像被钉住）
+        assertTrue(
+            "自然高尚未测到时应回退到兜底行程 HeaderCollapseMinTravelDp",
+            conn.contains("minTravelPx") && conn.contains("if (natural > 0f) natural else minTravelPx"),
+        )
+        assertTrue(
+            "兜底行程必须作为常量声明并换算成 px 传入",
+            routeCode.contains("private val HeaderCollapseMinTravelDp") &&
+                routeCode.contains("HeaderCollapseMinTravelDp.toPx()"),
+        )
+        // ④ 不得用 effect 推导上界（V44 第一版的病根）
+        assertFalse(
+            "行程不得由两个实测高度推导（collapsibleHeightOf 已撤销）",
+            routeCode.contains("collapsibleHeightOf"),
+        )
+        assertFalse(
+            "不得用 LaunchedEffect(stateA, stateB) 重算上界（key 传对象不传值，effect 只跑一次）",
+            Regex("LaunchedEffect\\(\\s*\\w*[Hh]eader\\w*").findAll(routeCode).any { m ->
+                val seg = routeCode.substring(m.range.first, minOf(m.range.first + 200, routeCode.length))
+                seg.contains("limitPx") || seg.contains("Collapse") || seg.contains("naturalHeight")
+            },
+        )
+        // ⑤ 容器只管「总高」，公式是「自然高 − 已折叠量」，且不参与行程决策
+        assertTrue(
+            "CollapsibleHeaderContainer 必须同时收折叠量与自然高",
+            container.contains("collapsePx: MutableFloatState") &&
+                container.contains("naturalHeightPx: MutableFloatState"),
+        )
+        assertTrue(
+            "容器高度公式必须是「自然高 − 已折叠量」",
+            Regex("\\(naturalHeight\\s*-\\s*collapsePx\\.floatValue\\)\\.coerceAtLeast\\(0f\\)")
+                .containsMatchIn(container),
+        )
+        assertFalse(
+            "🔴 容器不得再用任何常量当总高（V44 把 168dp 当总高 ⇒ 默认态 462px < 卡片 543px，" +
+                "底部被裁 81px，用户报「默认被遮挡住」）",
+            container.contains("HeaderCollapseResidualDp") ||
+                container.contains("HeaderCollapseMinTravelDp") ||
+                container.contains("(limit - collapsePx.floatValue)"),
+        )
+        // 首帧自然高未知（=0）时不得裁剪，否则头部先以 0 高画一帧再白闪
+        assertTrue(
+            "首帧自然高为 0 时应先按自然排版（不设 height），量到后再接管",
+            container.contains("if (naturalHeight > 0f)") && container.contains("ComposeModifier.fillMaxWidth()"),
+        )
+        // 测量回调必须挂内层 Column（Box 之后），不能挂外层 Box —— 否则量到折叠后可见高、自锁
+        val afterBox = container.substringAfter("Box(boxModifier) {")
+        assertTrue(
+            "自然高测量必须挂在内层 wrapContentHeight(unbounded) 的 Column 上",
+            afterBox.contains("wrapContentHeight(unbounded = true") &&
+                Regex("""wrapContentHeight\(unbounded = true, align = Alignment\.Top\)\s*\n\s*\.onSizeChanged \{""")
+                    .containsMatchIn(afterBox),
+        )
+        // ⑥ 同一个 state 同时喂给容器（算总高）与连接（算上界），两者不得各测各的
+        assertTrue(
+            "Route 必须把同一个自然高 state 同时传给容器与连接",
+            routeCode.contains("CollapsibleHeaderContainer(headerCollapsePx, headerNaturalHeightPx)") &&
+                routeCode.contains("naturalHeightPx = headerNaturalHeightPx"),
+        )
+    }
+
+    /**
+     * 折叠手势链必须做到「折满即放行」+「吃 fling」，这两处都是用户体感的直接来源。
+     *
+     * -折满即放行：旧实现折满后仍要走一轮「old − next == 0」的判定才把余量给列表，边界处发涩。
+     * - 吃 fling：旧实现只认 [NestedScrollSource.UserInput]，抬手瞬间头部停住而列表继续惯性滚
+     *   ⇒ 两段速度不连续，这是「阻尼感」的另一半来源。
+     */
+    @Test
+    fun collapseConnectionReleasesWhenFullyCollapsedAndAcceptsFling() {
+        val preBody = bracedBlockAfter(routeCode, "override fun onPreScroll(")
+        val postBody = bracedBlockAfter(routeCode, "override fun onPostScroll(")
+
+        // ① 上滑路径要接受 fling（SideEffect）：抬手后头部与仍在惯性滚的列表脱节。
+        assertTrue(
+            "折叠连接的上滑路径必须接受 fling（SideEffect），否则抬手后头部与列表脱节",
+            preBody.contains("NestedScrollSource.SideEffect"),
+        )
+        // 🔴 V46：回展路径**同样**必须吃 fling。
+        // 用户实测「向下滑动阻尼大、上滑跟手」—— 上滑侧早就放行了 SideEffect，
+        // 回展侧却仍只认 UserInput ⇒ 快速下滑松手的惯性滚动不带动头部，
+        // 视觉上就是「头被拽住、拉不动」。**两条路径必须对称**，改一边就要改另一边。
+        assertTrue(
+            "🔴 回展路径也必须吃 fling：只认 UserInput 会让「向下滑动阻尼大」（用户实测）",
+            postBody.contains("NestedScrollSource.SideEffect"),
+        )
+        assertFalse(
+            "回展路径不得只认 UserInput（旧写法 `source != UserInput || available.y …`）",
+            postBody.contains("if (source != NestedScrollSource.UserInput || available.y"),
+        )
+        // ② 折满立即放行：剩余 delta 一次性全给列表
+        // 🔴 V45：上界字段改名 limitPx（V44 是构造期常量 collapseLimitPx，V45 改为每次现算的
+        //    `自然高 − 残留` getter）。短路条件多了一个 `limit <= 0f` 分支——
+        //    自然高尚未测到、上界算出 0 时必须直接放行，否则头部会被「锁死」折不动。
+        assertTrue(
+            "折满必须立即放行（old >= 上界时 return Offset.Zero）",
+            preBody.contains("if (limit <= 0f || old >= limit) return Offset.Zero"),
+        )
+        // ③ 展平立即放行，否则「到顶下拉」会先卡一下才出刷新圈
+        assertTrue("展平（old <= 0）必须立即放行", postBody.contains("if (old <= 0f) return Offset.Zero"))
+    }
+
     /** 按花括号配平取 [anchor] 后第一个 `{...}` 块（含括号）；源码里字符串模板的花括号天然成对，不影响配平 */
     private fun bracedBlockAfter(code: String, anchor: String): String {
         val anchorAt = code.indexOf(anchor)
@@ -256,13 +409,27 @@ class CardStatsTabsTest {
 
     @Test
     fun tabRowFillsFullWidthAgain() {
-        // 锚点必须带换行+缩进：裸 "TabRow(" 会先命中调用点 StatsTabRow(pagerState …)
+        // 锚点必须带换行+缩进：裸 "TabRow(" 会先命中调用点 StatsTabRow(pagerState …
         val tabRowStart = routeCode.indexOf("TabRow(\n        modifier")
         assertTrue("必须有独立成块的 TabRow", tabRowStart >= 0)
         val tabRowHead = routeCode.substring(tabRowStart, minOf(tabRowStart + 160, routeCode.length))
         assertTrue("TabRow 必须 fillMaxWidth（恢复原本左右撑满）", tabRowHead.contains("ComposeModifier.fillMaxWidth()"))
         assertFalse("TabRow 不再让位给右缘按钮（weight(1f) 必须移除）", tabRowHead.contains("weight(1f)"))
         assertFalse("tab 行右侧的 IconButton 必须删除", routeCode.contains("IconButton("))
+        // 🔴 V47：光断言 TabRow 自身不够—— 外层包装也能把它挤窄。
+        // 旧代码在 StatsTabRowItem 里给整行套了 padding(start = 16dp)（照抄列表内缩进口径），
+        // V40-A 把 tab 搬出 pager 后它变成纯副作用 ⇒ TabRow 的 fillMaxWidth 填的是
+        // 「扣掉 16dp 后的宽度」⇒ 最左侧永远缺一条边距（用户实测发现）。这条就是补那个缝。
+        val itemBody = functionBodyOf(routeCode, "private fun StatsTabRowItem(")
+        assertFalse(
+            "🔴 tab 行外层不得再套 padding：会让 TabRow 的 fillMaxWidth 填不满、最左侧缺一条边距",
+            itemBody.contains("padding("),
+        )
+        assertTrue(
+            "tab 行外层应直接把 StatsTabRow 挂在根 Column 上（与榜一 RankRoute 同构）",
+            Regex("""private fun StatsTabRowItem\(pagerState: PagerState\) \{\s*\n\s*StatsTabRow\(pagerState = pagerState\)""")
+                .containsMatchIn(routeCode),
+        )
     }
 
     // ---- V29：导出入口移到详情面板末尾 ----
