@@ -14,6 +14,8 @@ data class GcgCard(
     val cardType: String? = null,
     val useCount: Int? = null,
     val proficiency: Int? = null,
+    /** 卡面规则文本（识别「秘传」牌用，见 [isMaxOneActionCard]）；可为 null（缺字段时不影响计数） */
+    val desc: String? = null,
 )
 
 /** 个人统计（对应 types/api.ts GcgStats，全字段可空） */
@@ -116,15 +118,21 @@ fun computeGcgSummary(
     val assistUse = actionUseByType(CARD_TYPE_ASSIST)
     val eventUse = actionUseByType(CARD_TYPE_EVENT)
 
-    // 分母优先级：basicInfo 官方总数 → 图鉴接口总数 → 服务端 total 字段（实测恒缺失）→ 已得数。
+    // 分母优先级：basicInfo 官方总数 → **cardList 份数口径计算** → 图鉴接口总数 → 服务端 total 字段 → 已得数。
+    //
+    // 🔴 为什么新增「cardList 份数口径」这一级：basicInfo（官方唯一权威源，实测 角色147/行动941）
+    // 被设备指纹风控定向门禁（2026-10 实测：仅受信的 x-rpc-device_fp 可放行，公开 getFp 新指纹 → 5003，
+    // 信任账号+设备绑定、第三方无法复现）。但 cardList 是**完整可获得卡池**（角色牌数=147 与官方吻合），
+    // 且官方分母口径 = Σ(每张最大持有份数)：角色牌每张限 1 ⇒ 总数=角色牌种类数；
+    // 行动牌多数限 2、少数限 1 ⇒ 总数=2×行动牌种类数−限1份牌数。
+    // 用 cardList 现算的 147/941 与官方逐值吻合（0 误伤 0 漏检），故作为 basicInfo 之后、图鉴之前的口径。
     //
     // 🔴 为什么图鉴口径不可靠：公开图鉴接口**会去重手牌**（同名/同卡面的多份手牌只算一条），
     // 数出来的行动牌 568 远小于官方真实的 941 ⇒ 拿它当分母会把「941 张里收集了 500 张」
-    // 显示成 568/568 全收集。真实总数唯一来源是 gcg/basicInfo 的 *_card_num_total（与官方口径一致）。
-    // 图鉴数只保留为次级兜底：basicInfo 需登录 Cookie，未登录/字段缺失时至少还有一个接近真实的分母。
-    // 最后一级是历史兜底：宁可显示"全收集"，也不能让胶囊出现 x/0。
-    fun resolveTotal(officialTotal: Int, wikiTotal: Int, serverTotal: Int?, gained: Int?): Int =
+    // 显示成 568/568 全收集。图鉴数只保留为更次级兜底。最后一级是历史兜底：宁可显示"全收集"，也不出 x/0。
+    fun resolveTotal(officialTotal: Int, computedTotal: Int, wikiTotal: Int, serverTotal: Int?, gained: Int?): Int =
         officialTotal.takeIf { it > 0 }
+            ?: computedTotal.takeIf { it > 0 }
             ?: wikiTotal.takeIf { it > 0 }
             ?: serverTotal?.takeIf { it > 0 }
             ?: (gained ?: 0)
@@ -135,10 +143,10 @@ fun computeGcgSummary(
         avatarCardNum = stats?.avatarCardNumGained ?: 0,
         actionCardNum = stats?.actionCardNumGained ?: 0,
         avatarCardTotal = resolveTotal(
-            officialTotals.avatarTotal, wikiTotals.avatarTotal, stats?.avatarCardNumTotal, stats?.avatarCardNumGained,
+            officialTotals.avatarTotal, lists.charCards.size, wikiTotals.avatarTotal, stats?.avatarCardNumTotal, stats?.avatarCardNumGained,
         ),
         actionCardTotal = resolveTotal(
-            officialTotals.actionTotal, wikiTotals.actionTotal, stats?.actionCardNumTotal, stats?.actionCardNumGained,
+            officialTotals.actionTotal, actionCardTotal(lists.actionCards), wikiTotals.actionTotal, stats?.actionCardNumTotal, stats?.actionCardNumGained,
         ),
         totalGames = totalGames,
         winGames = winGames,
@@ -153,3 +161,33 @@ fun computeGcgSummary(
         eventPercent = formatPercent(calcPercent(eventUse.toDouble(), actionTotalUse.toDouble())),
     )
 }
+
+/**
+ * 行动牌总手牌数（份数口径，与官方 basicInfo `action_card_num_total` 一致，实测 941）。
+ *
+ * 官方分母 = Σ(每张行动牌的最大持有份数)。行动牌绝大多数可持有 2 份，少数限 1 份（见 [isMaxOneActionCard]）。
+ * ⇒ 总数 = 2×行动牌种类数 − 限1份牌数。本函数基于 cardList 现算，与官方逐值吻合（实测 2×482−23=941）。
+ * 返回 0 表示「算不出」（行动牌列表为空），让分母优先级链继续降级到图鉴。
+ */
+internal fun actionCardTotal(actionCards: List<GcgCard>): Int {
+    if (actionCards.isEmpty()) return 0
+    val maxOne = actionCards.count(::isMaxOneActionCard)
+    return 2 * actionCards.size - maxOne
+}
+
+/**
+ * 是否「限 1 份」的行动牌。两类自描述规则关键词（均在卡面规则文本/牌名里，非具体牌名硬匹配）：
+ * - 「秘传」牌：其规则文本必含「秘传」（官方行文「整局游戏只能打出一张『秘传』卡牌」）；
+ * - 「元素幻变」系列：牌名以「元素幻变：」前缀标识。
+ * 实测覆盖全部 23 张限1份牌（14 秘传 + 9 元素幻变），对 454 张限2份牌 0 误伤。
+ * 局限：若未来出现全新限1机制（既非秘传也非幻变）会漏判，届时官方分母变化、按新关键词补充即可。
+ */
+private fun isMaxOneActionCard(card: GcgCard): Boolean =
+    card.desc.orEmpty().contains(SECRET_CARD_KEYWORD) ||
+        card.name.orEmpty().startsWith(ELEMENTAL_ILLUSION_PREFIX)
+
+/** 「秘传」牌规则文本关键词（限 1 份） */
+private const val SECRET_CARD_KEYWORD = "秘传"
+
+/** 「元素幻变」系列牌名前缀（限 1 份） */
+private const val ELEMENTAL_ILLUSION_PREFIX = "元素幻变："

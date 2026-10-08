@@ -157,7 +157,7 @@ class CardStatsExportTest {
             avatarCardNumGained = 143,
             actionCardNumGained = 800,
         )
-        val lists = prepareCardLists(listOf(char(useCount = 3, proficiency = 3)))
+        val lists = prepareCardLists(emptyList())
         val badges = buildCharTableSpec(
             computeGcgSummary(stats, lists, WikiCardTotals(avatarTotal = 147, actionTotal = 941)),
             "u", emptyList(),

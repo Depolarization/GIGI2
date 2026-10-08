@@ -11,6 +11,7 @@ package com.gigi.tcg.ui.screens.my
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -35,6 +36,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.IosShare
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -239,17 +241,19 @@ private fun DeckDetail(
     val toast = LocalToast.current
     // 剪贴板范式照 PlayerDetailDialog（LocalClipboardManager 已废弃但仍是当前工程口径）
     @Suppress("DEPRECATION") val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     val shareCode = deck.shareCode
     // 🔴 判空白而不是判 null：share_code 实测可能是空串，`?:` 兜不住 ⇒ 按钮要能识别"没有可复制的东西"
     val canCopyShareCode = !shareCode.isNullOrBlank()
     // stringResource 不能在 onClick（普通 lambda）里调，先在组合期算好（同 PlayerDetailDialog）
-    val copiedToast = stringResource(R.string.toast_copied_share_code, shareCode.orEmpty())
+    val copiedToast = stringResource(R.string.toast_copied_share_code)
     val copyLabel = stringResource(R.string.my_copy_share_code)
+    val shareLabel = stringResource(R.string.my_share_share_code)
     val exportLabel = stringResource(R.string.my_export_deck_image)
     // 文件名里的「我的卡组」与导出图的品牌口径同源
     val deckLabel = stringResource(R.string.my_deck_entry)
     val exporter = rememberDeckExporter(
-        context = LocalContext.current,
+        context = context,
         deck = deck,
         deckTitle = deckDisplayName(deck),
         nickname = nickname,
@@ -295,6 +299,22 @@ private fun DeckDetail(
                     enabled = canCopyShareCode,
                 ) {
                     Icon(imageVector = Icons.Outlined.ContentCopy, contentDescription = copyLabel)
+                }
+                // 分享分享码：系统分享面板把这段分享码文本发给其它 App（与「复制」互补，不落剪贴板）
+                IconButton(
+                    onClick = {
+                        val code = shareCode
+                        if (!code.isNullOrBlank()) {
+                            val send = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, code)
+                            }
+                            context.startActivity(Intent.createChooser(send, shareLabel))
+                        }
+                    },
+                    enabled = canCopyShareCode,
+                ) {
+                    Icon(imageVector = Icons.Outlined.Share, contentDescription = shareLabel)
                 }
                 if (exporter.exporting) {
                     Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {

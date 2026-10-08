@@ -71,7 +71,8 @@
     <string name="my_challenge_prev_period">上一旬</string>
     <string name="my_challenge_next_period">下一旬</string>
     <string name="my_copy_share_code">複製分享碼</string>
-    <string name="toast_copied_share_code">已複製分享碼:%1$s</string>
+    <string name="my_share_share_code">分享分享碼</string>
+    <string name="toast_copied_share_code">已複製分享碼</string>
     <string name="my_export_deck_image">導出渲染圖</string>
     <string name="deck_export_saved">已儲存牌組圖片到相簿</string>
     <string name="export_deck_author">分享人：%1$s</string>

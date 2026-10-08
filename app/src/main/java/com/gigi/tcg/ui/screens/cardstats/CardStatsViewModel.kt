@@ -352,7 +352,7 @@ class CardStatsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun ApiGcgCard.toDomainCard(): GcgCard =
-        GcgCard(name = name, cardType = cardType, useCount = useCount, proficiency = proficiency)
+        GcgCard(name = name, cardType = cardType, useCount = useCount, proficiency = proficiency, desc = desc)
 
     private fun ApiGcgStats?.toDomainStats(): com.gigi.tcg.domain.GcgStats? =
         this?.let {

@@ -136,6 +136,12 @@ data class GcgCard(
     @SerialName("card_type") val cardType: String? = null,
     @SerialName("use_count") val useCount: Int? = null,
     @SerialName("proficiency") val proficiency: Int? = null,
+    /**
+     * 卡面规则文本（含 HTML 标签）。导出图分母需要它识别「秘传」牌（限 1 份，其规则文本必含
+     * 「整局游戏只能打出一张『秘传』卡牌」）。cardList 不带 lang 参数时恒返回中文（2026-10 实测
+     * en/zh-tw/ja/ko 均与 zh-cn 逐字一致），故中文关键词判据稳定。
+     */
+    @SerialName("desc") val desc: String? = null,
 ) {
     /** api.ts GcgCardType 联合类型字面量（服务端仍按 String? 容错接收） */
     object CardTypes {

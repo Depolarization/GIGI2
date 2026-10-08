@@ -40,6 +40,8 @@ class SummaryTest {
     // ---- computeGcgSummary（公式逐条对齐原代码）----
 
     private val lists = prepareCardLists(cards)
+    /** 空卡池（模拟 cardList 不可用）：此时「cardList 份数口径」算不出，分母链才降级到图鉴/服务端/已得数 */
+    private val emptyLists = prepareCardLists(emptyList())
     private val stats = GcgStats(
         nickname = "测试牌手",
         level = 9,
@@ -90,17 +92,17 @@ class SummaryTest {
     // ---- 图鉴总数（导出图胶囊 `角色牌 143/147` 的分母）----
 
     @Test
-    fun `分母优先取图鉴真实总数`() {
-        // 已得 30/120，图鉴 147/941 ⇒ 胶囊必须是 30/147，不能因为服务端字段缺失就显示"全收集"
-        val s = computeGcgSummary(stats, lists, WikiCardTotals(avatarTotal = 147, actionTotal = 941))
+    fun `cardList 不可用时图鉴真实总数兜底`() {
+        // cardList 不可用（空卡池）⇒ 份数口径算不出，图鉴 147/941 兜底 ⇒ 胶囊必须是 30/147，不能显示"全收集"
+        val s = computeGcgSummary(stats, emptyLists, WikiCardTotals(avatarTotal = 147, actionTotal = 941))
         assertEquals(147, s.avatarCardTotal)
         assertEquals(941, s.actionCardTotal)
         assertEquals(30, s.avatarCardNum)
         assertEquals(120, s.actionCardNum)
-        // 三级优先级：图鉴 > 服务端 total（若哪天真返回）> 已得数
+        // 优先级：图鉴 > 服务端 total（若哪天真返回）> 已得数
         val priority = computeGcgSummary(
             stats.copy(avatarCardNumTotal = 999, actionCardNumTotal = 999),
-            lists,
+            emptyLists,
             WikiCardTotals(avatarTotal = 147, actionTotal = 941),
         )
         assertEquals(147, priority.avatarCardTotal)
@@ -108,42 +110,42 @@ class SummaryTest {
     }
 
     @Test
-    fun `图鉴总数拿不到时回退已得数（分母不为0）`() {
-        val s = computeGcgSummary(stats, lists, WikiCardTotals())
+    fun `cardList 不可用且图鉴拿不到时回退已得数（分母不为0）`() {
+        val s = computeGcgSummary(stats, emptyLists, WikiCardTotals())
         assertEquals(30, s.avatarCardTotal)
         assertEquals(120, s.actionCardTotal)
-        val zeroed = computeGcgSummary(stats, lists, WikiCardTotals(0, 0))
+        val zeroed = computeGcgSummary(stats, emptyLists, WikiCardTotals(0, 0))
         assertEquals(30, zeroed.avatarCardTotal)
         assertEquals(120, zeroed.actionCardTotal)
     }
 
     @Test
-    fun `总数缺失时兜底为已得数`() {
+    fun `cardList 不可用且总数缺失时兜底为已得数`() {
         // 老接口没有 *_num_total 字段 ⇒ null ⇒ 分母取已得数，绝不显示 30/0
         val s = computeGcgSummary(
             GcgStats(nickname = "n", level = 1, avatarCardNumGained = 30, actionCardNumGained = 120),
-            lists,
+            emptyLists,
         )
         assertEquals(30, s.avatarCardTotal)
         assertEquals(120, s.actionCardTotal)
     }
 
     @Test
-    fun `总数为0时同样兜底为已得数`() {
+    fun `cardList 不可用且总数为0时同样兜底为已得数`() {
         val s = computeGcgSummary(
             stats.copy(avatarCardNumTotal = 0, actionCardNumTotal = 0),
-            lists,
+            emptyLists,
         )
         assertEquals(30, s.avatarCardTotal)
         assertEquals(120, s.actionCardTotal)
     }
 
     @Test
-    fun `总数正常时直接采用服务端值`() {
-        // 图鉴总数缺省（未传参）时，服务端 total 字段仍是次级来源
+    fun `cardList 不可用时服务端 total 作次级来源`() {
+        // cardList 不可用（空卡池）⇒ 份数口径算不出；图鉴缺省时，服务端 total 字段仍是次级来源
         val s = computeGcgSummary(
             stats.copy(avatarCardNumTotal = 147, actionCardNumTotal = 941),
-            lists,
+            emptyLists,
         )
         assertEquals(147, s.avatarCardTotal)
         assertEquals(941, s.actionCardTotal)
@@ -176,10 +178,10 @@ class SummaryTest {
     }
 
     @Test
-    fun `basicInfo 为空时回退图鉴数`() {
+    fun `basicInfo 与 cardList 都为空时回退图鉴数`() {
         val s = computeGcgSummary(
             stats,
-            lists,
+            emptyLists,
             wikiTotals = WikiCardTotals(avatarTotal = 149, actionTotal = 568),
             officialTotals = WikiCardTotals(),
         )
@@ -188,8 +190,22 @@ class SummaryTest {
     }
 
     @Test
+    fun `basicInfo 为空时用 cardList 份数口径（优先于图鉴去重数）`() {
+        // lists 为完整卡池（3 角色 + 4 行动，行动牌无秘传/幻变 ⇒ 全限 2 份）
+        // ⇒ avatar=3（角色每张限 1）、action=2×4=8，均优先于图鉴去重数 149/568
+        val s = computeGcgSummary(
+            stats,
+            lists,
+            wikiTotals = WikiCardTotals(avatarTotal = 149, actionTotal = 568),
+            officialTotals = WikiCardTotals(),
+        )
+        assertEquals(3, s.avatarCardTotal)
+        assertEquals(8, s.actionCardTotal)
+    }
+
+    @Test
     fun `basicInfo 只回一半字段时按级降级不互相污染`() {
-        // avatar 有官方值 ⇒ 用官方；action 缺字段（0）⇒ 该级跳过，落到图鉴那一级
+        // avatar 有官方值 ⇒ 用官方；action 缺字段（0）⇒ 该级跳过，落到 cardList 份数口径
         val s = computeGcgSummary(
             stats,
             lists,
@@ -197,14 +213,14 @@ class SummaryTest {
             officialTotals = WikiCardTotals(avatarTotal = 147, actionTotal = 0),
         )
         assertEquals(147, s.avatarCardTotal)
-        assertEquals(568, s.actionCardTotal)
+        assertEquals(8, s.actionCardTotal) // cardList 份数口径（优先于图鉴 568）
     }
 
     @Test
-    fun `basicInfo 与图鉴都缺失时回退服务端 total 再回退已得数`() {
+    fun `basicInfo 与 cardList 与图鉴都缺失时回退服务端 total 再回退已得数`() {
         val withServerTotal = computeGcgSummary(
             stats.copy(avatarCardNumTotal = 150, actionCardNumTotal = 950),
-            lists,
+            emptyLists,
             wikiTotals = WikiCardTotals(),
             officialTotals = WikiCardTotals(),
         )
@@ -213,11 +229,69 @@ class SummaryTest {
 
         val lastResort = computeGcgSummary(
             stats,
-            lists,
+            emptyLists,
             wikiTotals = WikiCardTotals(),
             officialTotals = WikiCardTotals(),
         )
         assertEquals(30, lastResort.avatarCardTotal)
         assertEquals(120, lastResort.actionCardTotal)
+    }
+
+    // ---- cardList 份数口径（actionCardTotal）：与官方 basicInfo 一致（实测 941）----
+
+    @Test
+    fun `份数口径 空列表返回0让分母链继续降级`() {
+        assertEquals(0, actionCardTotal(emptyList()))
+    }
+
+    @Test
+    fun `份数口径 无秘传无幻变时等于2倍种类数`() {
+        val pool = listOf(
+            GcgCard(name = "装备X", cardType = "CardTypeModify", desc = "普通装备"),
+            GcgCard(name = "支援Y", cardType = "CardTypeAssist", desc = "普通支援"),
+            GcgCard(name = "事件Z", cardType = "CardTypeEvent", desc = "普通事件"),
+        )
+        assertEquals(6, actionCardTotal(pool))
+    }
+
+    @Test
+    fun `份数口径 秘传牌按desc关键词限1份`() {
+        val pool = listOf(
+            GcgCard(name = "旧时庭园", cardType = "CardTypeEvent", desc = "…（整局游戏只能打出一张「秘传」卡牌；这张牌一定在你的起始手牌中）"),
+            GcgCard(name = "普通事件", cardType = "CardTypeEvent", desc = "造成2点伤害"),
+            GcgCard(name = "装备X", cardType = "CardTypeModify", desc = "普通装备"),
+        )
+        // 3 种类，1 张秘传限1 ⇒ 2×3−1 = 5
+        assertEquals(5, actionCardTotal(pool))
+    }
+
+    @Test
+    fun `份数口径 元素幻变牌按牌名前缀限1份`() {
+        val pool = listOf(
+            GcgCard(name = "元素幻变：超导祝佑", cardType = "CardTypeAssist", desc = "元素幻变：冰元素雷元素…"),
+            GcgCard(name = "普通支援", cardType = "CardTypeAssist", desc = "普通支援"),
+        )
+        // 2 种类，1 张幻变限1 ⇒ 2×2−1 = 3
+        assertEquals(3, actionCardTotal(pool))
+    }
+
+    @Test
+    fun `份数口径 缺desc字段不误判秘传（null安全）`() {
+        val pool = listOf(
+            GcgCard(name = "装备X", cardType = "CardTypeModify"), // desc = null
+            GcgCard(name = "支援Y", cardType = "CardTypeAssist"),
+        )
+        assertEquals(4, actionCardTotal(pool))
+    }
+
+    @Test
+    fun `份数口径 真实卡池结构（14秘传+9幻变+459限2=941）`() {
+        // 模拟官方卡池：459 张限2 + 14 张秘传 + 9 张元素幻变 = 482 种类 ⇒ 2×482−23 = 941
+        val pool = buildList {
+            repeat(459) { add(GcgCard(name = "普通牌$it", cardType = "CardTypeEvent", desc = "普通")) }
+            repeat(14) { add(GcgCard(name = "秘传牌$it", cardType = "CardTypeEvent", desc = "…一张「秘传」卡牌…")) }
+            repeat(9) { add(GcgCard(name = "元素幻变：$it", cardType = "CardTypeAssist", desc = "元素幻变：…")) }
+        }
+        assertEquals(941, actionCardTotal(pool))
     }
 }
