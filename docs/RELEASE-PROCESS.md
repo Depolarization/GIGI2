@@ -80,6 +80,8 @@ gh release create vX.Y.Z "app\build\outputs\apk\release\app-release.apk" --title
 - **tag 必须等于 `v` + `versionName`**：workflow 会校验，不一致直接失败。
 - `--notes` 的内容会被 workflow 原样写进 `update.json` 的 `body`，最终显示在客户端更新弹窗。
   写用户能看懂的新增/改进/修复即可，不要贴内部排障过程。
+- 🔴 **`--notes` 必须是纯文本**：客户端更新弹窗是普通 `Text`，不渲染 Markdown。
+  不要写 `##` / `**` / 反引号 / 链接语法，标题直接写一行文字，条目用 `- ` 开头即可。
 - **不要**加 `--prerelease`：workflow 明确跳过 prerelease。
 - `gh release create` 会在当前默认分支 HEAD 打 tag，所以 §1/§2 的提交必须先推上去。
 
