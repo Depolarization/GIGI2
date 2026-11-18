@@ -2,8 +2,11 @@
 // 为什么自建 OkHttpClient 副本而不复用 MihoyoClient：MihoyoClient 绑死了米游社语义
 // （Cookie 注入、retcode 判定、1 秒详情节流），GitHub 一条都不需要，硬套反而会把米游社
 // Cookie 发到 GitHub 域名。这里只 newBuilder() 换超时，连接池与线程仍与全局共享。
-// 镜像回退策略：依次试 GitHubMirror.candidates，首个 2xx 且能解析出 JSON 的即返回；
-// 单镜像失败立刻换下一个、不重试同一镜像——镜像挂了重试也不会活，只会拖慢首屏。
+// 镜像策略（V39-H）：
+//   · update.json —— **并行**拉全部候选，成功的全部交给调用方按 publishedAt 择优。
+//     不能「第一个成功就返回」：jsDelivr 对 @main 缓存最长 12h，可能成功但内容过期。
+//   · announcement.json —— 并行竞速，第一个成功即返回，其余请求取消。
+// 单个镜像不做重试：镜像挂了重试也不会活，只会拖慢首屏。
 
 package com.gigi.tcg.data.github
 
@@ -11,7 +14,11 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
@@ -32,6 +39,13 @@ import kotlin.coroutines.resumeWithException
 /** 一次镜像读取的结果：值 + 命中的镜像标签（排障时要知道数据究竟从哪个镜像拿到的） */
 data class MirroredFetch<T>(val value: T, val source: String)
 
+/** 并行竞速的内部尝试记录：成功时 value 非空，失败时 error 非空 */
+private data class MirrorAttempt<T>(
+    val url: String,
+    val value: MirroredFetch<T>? = null,
+    val error: Throwable? = null,
+)
+
 class GitHubApi(
     http: OkHttpClient,
     private val json: Json,
@@ -39,6 +53,8 @@ class GitHubApi(
     private val client: OkHttpClient = http.newBuilder()
         .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        // 整体上限：并行竞速时不能让某个慢镜像把总时长拖到 connect+read 叠加
+        .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
 
     /** 单个 URL GET → 响应体字符串。非 2xx / 空体 / IO 失败一律抛 IOException（交给回退链处理） */
@@ -59,28 +75,91 @@ class GitHubApi(
     }
 
     /**
-     * 沿镜像回退链读取仓库内静态 JSON 并解码。
-     * 全部候选失败时抛 IOException，消息含「已尝试 N 个镜像」+ 各镜像失败原因，
-     * 现场排障不必再翻代码复现。
+     * 并行读取仓库内静态 JSON 的**全部成功镜像**。
+     * 更新检查必须拿全部候选：jsDelivr 对 @main 的缓存可能成功但过期（最长 12h），
+     * 只取「第一个成功」会把旧清单当成最新。调用方按 publishedAt 择优。
+     *
+     * 收集窗口 [CANDIDATE_WINDOW_MS]：到点即取消慢镜像，用已到的候选做决定。
+     * 不能让一个卡住的镜像把检查拖到 callTimeout(10s)——用户点「检查更新」等 10 秒是不可接受的。
+     * 全部失败才抛 IOException；错误消息按候选顺序拼，排障一眼能看出哪个镜像挂了。
      */
-    suspend fun <T> fetchJsonFromMirrors(
+    suspend fun <T> fetchJsonCandidates(
         path: String,
         ref: String = GitHubMirror.DEFAULT_BRANCH,
         serializer: KSerializer<T>,
+    ): List<MirroredFetch<T>> {
+        val candidates = GitHubMirror.candidates(path, ref)
+        return coroutineScope {
+            val mailbox = Channel<MirrorAttempt<T>>(candidates.size)
+            val jobs = candidates.map { url ->
+                launch {
+                    val attempt = try {
+                        MirrorAttempt(
+                            url,
+                            MirroredFetch(decode(serializer, fetchText(url)), mirrorSource(url)),
+                        )
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (error: Throwable) {
+                        MirrorAttempt(url, error = error)
+                    }
+                    // 缓冲 = 候选数 ⇒ trySend 不会阻塞；超时分支已关闭协程时也只是安全丢弃
+                    mailbox.trySend(attempt)
+                }
+            }
+            val attempts = mutableListOf<MirrorAttempt<T>>()
+            val allFinished = withTimeoutOrNull(CANDIDATE_WINDOW_MS) {
+                repeat(candidates.size) { attempts += mailbox.receive() }
+                true
+            } ?: false
+            if (!allFinished) jobs.forEach { it.cancel() }
+
+            val successes = attempts.mapNotNull { it.value }
+            if (successes.isNotEmpty()) return@coroutineScope successes
+            if (allFinished) throw IOException(mirrorFailureMessage(path, attempts))
+            throw IOException(
+                "镜像候选在 ${CANDIDATE_WINDOW_MS}ms 内无成功响应" +
+                    "（已收到失败 ${attempts.size}/${candidates.size}）",
+            )
+        }
+    }
+
+    /**
+     * 并行竞速：第一个成功即返回，其余请求取消。
+     * 只用于「不比较新鲜度」的文件（公告）；更新清单请走 [fetchJsonCandidates]。
+     */
+    private suspend fun <T> fetchFirstFromMirrors(
+        path: String,
+        ref: String,
+        fetch: suspend (String) -> T,
     ): MirroredFetch<T> {
         val candidates = GitHubMirror.candidates(path, ref)
-        val failures = mutableListOf<String>()
-        for (url in candidates) {
-            try {
-                val value = decode(serializer, fetchText(url))
-                return MirroredFetch(value, "mirror:${GitHubMirror.labelOf(url)}")
-            } catch (cancel: CancellationException) {
-                throw cancel
-            } catch (error: Throwable) {
-                failures.add("${GitHubMirror.labelOf(url)}=${error.javaClass.simpleName}")
+        return coroutineScope {
+            val mailbox = Channel<MirrorAttempt<T>>(candidates.size)
+            val jobs = candidates.map { url ->
+                launch {
+                    val attempt = try {
+                        MirrorAttempt(url, MirroredFetch(fetch(url), mirrorSource(url)))
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (error: Throwable) {
+                        MirrorAttempt(url, error = error)
+                    }
+                    mailbox.trySend(attempt)
+                }
             }
+            val failures = mutableListOf<MirrorAttempt<T>>()
+            repeat(candidates.size) {
+                val attempt = mailbox.receive()
+                val value = attempt.value
+                if (value != null) {
+                    jobs.forEach { it.cancel() }
+                    return@coroutineScope value
+                }
+                failures += attempt
+            }
+            throw IOException(mirrorFailureMessage(path, failures))
         }
-        throw IOException("已尝试 ${candidates.size} 个镜像均无法读取 $path（${failures.joinToString("，")}）")
     }
 
     /**
@@ -91,32 +170,39 @@ class GitHubApi(
     suspend fun fetchAnnouncements(
         path: String = ANNOUNCEMENT_PATH,
         ref: String = GitHubMirror.DEFAULT_BRANCH,
-    ): MirroredFetch<List<Announcement>> {
-        val candidates = GitHubMirror.candidates(path, ref)
-        val failures = mutableListOf<String>()
-        for (url in candidates) {
-            try {
-                val root = parseElement(fetchText(url))
-                val list = if (root is JsonArray) {
-                    decode(ListSerializer(Announcement.serializer()), root)
-                } else {
-                    decode(AnnouncementList.serializer(), root).announcements
-                }
-                return MirroredFetch(list, "mirror:${GitHubMirror.labelOf(url)}")
-            } catch (cancel: CancellationException) {
-                throw cancel
-            } catch (error: Throwable) {
-                failures.add("${GitHubMirror.labelOf(url)}=${error.javaClass.simpleName}")
-            }
+    ): MirroredFetch<List<Announcement>> = fetchFirstFromMirrors(path, ref) { url ->
+        val root = parseElement(fetchText(url))
+        if (root is JsonArray) {
+            decode(ListSerializer(Announcement.serializer()), root)
+        } else {
+            decode(AnnouncementList.serializer(), root).announcements
         }
-        throw IOException("已尝试 ${candidates.size} 个镜像均无法读取 $path（${failures.joinToString("，")}）")
     }
 
-    /** main 分支 update.json */
+    /** main 分支 update.json 的全部成功候选（调用方按 publishedAt 择优） */
+    suspend fun fetchUpdateInfoCandidates(
+        path: String = UPDATE_INFO_PATH,
+        ref: String = GitHubMirror.DEFAULT_BRANCH,
+    ): List<MirroredFetch<UpdateInfo>> =
+        fetchJsonCandidates(path, ref, UpdateInfo.serializer())
+
+    /** main 分支 update.json（取最新候选；需要看全部候选时用 [fetchUpdateInfoCandidates]） */
     suspend fun fetchUpdateInfo(
         path: String = UPDATE_INFO_PATH,
         ref: String = GitHubMirror.DEFAULT_BRANCH,
-    ): MirroredFetch<UpdateInfo> = fetchJsonFromMirrors(path, ref, UpdateInfo.serializer())
+    ): MirroredFetch<UpdateInfo> = pickNewestUpdate(fetchUpdateInfoCandidates(path, ref))
+
+    private fun mirrorSource(url: String): String = "mirror:${GitHubMirror.labelOf(url)}"
+
+    private fun mirrorFailureMessage(
+        path: String,
+        outcomes: List<MirrorAttempt<*>>,
+    ): String {
+        val details = outcomes.joinToString("，") { attempt ->
+            "${GitHubMirror.labelOf(attempt.url)}=${attempt.error?.javaClass?.simpleName ?: "Unknown"}"
+        }
+        return "已并行尝试 ${outcomes.size} 个镜像均无法读取 $path（$details）"
+    }
 
     /**
      * 官方 API 单次 GET（实测国内直连 200，不加镜像）。
@@ -156,7 +242,10 @@ class GitHubApi(
 
     private suspend fun suspendingCall(request: Request): Response =
         suspendCancellableCoroutine { continuation ->
-            client.newCall(request).enqueue(
+            val call = client.newCall(request)
+            // 竞速失败方会 cancel 协程：同步取消底层 Call，别让慢镜像继续占连接/流量
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(
                 object : Callback {
                     override fun onResponse(call: Call, response: Response) {
                         continuation.resume(response)
@@ -176,8 +265,12 @@ class GitHubApi(
         const val ACCEPT_HEADER: String = "Accept"
         const val API_ACCEPT: String = "application/vnd.github+json"
 
-        /** 镜像站点延迟高：连接 5s / 读 8s 封顶，宁可判失败换下一个，也不让 UI 干等 */
-        const val CONNECT_TIMEOUT_SECONDS: Long = 5L
-        const val READ_TIMEOUT_SECONDS: Long = 8L
+        /** 三镜像并行：连接 3s / 读 5s / 整体 10s 封顶（V39-H 参照 Arco 实测口径收紧） */
+        const val CONNECT_TIMEOUT_SECONDS: Long = 3L
+        const val READ_TIMEOUT_SECONDS: Long = 5L
+        const val CALL_TIMEOUT_SECONDS: Long = 10L
+
+        /** 多镜像收集窗口：4s 内到几个用几个，避免被单个慢镜像拖满 callTimeout */
+        const val CANDIDATE_WINDOW_MS: Long = 4_000L
     }
 }

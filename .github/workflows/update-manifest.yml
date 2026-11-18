@@ -1,0 +1,93 @@
+name: Sync update manifest
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  update-manifest:
+    if: github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      # 从 Release 资产取 APK：清单里的版本号/大小/SHA-256 都以真实产物为准
+      - name: Download release APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p .manifest
+          gh release download "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern "*.apk" \
+            --dir .manifest
+
+      - name: Generate update.json
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+          RELEASE_PUBLISHED_AT: ${{ github.event.release.published_at }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import glob
+          import hashlib
+          import json
+          import os
+          import re
+          import sys
+
+          tag = os.environ["RELEASE_TAG"]
+          version_name = tag[1:] if tag.startswith("v") else tag
+          gradle = open("app/build.gradle.kts", encoding="utf-8").read()
+          gradle_name = re.search(r'versionName\s*=\s*"([^"]+)"', gradle).group(1)
+          version_code = int(re.search(r'versionCode\s*=\s*(\d+)', gradle).group(1))
+          if gradle_name != version_name:
+              sys.exit(f"tag {tag} 与 app/build.gradle.kts versionName {gradle_name} 不一致")
+
+          apks = sorted(glob.glob(".manifest/*.apk"))
+          if not apks:
+              sys.exit("release 没有 APK 资产")
+          apk = next((p for p in apks if p.endswith("app-release.apk")), apks[0])
+          with open(apk, "rb") as f:
+              data = f.read()
+
+          manifest = {
+              "versionName": version_name,
+              "versionCode": version_code,
+              "body": os.environ.get("RELEASE_BODY", ""),
+              "downloadUrl": (
+                  f"https://github.com/{os.environ['REPOSITORY']}/releases/download/"
+                  f"{tag}/{os.path.basename(apk)}"
+              ),
+              "publishedAt": os.environ.get("RELEASE_PUBLISHED_AT", ""),
+              "sha256": hashlib.sha256(data).hexdigest(),
+              "size": len(data),
+          }
+          with open("update.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, ensure_ascii=False, indent=2)
+              f.write("\n")
+          print(json.dumps(manifest, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Commit manifest
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add update.json
+          if git diff --cached --quiet; then
+            echo "update.json 无变化"
+            exit 0
+          fi
+          git commit -m "chore: sync update.json for ${RELEASE_TAG} [skip ci]"
+          git pull --rebase origin main
+          git push

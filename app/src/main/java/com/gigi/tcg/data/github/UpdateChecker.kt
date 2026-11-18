@@ -45,26 +45,32 @@ class UpdateChecker(
     /**
      * 综合判定：镜像优先，失败回落官方 API。
      * 任一路径给出结论即返回，不再打第二个请求（两条都问一遍只会加倍慢）。
+     *
+     * V39-H：镜像路径改为**并行拉全部候选再按 publishedAt 择优**。
+     * 只取第一个成功会踩 jsDelivr @main 缓存（最长 12h）的坑：
+     * 镜像 200 但清单是旧的，会把「有新版本」误判成「已是最新」。
      */
     suspend fun check(): UpdateCheckResult = withContext(Dispatchers.IO) {
-        val mirror = ioCatching { api.fetchUpdateInfo() }
-        val mirrored = mirror.getOrNull()
-        if (mirrored == null) {
+        val mirror = ioCatching { api.fetchUpdateInfoCandidates() }
+        val candidates = mirror.getOrNull()
+        if (candidates.isNullOrEmpty()) {
             logFailure("update.json 镜像路径", mirror.exceptionOrNull())
         } else {
-            val info = mirrored.value
+            val selected = pickNewestUpdate(candidates)
+            val info = selected.value
             val hasUpdate = decideUpdate(info)
             Log.i(
                 TAG,
-                "${mirrored.source} 远端=${info.versionName}/${info.versionCode} 本机=$currentVersionName/$currentVersionCode → hasUpdate=$hasUpdate",
+                "镜像候选=${candidates.joinToString(",") { it.source }} 选中=${selected.source} " +
+                    "远端=${info.versionName}/${info.versionCode} 本机=$currentVersionName/$currentVersionCode → hasUpdate=$hasUpdate",
             )
             return@withContext UpdateCheckResult(
                 hasUpdate = hasUpdate,
                 latestVersionName = info.versionName.takeIf { it.isNotBlank() },
                 latestVersionCode = info.versionCode.takeIf { it > 0 },
                 releaseNotes = info.body,
-                downloadUrl = info.downloadUrl?.takeIf { it.isNotBlank() } ?: GITHUB_RELEASES_URL,
-                source = mirrored.source,
+                downloadUrl = safeDownloadUrl(info.downloadUrl),
+                source = selected.source,
             )
         }
 
@@ -83,7 +89,7 @@ class UpdateChecker(
                 latestVersionName = latest.tagName.takeIf { it.isNotBlank() },
                 latestVersionCode = null,
                 releaseNotes = latest.body,
-                downloadUrl = latest.htmlUrl?.takeIf { it.isNotBlank() } ?: GITHUB_RELEASES_URL,
+                downloadUrl = safeDownloadUrl(latest.htmlUrl),
                 source = SOURCE_API,
             )
         }
@@ -91,6 +97,18 @@ class UpdateChecker(
         throw IOException(
             "更新检查失败：镜像与 API 两条路径均不可用（${mirror.exceptionOrNull()?.javaClass?.simpleName} / ${release.exceptionOrNull()?.javaClass?.simpleName}）",
         )
+    }
+
+    /**
+     * 清单里的下载地址必须过白名单；不可信地址一律回落到 Releases 页，
+     * 绝不把第三方镜像塞来的任意 URL 直接交给系统下载器。
+     */
+    private fun safeDownloadUrl(raw: String?): String {
+        val url = raw?.trim().orEmpty()
+        if (url.isEmpty()) return GITHUB_RELEASES_URL
+        if (UpdateUrlPolicy.isTrustedDownloadUrl(url)) return url
+        Log.w(TAG, "拒绝不可信下载地址：$url")
+        return GITHUB_RELEASES_URL
     }
 
     /**

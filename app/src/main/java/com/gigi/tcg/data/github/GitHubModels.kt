@@ -46,7 +46,26 @@ data class UpdateInfo(
     @SerialName("body") val body: String? = null,
     @SerialName("downloadUrl") val downloadUrl: String? = null,
     @SerialName("publishedAt") val publishedAt: String? = null,
+    /** APK 完整性信息：应用内下载器接入前的运维/人工核验依据，旧清单缺字段时仅作可选 */
+    @SerialName("sha256") val sha256: String? = null,
+    @SerialName("size") val size: Long? = null,
 )
+
+/**
+ * 多个镜像都成功时选最新：`publishedAt` 降序 → `versionCode` 降序 → 候选原顺序。
+ *
+ * 为什么不能「第一个成功就返回」：jsDelivr 对 `@main` 的缓存最长 12h，
+ * 很可能成功但内容是旧的，进而把「有新版本」误判成「已是最新」。
+ * 空列表是调用方 bug，直接抛，不做静默兜底。
+ */
+internal fun pickNewestUpdate(candidates: List<MirroredFetch<UpdateInfo>>): MirroredFetch<UpdateInfo> {
+    require(candidates.isNotEmpty()) { "pickNewestUpdate 需要至少一个候选" }
+    // sortedWith 是稳定排序 ⇒ publishedAt / versionCode 全相同时保持候选原顺序
+    return candidates.sortedWith(
+        compareByDescending<MirroredFetch<UpdateInfo>> { it.value.publishedAt.orEmpty() }
+            .thenByDescending { it.value.versionCode },
+    ).first()
+}
 
 // ===== 纯逻辑判定 =====
 

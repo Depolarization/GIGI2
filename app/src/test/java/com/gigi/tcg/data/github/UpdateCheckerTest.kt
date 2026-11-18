@@ -16,17 +16,16 @@ class UpdateCheckerTest {
     // ===== 镜像回退链 =====
 
     @Test
-    fun `候选顺序即降级顺序 jsDelivr 实测最稳压轴`() {
+    fun `候选顺序即同分时的稳定优先级 jsDelivr 优先`() {
         val candidates = GitHubMirror.candidates(UPDATE_INFO_PATH)
-        assertEquals(4, candidates.size)
+        assertEquals(3, candidates.size)
         assertEquals(GitHubMirror.jsDelivr(UPDATE_INFO_PATH), candidates[0])
         assertEquals(GitHubMirror.ghProxy(UPDATE_INFO_PATH), candidates[1])
         assertEquals(GitHubMirror.ghFastTop(UPDATE_INFO_PATH), candidates[2])
-        assertEquals(GitHubMirror.ghProxyNet(UPDATE_INFO_PATH), candidates[3])
     }
 
     @Test
-    fun `镜像 URL 覆盖四种实现且都指到同一 owner repo ref path`() {
+    fun `镜像 URL 覆盖三种实现且都指到同一 owner repo ref path`() {
         val path = "announcement.json"
         GitHubMirror.candidates(path, "v1.0.0").forEach { url ->
             assertTrue(url, url.contains("Depolarization"))
@@ -44,7 +43,6 @@ class UpdateCheckerTest {
         assertEquals("jsDelivr", GitHubMirror.labelOf(GitHubMirror.jsDelivr("x.json")))
         assertEquals("gh-proxy", GitHubMirror.labelOf(GitHubMirror.ghProxy("x.json")))
         assertEquals("ghfast.top", GitHubMirror.labelOf(GitHubMirror.ghFastTop("x.json")))
-        assertEquals("ghproxy.net", GitHubMirror.labelOf(GitHubMirror.ghProxyNet("x.json")))
         assertEquals("unknown", GitHubMirror.labelOf("https://evil.example/x"))
     }
 
