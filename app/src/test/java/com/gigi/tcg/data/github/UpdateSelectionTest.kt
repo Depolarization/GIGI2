@@ -113,6 +113,53 @@ class UpdateSelectionTest {
         assertFalse(UpdateUrlPolicy.isTrustedDownloadUrl("not a url"))
     }
 
+    @Test
+    fun `镜像地址只允许承载 GitHub Release 的 apk`() {
+        val apk = "https://github.com/Depolarization/GIGI2/releases/download/v1.0.3/app-release.apk"
+        assertTrue(UpdateUrlPolicy.isTrustedDownloadUrl("https://ghfast.top/$apk"))
+        assertTrue(UpdateUrlPolicy.isTrustedDownloadUrl("https://gh-proxy.com/$apk"))
+
+        // 内嵌不是 release 资产、不是 apk、不是 github.com、不是 https 一律拒绝
+        assertFalse(UpdateUrlPolicy.isTrustedDownloadUrl("https://ghfast.top/https://github.com/x.apk"))
+        assertFalse(
+            UpdateUrlPolicy.isTrustedDownloadUrl(
+                "https://ghfast.top/https://github.com/Depolarization/GIGI2/releases/tag/v1.0.3",
+            ),
+        )
+        assertFalse(
+            UpdateUrlPolicy.isTrustedDownloadUrl(
+                "https://ghfast.top/https://evil.com/Depolarization/GIGI2/releases/download/v1.0.3/app-release.apk",
+            ),
+        )
+        assertFalse(
+            UpdateUrlPolicy.isTrustedDownloadUrl(
+                "https://ghfast.top/http://github.com/Depolarization/GIGI2/releases/download/v1.0.3/app-release.apk",
+            ),
+        )
+        assertFalse(
+            UpdateUrlPolicy.isTrustedDownloadUrl(
+                "https://evil.top/https://github.com/Depolarization/GIGI2/releases/download/v1.0.3/app-release.apk",
+            ),
+        )
+    }
+
+    @Test
+    fun `下载候选镜像优先且缺 sha256 时不套镜像`() {
+        val apk = "https://github.com/Depolarization/GIGI2/releases/download/v1.0.3/app-release.apk"
+        val hash = "a".repeat(64)
+        assertEquals(
+            listOf("https://ghfast.top/$apk", "https://gh-proxy.com/$apk", apk),
+            UpdateUrlPolicy.downloadCandidates(apk, hash),
+        )
+        // 没有 sha256 就无法校验第三方传输，只能给官方直链
+        assertEquals(listOf(apk), UpdateUrlPolicy.downloadCandidates(apk, null))
+        assertEquals(listOf(apk), UpdateUrlPolicy.downloadCandidates(apk, ""))
+        // 非 GitHub release 资产（jsDelivr 上的 apk）不套镜像
+        val cdn = "https://cdn.jsdelivr.net/gh/Depolarization/GIGI2@v1.0.3/app-release.apk"
+        assertEquals(listOf(cdn), UpdateUrlPolicy.downloadCandidates(cdn, hash))
+        assertEquals(emptyList<String>(), UpdateUrlPolicy.downloadCandidates("", hash))
+    }
+
     // ===== 仓库内清单文件的契约 =====
     // Gradle 单测工作目录是 app/，仓库根目录在上一级
 

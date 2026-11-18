@@ -31,6 +31,7 @@ import com.gigi.tcg.BuildConfig
 import com.gigi.tcg.R
 import com.gigi.tcg.data.github.GITHUB_RELEASES_URL
 import com.gigi.tcg.data.github.UpdateDownloader
+import com.gigi.tcg.data.github.UpdateUrlPolicy
 import com.gigi.tcg.ui.about.AboutScreen
 import com.gigi.tcg.ui.about.UpdateState
 import com.gigi.tcg.ui.about.isCheckFinished
@@ -125,8 +126,17 @@ private fun UpdateResultDialog(
             val target = info.downloadUrl?.takeIf { it.isNotBlank() } ?: GITHUB_RELEASES_URL
 
             // 入队成功才算「已开始下载」；返回 null 一律回落浏览器（判据见 UpdateDownloader.enqueue）
+            // V52：候选链镜像优先（国内直连 16KB/s），清单带 sha256 才允许套镜像
+            val candidates = remember(target, info.sha256) {
+                UpdateUrlPolicy.downloadCandidates(target, info.sha256)
+            }
             val startSystemDownload: () -> Boolean = {
-                val id = UpdateDownloader.enqueue(context, target, info.latestVersionName)
+                val id = UpdateDownloader.enqueue(
+                    context = context,
+                    candidates = candidates,
+                    versionName = info.latestVersionName,
+                    expectedSha256 = info.sha256,
+                )
                 if (id != null) toast(startedText)
                 id != null
             }

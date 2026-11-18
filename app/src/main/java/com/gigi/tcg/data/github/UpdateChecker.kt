@@ -21,6 +21,8 @@ data class UpdateCheckResult(
     val releaseNotes: String?,
     val downloadUrl: String?,
     val source: String,
+    /** 清单里的 APK 摘要；下载完成后必须逐字节校验（镜像下载的前提） */
+    val sha256: String? = null,
 )
 
 class UpdateChecker(
@@ -71,6 +73,7 @@ class UpdateChecker(
                 releaseNotes = info.body,
                 downloadUrl = safeDownloadUrl(info.downloadUrl),
                 source = selected.source,
+                sha256 = info.sha256,
             )
         }
 

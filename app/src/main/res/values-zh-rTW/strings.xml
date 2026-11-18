@@ -15,6 +15,7 @@
     <string name="action_query">查詢</string>
     <string name="action_download">下載</string>
     <string name="action_save">儲存</string>
+    <string name="action_share">分享</string>
     <string name="action_regenerate">重新產生</string>
 
     <!-- 導覽與圖示無障礙描述 -->
@@ -71,7 +72,6 @@
     <string name="my_challenge_prev_period">上一旬</string>
     <string name="my_challenge_next_period">下一旬</string>
     <string name="my_copy_share_code">複製分享碼</string>
-    <string name="my_share_share_code">分享分享碼</string>
     <string name="toast_copied_share_code">已複製分享碼</string>
     <string name="my_export_deck_image">導出渲染圖</string>
     <string name="deck_export_saved">已儲存牌組圖片到相簿</string>
@@ -246,15 +246,31 @@
     <string name="wiki_clear_search">清空搜尋</string>
     <string name="wiki_filter_all">不限</string>
 
-    <!-- 卡面下載 -->
+    <!-- 卡牌詳情頁 / 下載對話框 -->
+    <string name="card_detail_title">卡牌詳情</string>
     <string name="cover_title_fallback">卡面</string>
     <!-- 卡背下載（V38-D）：卡背介面只有 id、沒有名字欄位，故稱謂與檔名前綴都用它 -->
     <string name="cardback_name_fallback">卡背</string>
     <string name="cardback_empty_image">該卡背暫無圖片</string>
-    <string name="cover_empty_format">該格式暫無卡面圖片</string>
-    <string name="cover_format_png">普通卡面(PNG)</string>
-    <string name="cover_format_gif">動態卡面(GIF)</string>
-    <string name="cover_basic_info">基礎資訊</string>
+    <string name="cover_empty_format">暫無卡面圖片</string>
+    <string name="download_dialog_title_cover">下載卡面</string>
+    <string name="download_dialog_title_icon">下載圖示</string>
+    <string name="download_option_common">普通卡面</string>
+    <string name="download_option_dynamic">動態卡面</string>
+    <string name="download_option_icon">技能圖示</string>
+    <string name="download_action_save">儲存</string>
+    <string name="cd_download_skill_icon">下載技能圖示：%1$s</string>
+
+    <!-- 卡牌詳情：技能 / 效果 Tab（資料來自 entry_page） -->
+    <string name="cover_tab_cover">卡面</string>
+    <string name="cover_tab_skills">技能</string>
+    <string name="cover_tab_effect">效果</string>
+    <string name="cover_section_skills">卡牌技能</string>
+    <string name="cover_section_effect">卡牌效果</string>
+    <string name="cover_badge_life">生命 %1$d</string>
+    <string name="cover_badge_energy">充能 %1$d</string>
+    <string name="cover_badge_cost">花費 %1$s</string>
+    <string name="cover_skills_empty">暫無技能資料</string>
 
     <!-- 匯出長圖 -->
     <string name="export_col_name">名稱</string>
@@ -278,6 +294,7 @@
     <string name="export_dir_qr">二維碼</string>
     <string name="export_dir_deck">牌組</string>
     <string name="export_dir_cardback">卡背</string>
+    <string name="export_dir_skill_icon">技能圖示</string>
 
     <!-- 匯出圖頁首 / 頁尾 -->
     <string name="export_level">牌手等級 %1$d</string>
@@ -355,6 +372,9 @@
     <string name="about_update_dialog_download">去下載</string>
     <!-- V40-D：交給系統下載器後的提示（通知列可見進度） -->
     <string name="about_update_download_started">已交給系統下載器，進度請見通知列</string>
+    <string name="about_update_download_verified">安裝包校驗通過</string>
+    <string name="about_update_download_hash_failed">安裝包校驗失敗，已刪除，請重試</string>
+    <string name="about_update_download_failed">下載失敗，請檢查網路後重試</string>
     <string name="about_announcement_title">公告</string>
     <string name="about_announcement_hint">點擊檢視詳細內容</string>
     <string name="about_announcement_ok">知道了</string>

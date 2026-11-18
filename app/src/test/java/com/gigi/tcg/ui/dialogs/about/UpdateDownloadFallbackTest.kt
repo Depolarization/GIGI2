@@ -38,16 +38,19 @@ class UpdateDownloadFallbackTest {
     }
 
     /**
-     * 不让 APK 直链自动套第三方镜像前缀（中间人可替换安装包），镜像只用于只读静态文本。
-     * 🔴 只查**代码行**：本文件的 KDoc 必然要写清「为什么不套镜像」，注释里出现这些域名是正常的。
+     * V52：允许 APK 下载走镜像，但必须满足两条约束：
+     *   1) 镜像前缀只在 UpdateUrlPolicy 里拼（下载器自身不出现镜像域名）；
+     *   2) 下载完成必须做 sha256 校验，校验失败要删除下载（避免用户从通知栏装上被替换的包）。
      */
     @Test
-    fun apkDownloadMustNotBeMirrored() {
+    fun mirroredDownloadRequiresHashVerification() {
         val updater = File("src/main/java/com/gigi/tcg/data/github/UpdateDownloader.kt").readText()
         val code = updater.lineSequence().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
-        listOf("gh-proxy", "ghfast", "ghproxy", "jsdelivr", "GitHubMirror").forEach { host ->
-            assertTrue("APK 下载不许自动套镜像前缀 $host", !code.contains(host))
+        listOf("gh-proxy", "ghfast", "ghproxy", "jsdelivr").forEach { host ->
+            assertTrue("镜像域名应只存在于 UpdateUrlPolicy，下载器不应出现 $host", !code.contains(host))
         }
+        assertTrue("下载完成必须校验 sha256", code.contains("sha256Of") && code.contains("expectedSha256"))
+        assertTrue("校验失败必须删除下载", code.contains("manager.remove(id)"))
     }
 
     @Test
