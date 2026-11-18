@@ -31,7 +31,9 @@ import com.gigi.tcg.data.model.GcgChallengeScheduleData
 import com.gigi.tcg.data.model.GcgCardBackListData
 import com.gigi.tcg.data.model.GcgDeckListData
 import com.gigi.tcg.data.model.GcgMatchListData
+import com.gigi.tcg.data.repo.WikiListData
 import com.gigi.tcg.di.AppContainer
+import com.gigi.tcg.domain.stripTitleSuffix
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -117,6 +119,22 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 卡背页数据（含未收集项，靠 hasObtained 区分）；null = 加载中或不可用 */
     val cardBackList: StateFlow<GcgCardBackListData?> = _cardBackList.asStateFlow()
+
+    /**
+     * 牌名 → 图鉴 contentId（卡组详情点卡面跳图鉴用）。
+     * 卡组接口只带游戏内卡 id（角色 4 位 / 行动 6 位），与米游社 wiki 的 content_id 不同源，
+     * 因此借图鉴列表按「去后缀标题」建映射（图鉴列表本身有 1h 双层缓存，不额外压接口）。
+     */
+    private val _wikiCardIndex = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val wikiCardIndex: StateFlow<Map<String, Long>> = _wikiCardIndex.asStateFlow()
+
+    /** 待上抛给宿主导航的图鉴 contentId；UI 消费后调用 [consumePendingCard] 清空 */
+    private val _pendingCardContentId = MutableStateFlow<Long?>(null)
+    val pendingCardContentId: StateFlow<Long?> = _pendingCardContentId.asStateFlow()
+
+    private var wikiCardIndexJob: Job? = null
+    private var wikiCardIndexLoaded = false
+    private var pendingCardName: String? = null
 
     private val _matchList = MutableStateFlow<GcgMatchListData?>(null)
 
@@ -356,6 +374,51 @@ class MyViewModel(app: Application) : AndroidViewModel(app) {
         load(_deckList, force) { uid, server, f -> container.repository.fetchGcgDeckListCached(uid, server, f) }
     }
 
+    /**
+     * 预装载图鉴「牌名 → contentId」索引（幂等）：图鉴列表 1h 缓存，命中时几乎零成本。
+     * 失败静默保留空表（点击卡面时再触发一次装载），不允许拖垮卡组页。
+     */
+    fun loadWikiCardIndex() {
+        if (wikiCardIndexLoaded || wikiCardIndexJob?.isActive == true) return
+        wikiCardIndexJob = viewModelScope.launch {
+            try {
+                _wikiCardIndex.value = buildWikiCardIndex(
+                    container.repository.fetchCardWikiListCached(),
+                )
+                wikiCardIndexLoaded = true
+                // 索引就绪前用户已经点过卡面 ⇒ 补发跳转意图
+                pendingCardName?.let { name ->
+                    _wikiCardIndex.value[name]?.let { _pendingCardContentId.value = it }
+                    pendingCardName = null
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                // 图鉴列表不可用：本次点击静默失败
+            }
+        }
+    }
+
+    /**
+     * 卡组详情点卡面：按牌名解析图鉴 contentId。
+     * 索引未就绪时先记住意图并触发装载，就绪后由 [loadWikiCardIndex] 补发。
+     */
+    fun requestOpenCard(cardName: String?) {
+        val name = cardName?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        val cached = _wikiCardIndex.value[name]
+        if (cached != null) {
+            _pendingCardContentId.value = cached
+        } else {
+            pendingCardName = name
+            loadWikiCardIndex()
+        }
+    }
+
+    /** UI 完成导航后清空待打开卡牌，保证再次点击同一张也能触发 */
+    fun consumePendingCard() {
+        _pendingCardContentId.value = null
+    }
+
     /** 卡背图鉴（「我的资产」摘要 + 卡背页） */
     fun loadCardBackList(force: Boolean = false) {
         load(_cardBackList, force) { uid, server, f -> container.repository.fetchGcgCardBackListCached(uid, server, f) }
@@ -440,3 +503,19 @@ internal fun planAvatarBackfill(accounts: List<StoredAccount>): List<StoredAccou
 
 /** 头像回填诊断日志 tag（V37-I 任务 B）：logcat `adb logcat -s GigiAvatar` 可逐账户看结果 */
 private const val AVATAR_BACKFILL_LOG_TAG = "GigiAvatar"
+
+/**
+ * 图鉴列表 → 「牌名 → contentId」索引（纯函数，JVM 单测可钉死）。
+ * 标题先过 [stripTitleSuffix]：图鉴角色牌带「【角色牌】」后缀，卡组接口里的牌名没有。
+ * 同名重复时先到先得（图鉴角色/行动/魔物三频道里重名极少，即使重名也不影响打开任意一张同名详情）。
+ */
+internal fun buildWikiCardIndex(data: WikiListData?): Map<String, Long> {
+    val entries = data?.list?.firstOrNull()?.children.orEmpty().flatMap { it.list.orEmpty() }
+    val index = mutableMapOf<String, Long>()
+    entries.forEach { entry ->
+        val id = entry.contentId?.toLong() ?: return@forEach
+        val title = entry.title?.let(::stripTitleSuffix)?.trim().orEmpty()
+        if (title.isNotEmpty() && index[title] == null) index[title] = id
+    }
+    return index
+}

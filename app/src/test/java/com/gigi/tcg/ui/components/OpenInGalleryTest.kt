@@ -43,6 +43,6 @@ class OpenInGalleryTest {
     @Test
     fun `toastHost guards action callback`() {
         val host = src.substringAfter("fun ToastHost(").substringBefore("SnackbarHost(")
-        assertTrue("onAction 调用必须包在 runCatching 里（action 抛错不得杀死 Snackbar 消费协程）", host.contains("runCatching { toast.onAction?.invoke() }"))
+        assertTrue("onAction 调用必须包在 runCatching 里（action 抛错不得杀死 Snackbar 消费协程）", host.contains("runCatching { current.onAction?.invoke() }"))
     }
 }

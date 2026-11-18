@@ -2,9 +2,10 @@
 // 🔴 接口返回的是**全部**卡背（实测 28 张 = 25 已得 / 3 未得），没有「只回已收集」的开关参数 ⇒
 // 「图鉴」口径靠 has_obtained 自己标灰；顶部计数分母就是列表长度（全部卡背）。
 // 图优先 image_v2（28/28 全有），image 只有 21/28 有 ⇒ 仅在 image_v2 缺失时回落。
-// V38-D：已收集的卡背可点开下载弹层（与卡牌图鉴同一套 ModalBottomSheet 体验）。弹层状态**留在页内**
+// V38-D：卡背可点开下载弹层（与卡牌图鉴同一套 ModalBottomSheet 体验）。弹层状态**留在页内**
 // （不是像卡面那样提升到 NavHost 的路由参数）：卡面需要它是因为「点任意列表项 ⇒ 全局拉 wiki 详情」，
 // 而卡背的下载数据就在本行 item 里，页内持有少一个跨文件状态、也避开动 GigiNavHost 的导航段。
+// 2026-11-18 用户拍板：未收集的卡背也可点开查看大图（弹层内不可下载）。
 
 package com.gigi.tcg.ui.screens.my
 
@@ -48,7 +49,6 @@ import com.gigi.tcg.ui.components.AppImage
 import com.gigi.tcg.ui.components.EmptyState
 import com.gigi.tcg.ui.dialogs.cardback.CardBackDownloadSheet
 import com.gigi.tcg.ui.dialogs.cardback.resolveCardBackImageUrl
-import com.gigi.tcg.ui.dialogs.cardback.resolveDownloadable
 
 private const val CARD_BACK_ASPECT_RATIO: Float = 160f / 275f
 
@@ -123,8 +123,9 @@ private fun CardBackTile(cardBack: GcgCardBack, onClick: () -> Unit) {
                 .aspectRatio(CARD_BACK_ASPECT_RATIO)
                 .clip(CardBackShape)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                // 🔴 只有「已收集且拿得到直链」才可点：置灰的未收集卡背点了也无处可下（判据与弹层同源）
-                .clickable(enabled = obtained && resolveDownloadable(cardBack) != null, onClick = onClick),
+                // 未收集的卡背也允许点开查看大图（弹层内下载按钮保持禁用）：
+                // 🔴 只有「两个图字段都空、连预览都拿不到」时才不可点。
+                .clickable(enabled = resolveCardBackImageUrl(cardBack) != null, onClick = onClick),
         ) {
             AppImage(
                 // 与下载弹层同一个取图判据（image_v2 优先、缺失回落 image）⇒ 看到的就是能下下来的那张

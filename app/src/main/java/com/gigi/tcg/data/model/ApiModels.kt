@@ -377,12 +377,63 @@ data class WikiCardEntry(
     @SerialName("icon") val icon: String? = null,
 )
 
-/** 卡面详情基础信息模块（entry_page 的 components[0].data 二次解析结果） */
+/**
+ * 卡面详情基础信息模块（entry_page 的 components[0].data 二次解析结果）。
+ *
+ * `life` / `energy` 在卡牌上是生命/充能；在技能项上（[CardSkillData]）是费用，别混用。
+ * `attr` 是「键：值列表」，含元素、武器、阵营、获取方式、类型、标签、花费等，UI 按 key 分发。
+ */
 @Serializable
 data class CardBasicInfo(
     @SerialName("name") val name: String? = null,
     @SerialName("common_img") val commonImg: String? = null,
     @SerialName("gold_img") val goldImg: String? = null,
+    @SerialName("life") val life: Int? = null,
+    @SerialName("energy") val energy: Int? = null,
+    @SerialName("attr") val attr: List<CardAttr>? = null,
+    @SerialName("repeated") val repeated: Boolean? = null,
+)
+
+/** 基础信息里的一条属性：key 自带冒号（如「元素：」），value 可能多值且标签用中文逗号分隔 */
+@Serializable
+data class CardAttr(
+    @SerialName("key") val key: String? = null,
+    @SerialName("value") val value: List<String>? = null,
+)
+
+/** `卡牌技能` 模块 data 的二次解析结果 */
+@Serializable
+data class CardSkillListData(
+    @SerialName("list") val list: List<CardSkillData>? = null,
+)
+
+/**
+ * 单个技能：`life` / `energy` 是费用而不是生命/充能。
+ * - 普通攻击：life=元素骰、energy=无色骰
+ * - 元素战技：life=元素骰、energy 通常为 0
+ * - 元素爆发：life=元素骰、energy=充能
+ */
+@Serializable
+data class CardSkillData(
+    @SerialName("tab_name") val name: String? = null,
+    @SerialName("skill_type") val type: String? = null,
+    @SerialName("icon") val icon: String? = null,
+    @SerialName("life") val life: Int? = null,
+    @SerialName("energy") val energy: Int? = null,
+    @SerialName("desc") val desc: CardSkillDescData? = null,
+)
+
+/** 技能描述：key 是标签（技能效果/天赋效果），value 是 HTML 片段列表 */
+@Serializable
+data class CardSkillDescData(
+    @SerialName("key") val key: String? = null,
+    @SerialName("value") val value: List<String>? = null,
+)
+
+/** `效果描述` 模块 data 的二次解析结果（行动牌） */
+@Serializable
+data class CardEffectData(
+    @SerialName("rich_text") val richText: String? = null,
 )
 
 /** Wiki 卡面详情模块（entry_page.page.modules[]） */

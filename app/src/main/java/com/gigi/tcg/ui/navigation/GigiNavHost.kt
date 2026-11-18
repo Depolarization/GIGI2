@@ -51,6 +51,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -91,11 +92,11 @@ import com.gigi.tcg.ui.components.ToastController
 import com.gigi.tcg.ui.components.ToastHost
 import com.gigi.tcg.ui.components.openInGallery
 import com.gigi.tcg.ui.dialogs.about.AboutDialog
-import com.gigi.tcg.ui.dialogs.cardcover.CardCoverSheet
 import com.gigi.tcg.ui.dialogs.playerdetail.PlayerDetailDialog
 import com.gigi.tcg.ui.dialogs.playerdetail.PlayerDetailTarget
 import com.gigi.tcg.ui.dialogs.playerdetail.PlayerQueryDialog
 import com.gigi.tcg.ui.screens.cardstats.CardStatsRoute
+import com.gigi.tcg.ui.screens.carddetail.CardDetailScreen
 import com.gigi.tcg.ui.screens.cardwiki.CardWikiRoute
 import com.gigi.tcg.ui.screens.home.HomeRoute
 import com.gigi.tcg.ui.screens.my.MyCardBacksPage
@@ -125,6 +126,15 @@ private const val ROUTE_MY_CHALLENGE = "my/challenge"
 private const val ROUTE_MY_DECK_DETAIL = "my/deck/{deck_index}?deck_name={deck_name}"
 private const val ARG_DECK_INDEX = "deck_index"
 private const val ARG_DECK_NAME = "deck_name"
+
+// 卡牌详情（V3）：从图鉴点进来的全屏页。与「我的」二级页同一套壳层机制 ——
+// 挂在 cardwiki/ 下 ⇒ 底部导航仍高亮「卡牌图鉴」，顶栏由主壳给固定标题「卡牌详情」+ 返回箭头，
+// 页面自身不再自绘标题栏（报告 §4 的 callout）。
+private const val ROUTE_CARD_DETAIL = "cardwiki/detail/{content_id}"
+private const val ARG_CONTENT_ID = "content_id"
+
+// 与 [ROUTE_CARD_DETAIL] 同一形状，占位符填实际值
+private fun cardDetailRoute(contentId: Long): String = "cardwiki/detail/$contentId"
 
 // 与 [ROUTE_MY_DECK_DETAIL] 同一形状，占位符填实际值；牌组名必须 URL 编码（可含 / ? # & 空格）
 private fun deckDetailRoute(index: Int, deckName: String): String =
@@ -166,6 +176,7 @@ private val MY_SUBPAGE_TITLES = mapOf(
     ROUTE_MY_CARDBACK to R.string.my_cardback_entry,
     ROUTE_MY_FAVORITES to R.string.my_favorites_entry,
     ROUTE_MY_CHALLENGE to R.string.my_challenge_entry,
+    ROUTE_CARD_DETAIL to R.string.card_detail_title,
 )
 
 /**
@@ -194,19 +205,23 @@ fun GigiNavHost() {
     // 详情目标带一份「入口头像」：列表页（排行榜 / 对局）点进来时能给出头像，
     // 详情接口无权访问（is_shield）时不至于只剩占位（V26）。无入口头像的入口传 null。
     var detailTarget by remember { mutableStateOf<PlayerDetailTarget?>(null) }
-    var coverId by remember { mutableStateOf<Long?>(null) }
     var aboutOpen by remember { mutableStateOf(false) }
     val toastController = remember { ToastController() }
     val tabMemory = remember { TabMemory() }
 
     // 卡组导出结果的反馈：与统计页导出同一条「成功带『查看』→ openInGallery」链路（V36 已修它的 NEW_TASK 崩溃）。
     // uris 为空（失败 / ≤API 28 拿不到 MediaStore uri）时只出纯文本，action 不挂。
+    // V39-H：时长改 Short —— 卡组页的「复制 → 立刻保存」是连续动作，长 Snackbar 会挡住下一条提示。
     val showExportResult: (message: String, uris: List<Uri>) -> Unit = { message, uris ->
         val first = uris.firstOrNull()
         if (first == null) {
             toastController.show(message)
         } else {
-            toastController.showWithAction(message, LocaleStrings.get(R.string.action_view)) {
+            toastController.showWithAction(
+                message,
+                LocaleStrings.get(R.string.action_view),
+                SnackbarDuration.Short,
+            ) {
                 openInGallery(appContext, first)
             }
         }
@@ -215,7 +230,6 @@ fun GigiNavHost() {
     LaunchedEffect(sessionUid) {
         queryOpen = false
         detailTarget = null
-        coverId = null
         aboutOpen = false
     }
 
@@ -228,7 +242,9 @@ fun GigiNavHost() {
         // V38-D：LocalToastAction 在 GigiToast 里早已声明（含 no-op 默认值），但全仓无人 provide、
         // 也无人消费 ⇒ 这里接上同一个 ToastController。卡背下载成功要用「已保存到相册 + 查看」，
         // 与上方 showExportResult / 统计页导出共用 openInGallery 那条链路，页面侧不再自写 startActivity。
-        LocalToastAction provides { text, label, action -> toastController.showWithAction(text, label, action) },
+        LocalToastAction provides { text, label, duration, action ->
+            toastController.showWithAction(text, label, duration, action)
+        },
         LocalActivityContext provides activityContext,
     ) {
         // ⚠️ N2（**已知产品取舍，本轮只记录不改行为**，已登记待用户裁决）：key 含 sessionUid ⇒
@@ -428,8 +444,23 @@ fun GigiNavHost() {
                             composable(ROUTE_CARD_WIKI) {
                                 CardWikiRoute(
                                     container = container,
-                                    onOpenCover = { coverId = it },
+                                    onOpenCard = { navController.navigate(cardDetailRoute(it)) },
                                     onShowToast = { toastController.show(it) },
+                                )
+                            }
+                            // 卡牌详情（V3）：全屏二级页；返回箭头与标题由主壳提供
+                            composable(
+                                route = ROUTE_CARD_DETAIL,
+                                arguments = listOf(
+                                    navArgument(ARG_CONTENT_ID) {
+                                        type = NavType.LongType
+                                        defaultValue = -1L
+                                    },
+                                ),
+                            ) { entry ->
+                                CardDetailScreen(
+                                    container = container,
+                                    contentId = entry.arguments?.getLong(ARG_CONTENT_ID) ?: -1L,
                                 )
                             }
                             // 「我的」页：四分区 + 账号管理；二级页为真实数据页（P2），列表→详情在页内切换。
@@ -466,6 +497,11 @@ fun GigiNavHost() {
                             ) { entry ->
                                 MyDeckDetailPage(
                                     deckIndex = entry.arguments?.getInt(ARG_DECK_INDEX) ?: -1,
+                                    // 点卡面上抛图鉴 contentId ⇒ 普通 push 到卡牌详情；
+                                    // 卡组详情留在返回栈（含滚动位置），只有用户返回时才逐级退出。
+                                    onOpenCard = { contentId ->
+                                        navController.navigate(cardDetailRoute(contentId))
+                                    },
                                     onShowExportResult = showExportResult,
                                 )
                             }
@@ -489,7 +525,6 @@ fun GigiNavHost() {
             )
         }
         PlayerDetailDialog(target = detailTarget, onClose = { detailTarget = null })
-        CardCoverSheet(contentId = coverId?.toInt(), onDismiss = { coverId = null })
         if (aboutOpen) {
             AboutDialog(onClose = { aboutOpen = false })
         }

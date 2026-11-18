@@ -12,11 +12,14 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * 一条轻提示（对齐 toast.tsx ToastItem）
@@ -31,33 +34,47 @@ data class ToastMessage(
     val actionLabel: String? = null,
     /** 仅当 [actionLabel] 非 null 时被调用；用 suspend 以便内部做 Intent 兜底等 IO */
     val onAction: (suspend () -> Unit)? = null,
+    /** 展示时长；默认 Short，带「查看」的保存提示按需显式传 Long */
+    val duration: SnackbarDuration = SnackbarDuration.Short,
 )
 
 /**
- * 队列式轻提示控制器：任意位置 `show(text)` 入队，
- * 由 [ToastHost] 的 LaunchedEffect 逐条消费显示。
+ * 轻提示控制器：任意位置 `show(text)` 写入最新一条，
+ * 由 [ToastHost] 消费。[ToastMessage.id] 每次自增 ⇒ 同文案也能触发新的一次展示。
+ *
+ * 🔴 这里用 StateFlow 而不是 Channel 队列（V39-H）：新提示必须**立即顶掉**正在显示的那条。
+ * 用队列时「复制分享码（带分享 action）」的 Snackbar 会占住 4s，
+ * 用户紧接着点「保存卡组图」的提示只能在队列里排队 ⇒ 看起来像没响应。
  */
 class ToastController {
-    private val channel = Channel<ToastMessage>(Channel.UNLIMITED)
     private var nextId = 0L
+    private val _message = MutableStateFlow<ToastMessage?>(null)
+    internal val message: StateFlow<ToastMessage?> = _message.asStateFlow()
 
     fun show(text: String) {
         nextId += 1
-        channel.trySend(ToastMessage(id = nextId, text = text))
+        _message.value = ToastMessage(id = nextId, text = text)
     }
 
     /**
      * 带 action 的提示（如「已保存到相册」+「查看」）。
      * actionLabel 为 null 时退化成纯文本，与 [show] 等价。
      */
-    fun showWithAction(text: String, actionLabel: String, onAction: suspend () -> Unit) {
+    fun showWithAction(
+        text: String,
+        actionLabel: String,
+        duration: SnackbarDuration = SnackbarDuration.Long,
+        onAction: suspend () -> Unit,
+    ) {
         nextId += 1
-        channel.trySend(
-            ToastMessage(id = nextId, text = text, actionLabel = actionLabel, onAction = onAction),
+        _message.value = ToastMessage(
+            id = nextId,
+            text = text,
+            actionLabel = actionLabel,
+            onAction = onAction,
+            duration = duration,
         )
     }
-
-    internal suspend fun receive(): ToastMessage = channel.receive()
 }
 
 /** 页面内取用 `show(text)` 的局部入口，默认 no-op，由 ToastHost 宿主侧 provide */
@@ -65,22 +82,25 @@ val LocalToast = compositionLocalOf<(String) -> Unit> { {} }
 
 /**
  * 页面内取用「带 action 的提示」的局部入口，默认 no-op。
- * 与 [LocalToast] 并存而不是把 LocalToast 改成双参：现有全部调用点（几十处）
- * 都是 `LocalToast.current(文案)` 的单参形态，改签名要全量迁移；新增一个同族
- * CompositionLocal 成本更低、且不会让既有调用点误传 action。
+ * 签名含 [SnackbarDuration]：保存类提示按需给 Long（够读文案 + 伸手点），
+ * 卡组分享这类「快速连续操作」的提示给 Short，避免挡住下一条。
  *
- * defaultFactory 写成具名常量而不是内联 `{ _, _, _ -> }`：
- * 内联 lambda 的三个参数需要从外层函数类型反推，而 `suspend () -> Unit`
+ * defaultFactory 写成具名常量而不是内联 `{ _, _, _, _ -> }`：
+ * 内联 lambda 的参数需要从外层函数类型反推，而 `suspend () -> Unit`
  * 作为嵌套函数类型在这种上下文里没有推断锚点（Kotlin 2.1 会报
  * "Cannot infer type for this parameter"），具名常量则直接给出精确类型。
  */
-private val EmptyToastAction: (String, String, suspend () -> Unit) -> Unit = { _, _, _ -> }
+private val EmptyToastAction: (String, String, SnackbarDuration, suspend () -> Unit) -> Unit =
+    { _, _, _, _ -> }
 
-val LocalToastAction: ProvidableCompositionLocal<(String, String, suspend () -> Unit) -> Unit> =
+val LocalToastAction: ProvidableCompositionLocal<(String, String, SnackbarDuration, suspend () -> Unit) -> Unit> =
     compositionLocalOf { EmptyToastAction }
 
 /**
- * 渲染当前一条 Snackbar，并在协程内持续消费 controller 队列。
+ * 渲染当前一条 Snackbar，并在协程内持续消费 controller 的最新消息。
+ *
+ * 新消息到达 ⇒ [LaunchedEffect] 的 key 变化 ⇒ 上一轮 `showSnackbar` 被取消（旧条立即收起），
+ * 立即展示新条。这是「复制分享码后快速点保存，Snackbar 要及时更新」的实现口径。
  *
  * Snackbar 的容器/正文/action 三色在此处**显式**指定，不用 M3 默认：默认值走
  * `inverseSurface` 一族槽位，V37 真机夜间被 MIUI 动态取色解析成浅底浅字（≈1.0:1，完全看不见）。
@@ -90,24 +110,20 @@ val LocalToastAction: ProvidableCompositionLocal<(String, String, suspend () -> 
 @Composable
 fun ToastHost(controller: ToastController, modifier: Modifier = Modifier) {
     val hostState = remember { SnackbarHostState() }
-    val context = LocalContext.current
-    LaunchedEffect(controller) {
-        while (true) {
-            val toast = controller.receive()
-            val result = hostState.showSnackbar(
-                message = toast.text,
-                actionLabel = toast.actionLabel,
-                // 有 action 时时长给 Long：Short(4s) 在用户读文案+伸手点之间就消失了。
-                // 无 action 时保持 Short，既有纯文本提示的节奏不变。
-                duration = if (toast.actionLabel != null) SnackbarDuration.Long else SnackbarDuration.Short,
-            )
-            // ActionPerformed 是唯一该跑回调的返回值；Dismissed/超时都视为用户放弃。
-            // runCatching：action 由调用方注入（如 openInGallery 拉起系统应用），
-            // 它抛任何异常都不该掀翻 ToastHost 所在的 LaunchedEffect——协程一死，
-            // 整个 Snackbar 队列就再也不消费了（V36 闪退修复）。
-            if (result == SnackbarResult.ActionPerformed) {
-                runCatching { toast.onAction?.invoke() }
-            }
+    val toast by controller.message.collectAsState()
+    LaunchedEffect(toast) {
+        val current = toast ?: return@LaunchedEffect
+        val result = hostState.showSnackbar(
+            message = current.text,
+            actionLabel = current.actionLabel,
+            duration = current.duration,
+        )
+        // ActionPerformed 是唯一该跑回调的返回值；Dismissed/超时都视为用户放弃。
+        // runCatching：action 由调用方注入（如 openInGallery 拉起系统应用），
+        // 它抛任何异常都不该掀翻 ToastHost 所在的 LaunchedEffect——协程一死，
+        // 后续 Snackbar 就再也不消费了（V36 闪退修复）。
+        if (result == SnackbarResult.ActionPerformed) {
+            runCatching { current.onAction?.invoke() }
         }
     }
     // V37-B：snackbar 配色显式传，不吃 M3 默认回落。

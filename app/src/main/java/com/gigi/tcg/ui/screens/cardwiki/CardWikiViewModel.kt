@@ -35,7 +35,7 @@ private val CATEGORY_TITLE_RES: Map<Int, Int> =
 private val EXT_KEYS: Map<Int, String> =
     mapOf(233 to "c_233", 234 to "c_234", 235 to "c_235")
 
-/** 单卡展示模型：contentId 上抛给卡面下载弹层（用 Long 对齐 coverId） */
+/** 单卡展示模型：contentId 上抛给卡牌详情页（用 Long 对齐路由参数） */
 data class CardVm(
     val contentId: Long?,
     val title: String,
@@ -59,8 +59,8 @@ data class WikiUiState(
     val keyword: String = "",
     /** 每个筛选维度选中子项：缺省/空串表示"全部" */
     val selections: Map<String, String> = emptyMap(),
-    /** 待打开卡面的 contentId（本 VM 只持有，由 UI 回调上抛后置空） */
-    val coverId: Long? = null,
+    /** 待打开详情的 contentId（本 VM 只持有，由 UI 回调上抛后置空） */
+    val pendingCardId: Long? = null,
 ) {
     val activeCategory: CategoryVm? get() = categories.find { it.id == activeCatId }
 
@@ -160,12 +160,12 @@ class CardWikiViewModel(private val container: AppContainer) : ViewModel() {
         _uiState.update { it.copy(selections = it.selections + (label to value)) }
     }
 
-    fun openCover(contentId: Long) {
-        _uiState.update { it.copy(coverId = contentId) }
+    fun openCard(contentId: Long) {
+        _uiState.update { it.copy(pendingCardId = contentId) }
     }
 
-    fun closeCover() {
-        _uiState.update { it.copy(coverId = null) }
+    fun closeCard() {
+        _uiState.update { it.copy(pendingCardId = null) }
     }
 
     private fun parseCategories(data: WikiListData): List<CategoryVm> {

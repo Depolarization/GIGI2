@@ -29,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -72,7 +73,8 @@ private const val DOWNLOAD_THROTTLE_MS = 1000L
 
 /**
  * [cardBack] 为 null 时不渲染弹层（对齐 CardCoverSheet 的 `contentId == null` 语义）。
- * 预览与下载**同一 URL 源**（[resolveCardBackImageUrl]），未收集的卡背由调用点置灰、不给点进来。
+ * 预览用 [resolveCardBackImageUrl]（未收集也能看大图）；「下载」可用性单独由 [resolveDownloadable] 判定，
+ * 未收集的卡背按钮禁用、但预览照常显示。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,6 +93,7 @@ fun CardBackDownloadSheet(
     // downloading 挂在 cardBack 上：换一张卡背即复位，异常/取消路径由 finally 兜住
     var downloading by remember(cardBack) { mutableStateOf(false) }
 
+    val imageUrl = resolveCardBackImageUrl(cardBack)
     val downloadUrl = resolveDownloadable(cardBack)
     val label = stringResource(R.string.cardback_name_fallback)
     val savedText = stringResource(R.string.toast_saved_to_album)
@@ -110,7 +113,11 @@ fun CardBackDownloadSheet(
                         subDir = exportDirName(EXPORT_DIR_CARDBACK),
                     )
                     // ≤API 28 那条路径没有 MediaStore uri 可返回 ⇒ 只出纯文本，不挂「查看」
-                    if (uri == null) showToast(savedText) else showToastAction(savedText, viewText) {
+                    if (uri == null) showToast(savedText) else showToastAction(
+                        savedText,
+                        viewText,
+                        SnackbarDuration.Long,
+                    ) {
                         openInGallery(appContext, uri)
                     }
                     onDismiss()
@@ -187,7 +194,7 @@ fun CardBackDownloadSheet(
                     .padding(top = 12.dp, bottom = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                if (downloadUrl == null) {
+                if (imageUrl == null) {
                     EmptyState(title = stringResource(R.string.cardback_empty_image))
                 } else {
                     Box(
@@ -199,8 +206,9 @@ fun CardBackDownloadSheet(
                         contentAlignment = Alignment.Center,
                     ) {
                         // 加载态由 AppImage 的 shimmer 承担（同 CardCoverSheet），本页不再叠一层状态
+                        // 预览用 imageUrl（未收集也能看），下载按钮的可用性另由 downloadUrl 判定
                         AppImage(
-                            model = downloadUrl,
+                            model = imageUrl,
                             contentDescription = title,
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxSize(),

@@ -97,7 +97,7 @@ class MyDeckActionCardTotalTest {
     }
 
     @Test
-    fun `detail action row leads with the deck name and trails with three icons`() {
+    fun `detail action row leads with the deck name and trails with two icons`() {
         val code = myDecksCode()
         // 动作行的唯一指纹：顶栏已删（V37-F），这一行的 padding 就是它
         val row = code.blockAfter(".padding(top = 4.dp, end = 4.dp)", 60)
@@ -107,13 +107,15 @@ class MyDeckActionCardTotalTest {
         assertTrue("名称占满剩余宽度", row.contains("modifier = Modifier.weight(1f),"))
         assertTrue("名称单行 + 省略号（不能把图标挤出屏幕）", row.contains("maxLines = 1,") && row.contains("overflow = TextOverflow.Ellipsis,"))
         assertTrue("名称必须在复制按钮之前（左端 vs 右端）", row.indexOf("deckDisplayName(deck)") < row.indexOf("IconButton"))
-        assertEquals("行内三个动作图标：复制 / 分享分享码 / 导出图", 3, row.lines().count { it.trim().startsWith("IconButton(") })
+        assertEquals("行内两个动作图标：复制 / 保存卡组图", 2, row.lines().count { it.trim().startsWith("IconButton(") })
         assertTrue(
-            "三个图标仍是 ContentCopy / Share / IosShare",
-            row.contains("Icons.Outlined.ContentCopy") && row.contains("Icons.Outlined.Share") && row.contains("Icons.Outlined.IosShare"),
+            "两个图标是 ContentCopy / IosShare",
+            row.contains("Icons.Outlined.ContentCopy") && row.contains("Icons.Outlined.IosShare"),
         )
-        // 分享码 action：用系统分享面板发分享码文本（ACTION_SEND），不落剪贴板
-        assertTrue("分享码 action 走 ACTION_SEND 分享文本", row.contains("Intent(Intent.ACTION_SEND)") && row.contains("putExtra(Intent.EXTRA_TEXT, code)"))
+        assertFalse("独立的分享分享码按钮已移除", row.contains("Icons.Outlined.Share"))
+        // 分享码 action：复制成功 Snackbar 的 action 拉起系统分享面板（ACTION_SEND），不落剪贴板
+        assertTrue("复制 Snackbar 挂分享 action", row.contains("showToastAction(message, shareLabel, SnackbarDuration.Short)"))
+        assertTrue("分享 action 走 ACTION_SEND 分享文本", row.contains("Intent(Intent.ACTION_SEND)") && row.contains("putExtra(Intent.EXTRA_TEXT, code)"))
     }
 
     @Test

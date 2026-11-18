@@ -36,12 +36,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.IosShare
-import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -68,7 +68,7 @@ import com.gigi.tcg.data.model.GcgDeck
 import com.gigi.tcg.data.model.GcgDeckCard
 import com.gigi.tcg.ui.components.AppImage
 import com.gigi.tcg.ui.components.EmptyState
-import com.gigi.tcg.ui.components.LocalToast
+import com.gigi.tcg.ui.components.LocalToastAction
 import com.gigi.tcg.ui.components.LoadingView
 import com.gigi.tcg.ui.dialogs.cardcover.exportDateText
 import com.gigi.tcg.ui.export.buildDeckImageSpec
@@ -130,10 +130,15 @@ fun MyDecksPage(modifier: Modifier = Modifier, onOpenDeckDetail: (index: Int, de
 /**
  * 牌组详情路由的内容。参数只有标号 ⇒ 数据自己按内存缓存取（与其余二级页同一口径）；
  * 名字从导航参数进顶栏，这里不重复画。
+ *
+ * 点角色牌 / 行动牌卡面 ⇒ 上抛图鉴 contentId，由宿主 push `cardwiki/detail/{id}`。
+ * 跳转用普通 push（不带 popUpTo）：卡组详情连同滚动位置留在返回栈，
+ * 只有用户在图鉴页按返回/手动退出时才回到卡组详情；系统返回不会擅自关掉详情页。
  */
 @Composable
 fun MyDeckDetailPage(
     deckIndex: Int,
+    onOpenCard: (Long) -> Unit,
     onShowExportResult: (message: String, uris: List<Uri>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -141,7 +146,19 @@ fun MyDeckDetailPage(
     val viewModel: MyViewModel = viewModel(factory = MyViewModel.factory(app))
     val activeUid by viewModel.activeUid.collectAsStateWithLifecycle()
     val deckListData by viewModel.deckList.collectAsStateWithLifecycle()
-    LaunchedEffect(activeUid) { viewModel.loadDeckList() }
+    val pendingCardContentId by viewModel.pendingCardContentId.collectAsStateWithLifecycle()
+    LaunchedEffect(activeUid) {
+        viewModel.loadDeckList()
+        // 预装「牌名 → 图鉴 contentId」索引：命中缓存时几乎零成本，没命中则点卡时也已就绪
+        viewModel.loadWikiCardIndex()
+    }
+    // 索引解析完成 / 命中的卡牌 ⇒ 交给宿主导航，随后清空，保证同一张卡可再次点击
+    LaunchedEffect(pendingCardContentId) {
+        pendingCardContentId?.let { contentId ->
+            onOpenCard(contentId)
+            viewModel.consumePendingCard()
+        }
+    }
 
     // 下标而非 id：实测牌组 id 可重复（见 stableItemKey 的服务端事实），下标才唯一对应「点进去的那一副」。
     val deck = deckListData?.deckList.orEmpty().getOrNull(deckIndex)
@@ -151,6 +168,7 @@ fun MyDeckDetailPage(
                 deck = deck,
                 nickname = deckListData?.nickname,
                 uid = activeUid,
+                onOpenCard = { card -> viewModel.requestOpenCard(card.name) },
                 onShowExportResult = onShowExportResult,
             )
             // 尚未回包（内存缓存命中时这一帧基本看不见）；回包后仍取不到该下标 ⇒ 空态，不画半截详情
@@ -226,29 +244,32 @@ private fun DeckRow(deck: GcgDeck, title: String, onClick: () -> Unit) {
 }
 
 /**
- * 牌组详情内容：两组卡面三等分 + 一条动作行（左端牌组名，右端两个 icon：复制分享码 / 导出渲染图）。
+ * 牌组详情内容：两组卡面三等分 + 一条动作行（左端牌组名，右端两个 icon：复制分享码 / 保存卡组图）。
  * 行动牌 22–25 张（同一张牌可携带 2 份，见 [DeckCardTile] 的张数徽标），整页 verticalScroll（量小，不上 LazyGrid）。
  * 🔴 标题行已删除（V37-F 任务 A）：牌组名与返回都在主壳顶栏，页内再画一行就是第二条标题栏。
+ * 2026-11-18：独立的「分享分享码」按钮移除，改为复制成功 Snackbar 的「分享」action。
  */
 @Composable
 private fun DeckDetail(
     deck: GcgDeck,
     nickname: String?,
     uid: String?,
+    onOpenCard: (GcgDeckCard) -> Unit,
     onShowExportResult: (message: String, uris: List<Uri>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val toast = LocalToast.current
     // 剪贴板范式照 PlayerDetailDialog（LocalClipboardManager 已废弃但仍是当前工程口径）
     @Suppress("DEPRECATION") val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
+    // 复制分享码的 Snackbar 挂「分享」action：与复制互补，点 action 拉起系统分享面板
+    val showToastAction = LocalToastAction.current
     val shareCode = deck.shareCode
     // 🔴 判空白而不是判 null：share_code 实测可能是空串，`?:` 兜不住 ⇒ 按钮要能识别"没有可复制的东西"
     val canCopyShareCode = !shareCode.isNullOrBlank()
     // stringResource 不能在 onClick（普通 lambda）里调，先在组合期算好（同 PlayerDetailDialog）
     val copiedToast = stringResource(R.string.toast_copied_share_code)
     val copyLabel = stringResource(R.string.my_copy_share_code)
-    val shareLabel = stringResource(R.string.my_share_share_code)
+    val shareLabel = stringResource(R.string.action_share)
     val exportLabel = stringResource(R.string.my_export_deck_image)
     // 文件名里的「我的卡组」与导出图的品牌口径同源
     val deckLabel = stringResource(R.string.my_deck_entry)
@@ -293,28 +314,20 @@ private fun DeckDetail(
                         val message = copiedToast
                         if (!code.isNullOrBlank() && message.isNotEmpty()) {
                             @Suppress("DEPRECATION") clipboard.setText(AnnotatedString(code))
-                            toast(message)
+                            // Short + 带 action：用户复制后可能立刻点「保存卡组图」，
+                            // 新 Snackbar 会立即顶掉这条（ToastHost 已改成最新一条优先）
+                            showToastAction(message, shareLabel, SnackbarDuration.Short) {
+                                val send = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, code)
+                                }
+                                context.startActivity(Intent.createChooser(send, shareLabel))
+                            }
                         }
                     },
                     enabled = canCopyShareCode,
                 ) {
                     Icon(imageVector = Icons.Outlined.ContentCopy, contentDescription = copyLabel)
-                }
-                // 分享分享码：系统分享面板把这段分享码文本发给其它 App（与「复制」互补，不落剪贴板）
-                IconButton(
-                    onClick = {
-                        val code = shareCode
-                        if (!code.isNullOrBlank()) {
-                            val send = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, code)
-                            }
-                            context.startActivity(Intent.createChooser(send, shareLabel))
-                        }
-                    },
-                    enabled = canCopyShareCode,
-                ) {
-                    Icon(imageVector = Icons.Outlined.Share, contentDescription = shareLabel)
                 }
                 if (exporter.exporting) {
                     Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
@@ -330,11 +343,13 @@ private fun DeckDetail(
                 title = stringResource(R.string.my_deck_card_group_avatar),
                 cards = deck.avatarCards.orEmpty(),
                 showCount = false,
+                onCardClick = onOpenCard,
             )
             CardGroup(
                 title = stringResource(R.string.my_deck_card_group_action),
                 cards = deck.actionCards.orEmpty(),
                 showCount = true,
+                onCardClick = onOpenCard,
             )
         }
     }
@@ -388,9 +403,15 @@ private fun rememberDeckExporter(
  * 末行不足 3 张时补空 Spacer 占位，否则 weight 会把剩下的两张拉宽、列不对齐。
  *
  * `showCount` 由分组类型决定：行动牌组传 true（同一张牌可携带多份），角色牌组传 false（见 [DeckCardTile]）。
+ * [onCardClick] 上抛「点了哪张牌」，由详情页按牌名解析图鉴 contentId。
  */
 @Composable
-private fun CardGroup(title: String, cards: List<GcgDeckCard>, showCount: Boolean) {
+private fun CardGroup(
+    title: String,
+    cards: List<GcgDeckCard>,
+    showCount: Boolean,
+    onCardClick: (GcgDeckCard) -> Unit,
+) {
     MySectionTitle(title)
     if (cards.isEmpty()) {
         Text(
@@ -408,7 +429,13 @@ private fun CardGroup(title: String, cards: List<GcgDeckCard>, showCount: Boolea
                 horizontalArrangement = Arrangement.spacedBy(DECK_GRID_GAP),
             ) {
                 rowCards.forEach { card ->
-                    Box(Modifier.weight(1f)) { DeckCardTile(card = card, showCount = showCount) }
+                    Box(Modifier.weight(1f)) {
+                        DeckCardTile(
+                            card = card,
+                            showCount = showCount,
+                            onClick = { onCardClick(card) },
+                        )
+                    }
                 }
                 repeat(DECK_GRID_COLUMNS - rowCards.size) {
                     Spacer(Modifier.weight(1f))
@@ -431,6 +458,7 @@ internal fun cardCountLabel(num: Int?, countPrefix: String): String? =
 
 /**
  * 一张牌：卡面（可选张数徽标）+ 牌名，牌名居中单行省略。
+ * 整块可点：跳转卡牌图鉴并展示该卡（角色牌 / 行动牌同一入口）。
  * 🔴 张数只对**行动牌**画（`showCount` 由 [CardGroup] 按分组传入）：
  * 真机 `gcg/deckList` 11 副牌组实测（`.task/v36-probe/basicinfo/raw/ctrl-deckList.json` 与 `-2nd.json`），
  * 行动牌 `num` 出现 2（如第 1 副末段 `[..,2,1,2,2,2]`、第 2 副 `[..,2,2,2,..]`）⇒ 同一张行动牌可携带多份；
@@ -439,9 +467,13 @@ internal fun cardCountLabel(num: Int?, countPrefix: String): String? =
  * `num` 的其它消费点：[deckActionCardTotal]（列表行总张数）与 `ui/export` 的按张数展开，三处同口径。
  */
 @Composable
-private fun DeckCardTile(card: GcgDeckCard, showCount: Boolean) {
+private fun DeckCardTile(card: GcgDeckCard, showCount: Boolean, onClick: () -> Unit) {
     val countLabel = cardCountLabel(card.num, stringResource(R.string.my_deck_card_count_prefix))
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()

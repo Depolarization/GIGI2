@@ -1,7 +1,7 @@
 // 卡牌图鉴页（卡面下载）：移植 CardWikiPage.tsx 的渲染层。
 // 三分类 TabRow（指示器 + HorizontalPager 左右滑动）+ 紧凑搜索框 + 四维筛选（一行横向可滑动的
 // 原生下拉框）+ 竖版卡牌三列固定网格。搜索/筛选/网格滚动都是"每页一份"状态（见 WikiPage 注释）。
-// 点击卡牌→上抛 onOpenCover(contentId)；contentId 缺失时提示数据异常。加载/空/错误态复用共享组件。
+// 点击卡牌→上抛 onOpenCard(contentId)；contentId 缺失时提示数据异常。加载/空/错误态复用共享组件。
 // 图鉴是 1h TTL 的公开静态数据：进页加载 + 筛选驱动即可，无手动刷新入口、无下拉刷新（仅错误态保留"重试"）。
 
 package com.gigi.tcg.ui.screens.cardwiki
@@ -141,7 +141,7 @@ private val SelectionsSaver: Saver<Map<String, String>, Array<String>> = Saver(
 @Composable
 fun CardWikiRoute(
     container: AppContainer,
-    onOpenCover: (Long) -> Unit,
+    onOpenCard: (Long) -> Unit,
     onShowToast: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -167,12 +167,12 @@ fun CardWikiRoute(
         }
     }
 
-    // 待打开卡面：上抛宿主后立即置空，保证再次点击同一张也能触发
-    val pendingCoverId = state.coverId
-    LaunchedEffect(pendingCoverId) {
-        if (pendingCoverId != null) {
-            onOpenCover(pendingCoverId)
-            viewModel.closeCover()
+    // 待打开详情：上抛宿主后立即置空，保证再次点击同一张也能触发
+    val pendingCardId = state.pendingCardId
+    LaunchedEffect(pendingCardId) {
+        if (pendingCardId != null) {
+            onOpenCard(pendingCardId)
+            viewModel.closeCard()
         }
     }
 
@@ -201,7 +201,7 @@ fun CardWikiRoute(
                 else -> HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
                     WikiPage(page = page, state = state, onCardClick = { card ->
                         val id = card.contentId
-                        if (id == null) onShowToast(cardDataError) else viewModel.openCover(id)
+                        if (id == null) onShowToast(cardDataError) else viewModel.openCard(id)
                     })
                 }
             }

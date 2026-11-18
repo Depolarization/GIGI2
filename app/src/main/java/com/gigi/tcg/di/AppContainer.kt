@@ -20,6 +20,7 @@ import com.gigi.tcg.data.repo.GigiApiTransport
 import com.gigi.tcg.data.repo.GigiRepository
 import com.gigi.tcg.data.repo.MihoyoClientEnvelopeTransport
 import com.gigi.tcg.data.repo.SessionRefresher
+import com.gigi.tcg.domain.CardDetailCache
 import com.gigi.tcg.i18n.LocaleStrings
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
@@ -83,6 +84,13 @@ class AppContainer(private val appContext: Context) {
     val credentialSource: CredentialSource get() = credentialStore
 
     val wikiDiskCache: WikiDiskCache by lazy { WikiDiskCache(appContext) }
+
+    /**
+     * 卡牌详情解析结果缓存（报告 §8.5）：全屏详情页的 ViewModel 随回退栈销毁，
+     * 缓存必须挂在容器上，退出再进同一张卡才不会重新请求。
+     * key = "<lang>:<entryId>"（见 CardDetailViewModel），LRU 容量 200。
+     */
+    val cardDetailCache: CardDetailCache by lazy { CardDetailCache() }
 
     /** 全局共享 OkHttpClient：MihoyoClient 与 AuthManager 复用同一实例 */
     private val okHttp: OkHttpClient by lazy {

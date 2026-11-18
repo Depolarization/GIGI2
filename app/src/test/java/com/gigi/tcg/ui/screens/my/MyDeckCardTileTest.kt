@@ -81,9 +81,14 @@ class MyDeckCardTileTest {
     @Test
     fun `card group forwards showCount down to the tile instead of dropping it`() {
         val src = myDecksSource()
-        assertTrue(src.contains("private fun CardGroup(title: String, cards: List<GcgDeckCard>, showCount: Boolean)"))
-        assertTrue(src.contains("DeckCardTile(card = card, showCount = showCount)"))
-        assertTrue(src.contains("private fun DeckCardTile(card: GcgDeckCard, showCount: Boolean)"))
+        assertTrue(src.contains("private fun CardGroup("))
+        assertTrue(src.contains("showCount: Boolean,"))
+        assertTrue(src.contains("onCardClick: (GcgDeckCard) -> Unit,"))
+        assertTrue(src.contains("DeckCardTile("))
+        assertTrue(src.contains("card = card,"))
+        assertTrue(src.contains("showCount = showCount,"))
+        assertTrue(src.contains("onClick = { onCardClick(card) },"))
+        assertTrue(src.contains("private fun DeckCardTile(card: GcgDeckCard, showCount: Boolean, onClick: () -> Unit)"))
     }
 
     @Test

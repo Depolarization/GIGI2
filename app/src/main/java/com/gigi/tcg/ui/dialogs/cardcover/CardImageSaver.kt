@@ -50,6 +50,17 @@ const val GIGI_ALBUM_NAME: String = "GIGI"
 @StringRes val EXPORT_DIR_CHAR: Int = R.string.export_dir_char
 @StringRes val EXPORT_DIR_ACTION: Int = R.string.export_dir_action
 @StringRes val EXPORT_DIR_QR: Int = R.string.export_dir_qr
+@StringRes val EXPORT_DIR_SKILL_ICON: Int = R.string.export_dir_skill_icon
+
+/**
+ * 卡面格式（V3 起只作为下载落盘的扩展名/MIME 载体，不再是页面上的切换控件）：
+ * 普通卡面 PNG / 动态卡面 GIF。文案由下载对话框的 [R.string.download_option_common] /
+ * [R.string.download_option_dynamic] 给出，不再挂在枚举上。
+ */
+enum class CoverFormat(val extension: String, val mimeType: String) {
+    Png("png", "image/png"),
+    Gif("gif", "image/gif"),
+}
 
 /** 取已本地化的导出子目录名（i18n） */
 fun exportDirName(@StringRes dirRes: Int): String = LocaleStrings.get(dirRes)
@@ -121,8 +132,7 @@ private const val DEFAULT_EXPORT_JPEG_QUALITY = 72
 
 /**
  * CompressFormat → 文件名后缀 / MIME。
- * 不复用 CoverFormat：那个枚举定义在 CardCoverViewModel（本棒范围外，且只有 Png/Gif 两种卡面格式），
- * 长图要的是 JPEG，在这里做一层私有映射最省事。
+ * 不复用 [CoverFormat]：那个枚举只描述卡面的 PNG/GIF 两态，长图要的是 JPEG，在这里做一层私有映射最省事。
  * 只区分 PNG / 其余按 JPEG：WEBP 系列枚举项是 API 30+，在 WhenMappings 静态表里引用会在旧机抛错。
  */
 private fun Bitmap.CompressFormat.fileExtension(): String = when (this) {
@@ -156,6 +166,23 @@ internal fun coverFileName(name: String, extension: String): String {
     return "$cleaned.$extension"
 }
 
+/**
+ * 技能图标按 URL 后缀定扩展名（报告 §7.2：jpg/png，缺省 png）。
+ * 忽略 query / fragment；jpeg 归一成 jpg；其余（webp/无后缀）一律按 png。
+ */
+internal fun imageExtensionFromUrl(url: String): String {
+    val path = url.substringBefore('?').substringBefore('#')
+    return when (path.substringAfterLast('.', "").lowercase()) {
+        "jpg", "jpeg" -> "jpg"
+        "png" -> "png"
+        else -> "png"
+    }
+}
+
+/** 扩展名 → MIME（与 [imageExtensionFromUrl] 配对，保证 MediaStore 元数据与文件一致） */
+internal fun imageMimeType(extension: String): String =
+    if (extension == "jpg") "image/jpeg" else "image/png"
+
 class CardImageSaver(private val context: Context) {
 
     private val client: OkHttpClient by lazy {
@@ -178,10 +205,23 @@ class CardImageSaver(private val context: Context) {
         format: CoverFormat,
         subDir: String? = null,
         accountUid: String? = null,
+    ): Uri? = save(url, name, format.extension, format.mimeType, subDir, accountUid)
+
+    /**
+     * 显式扩展名/MIME 重载（技能图标用）：图标没有 PNG/GIF 两态，扩展名按 URL 后缀嗅探，
+     * 故不复用 [CoverFormat]；落盘目录仍走同一套 MediaStore / 公共目录双路径。
+     */
+    suspend fun save(
+        url: String,
+        name: String,
+        extension: String,
+        mimeType: String,
+        subDir: String? = null,
+        accountUid: String? = null,
     ): Uri? = withContext(Dispatchers.IO) {
         val bytes = downloadBytes(url)
-        val fileName = coverFileName(name, format)
-        persist(bytes, fileName, format.mimeType, subDir, accountUid)
+        val fileName = coverFileName(name, extension)
+        persist(bytes, fileName, mimeType, subDir, accountUid)
     }
 
     /**

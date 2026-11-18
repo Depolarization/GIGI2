@@ -82,7 +82,8 @@ class DeckDetailTitleIndentTest {
 
     @Test
     fun `deck name still leads the row and the two icon buttons still trail it`() {
-        val row = myDecksCode().blockAfter(".padding(top = 4.dp, end = 4.dp)")
+        // 60 行：复制按钮的 onClick 现在内联了「分享」action，动作行变长但仍然是两个图标
+        val row = myDecksCode().blockAfter(".padding(top = 4.dp, end = 4.dp)", 60)
         assertTrue("动作行本体还在", row.contains("IconButton"))
         assertTrue("左端仍是牌组名", row.contains("deckDisplayName(deck),"))
         assertTrue("名称仍占满剩余宽度", row.contains("modifier = Modifier.weight(1f),"))

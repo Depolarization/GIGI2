@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UID 查询历史 · 对局本地归档 · 改造报告</title>
+<style>
+  :root{
+    --primary:#6750A4; --on-primary:#FFFFFF;
+    --primary-container:#EADDFF; --on-primary-container:#21005D;
+    --secondary-container:#E8DEF8; --on-secondary-container:#1D192B;
+    --surface:#FEF7FF; --surface-low:#F7F2FA; --surface-high:#ECE6F0; --surface-highest:#E6E0E9;
+    --on-surface:#1D1B20; --on-surface-variant:#49454F;
+    --outline:#79747E; --outline-variant:#CAC4D0;
+    --error:#B3261E; --error-container:#F9DEDC;
+    --win:#296F46; --warn:#7B5E14;
+    --page:#F3EDF7; --ink:#1B1820; --muted:#5C5666; --line:#DED8E1;
+    --code:#2B2930; --code-ink:#EDE7F3;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--page); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+    font-size:15px; line-height:1.7; -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--primary); text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1180px; margin:0 auto; padding:0 28px 96px}
+  header.hero{
+    background:linear-gradient(135deg,#2A1B4A 0%,#4A2F82 55%,#6750A4 100%);
+    color:#fff; padding:56px 28px 44px; margin-bottom:0;
+  }
+  header.hero .inner{max-width:1180px; margin:0 auto}
+  .kicker{font-size:12px; letter-spacing:.18em; text-transform:uppercase; opacity:.72; margin:0 0 10px}
+  h1{font-size:34px; line-height:1.25; margin:0 0 14px; font-weight:650; letter-spacing:-.2px}
+  .sub{font-size:15px; opacity:.84; max-width:820px; margin:0}
+  .meta{display:flex; flex-wrap:wrap; gap:10px; margin-top:22px; font-size:12.5px}
+  .meta span{background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.25); padding:4px 11px; border-radius:999px}
+  nav.toc{
+    position:sticky; top:0; z-index:20; background:rgba(243,237,247,.94);
+    border-bottom:1px solid var(--line); backdrop-filter:blur(8px);
+  }
+  nav.toc .inner{max-width:1180px; margin:0 auto; padding:12px 28px; display:flex; gap:18px; flex-wrap:wrap; font-size:13px}
+  nav.toc a{color:var(--muted)}
+  nav.toc a:hover{color:var(--primary)}
+  section{margin-top:56px; scroll-margin-top:64px}
+  .lead{font-size:16px; color:var(--muted); max-width:900px; margin:8px 0 22px}
+  h2{font-size:23px; line-height:1.35; margin:0 0 6px; font-weight:650; letter-spacing:-.1px}
+  h2 .num{display:inline-block; min-width:38px; color:var(--primary); font-variant-numeric:tabular-nums}
+  h3{font-size:17px; margin:32px 0 10px; font-weight:650}
+  h4{font-size:15px; margin:22px 0 8px; font-weight:650; color:var(--on-surface)}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0; padding-left:22px}
+  li{margin:5px 0}
+  code{font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace; font-size:12.5px}
+  p code,li code,td code{background:#EAE4F2; color:#3B2C5C; padding:1px 5px; border-radius:5px}
+  pre{
+    background:var(--code); color:var(--code-ink); padding:16px 18px; border-radius:12px;
+    overflow:auto; font-size:12.5px; line-height:1.65; margin:14px 0;
+  }
+  pre code{color:inherit; background:none; padding:0; font-size:12.5px}
+  .table-wrap{overflow:auto; margin:14px 0; border:1px solid var(--line); border-radius:12px; background:#fff}
+  table{border-collapse:collapse; width:100%; font-size:13px}
+  th,td{padding:10px 12px; text-align:left; vertical-align:top; border-bottom:1px solid var(--line)}
+  th{background:var(--surface-low); font-weight:650; color:var(--on-surface); white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  td.center,th.center{text-align:center}
+  .cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:14px; margin:16px 0}
+  .card{background:#fff; border:1px solid var(--line); border-radius:14px; padding:16px 18px}
+  .card .label{font-size:11.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin-bottom:6px}
+  .card strong{font-size:15px; display:block; margin-bottom:4px}
+  .card p{margin:4px 0; font-size:13px; color:var(--muted)}
+  .pill{display:inline-block; font-size:11.5px; padding:2px 9px; border-radius:999px; background:var(--primary-container); color:var(--on-primary-container); font-weight:600}
+  .pill.ok{background:#DDEEDF; color:#1E4B30}
+  .pill.warn{background:#F6E7C9; color:#5C4308}
+  .pill.bad{background:#F9DEDC; color:#410E0B}
+  .callout{
+    border-left:3px solid var(--primary); background:#fff; border-radius:0 12px 12px 0;
+    padding:14px 18px; margin:16px 0; font-size:13.5px;
+  }
+  .callout b{color:var(--primary)}
+  .callout.warn{border-left-color:#B4740A}
+  .callout.warn b{color:#8A5A00}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:22px}
+  @media (max-width:900px){.grid2{grid-template-columns:1fr}}
+  /* ---------- 手机线框 ---------- */
+  .phone{
+    width:360px; height:720px; background:var(--surface); border-radius:26px; overflow:hidden;
+    border:1px solid var(--line); box-shadow:0 18px 40px rgba(43,26,74,.18); position:relative;
+    display:flex; flex-direction:column; font-size:12px; color:var(--on-surface);
+  }
+  .phone .bar{height:64px; display:flex; align-items:center; gap:12px; padding:0 8px 0 4px; flex:0 0 auto}
+  .phone .bar .back{width:40px; height:40px; display:grid; place-items:center; color:var(--on-surface); font-size:17px}
+  .phone .bar .title{font-size:22px; line-height:28px; font-weight:400; letter-spacing:0}
+  .pane{padding:16px; display:flex; flex-direction:column; flex:1; min-height:0}
+  .scrim{position:absolute; inset:0; background:rgba(0,0,0,.45); display:grid; place-items:center; padding:24px}
+  .dialog{
+    width:312px; background:var(--surface-high); border-radius:28px; padding:24px;
+    box-shadow:0 12px 32px rgba(0,0,0,.28);
+  }
+  .dialog .dt{font-size:24px; line-height:32px; margin:0 0 16px}
+  .field{
+    height:56px; border:1px solid var(--outline); border-radius:4px; padding:0 16px;
+    display:flex; align-items:center; gap:8px; color:var(--on-surface-variant); background:transparent;
+  }
+  .field .lbl{font-size:12px; position:absolute; margin-top:-34px; margin-left:4px; background:var(--surface-high); padding:0 4px; color:var(--primary)}
+  .hist{margin-top:8px; display:flex; flex-direction:column; gap:4px}
+  .hrow{display:flex; align-items:center; gap:12px; min-height:56px; padding:8px 4px; border-radius:8px}
+  .hrow .ava{width:40px; height:40px; border-radius:999px; background:linear-gradient(150deg,#B9E0EA,#DCD3F2); flex:0 0 auto}
+  .hrow .txt{min-width:0; flex:1}
+  .hrow .n{font-size:14px; line-height:20px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .hrow .u{font-size:12px; line-height:16px; color:var(--on-surface-variant); font-variant-numeric:tabular-nums}
+  .dactions{display:flex; justify-content:flex-end; gap:8px; margin-top:16px}
+  .dactions .t{font-size:14px; font-weight:500; color:var(--primary); padding:10px 12px}
+  /* 首页列表线框 */
+  .profile{border-radius:12px; background:var(--surface-low); padding:14px; display:flex; gap:12px; align-items:center}
+  .profile .ava{width:48px; height:48px; border-radius:999px; background:linear-gradient(150deg,#B9E0EA,#DCD3F2)}
+  .profile .n{font-size:16px; font-weight:600}
+  .profile .u{font-size:12px; color:var(--on-surface-variant)}
+  .sect{display:flex; align-items:center; justify-content:space-between; margin:8px 0 4px}
+  .sect .t{font-size:16px; font-weight:600}
+  .mrec{border:1px solid var(--outline-variant); border-radius:12px; padding:12px; display:flex; align-items:center; gap:12px}
+  .mrec .ava{width:44px; height:44px; border-radius:999px; background:linear-gradient(150deg,#D9C7EC,#C3D9E8)}
+  .mrec .txt{flex:1; min-width:0}
+  .mrec .n{font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .mrec .meta{font-size:12px; color:var(--on-surface-variant)}
+  .mrec .right{text-align:center; font-size:11px; color:var(--on-surface-variant)}
+  .legend{font-size:12px; color:var(--muted); margin-top:10px}
+  .kbd{font-family:ui-monospace,Consolas,monospace; font-size:12px; background:#EAE4F2; padding:1px 6px; border-radius:4px}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="inner">
+    <p class="kicker">GIGI · Android · 改造报告</p>
+    <h1>UID 查询历史快照 · 对局本地全量归档</h1>
+    <p class="sub">
+      两个需求共用一条数据主线：把「一次性网络结果」变成「设备上的可复用资产」。<br>
+      查询历史是 5 条以内的账号级快照；对局归档是无上限的账号级流水，二者都要求「只在正确的写入点写入」。
+    </p>
+    <div class="meta">
+      <span>2026-11-16</span>
+      <span>范围：查询弹窗 / 首页对局 / 数据层持久化</span>
+      <span>不改 API 协议</span>
+      <span>不引入 Room</span>
+    </div>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="inner">
+    <a href="#summary">摘要</a>
+    <a href="#evidence">现状取证</a>
+    <a href="#decisions">关键决策</a>
+    <a href="#query">① 查询历史</a>
+    <a href="#archive">② 对局归档</a>
+    <a href="#homeui">首页渲染改造</a>
+    <a href="#redline">红线与隐私</a>
+    <a href="#tests">测试与验收</a>
+    <a href="#plan">实施顺序</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<!-- ============ 摘要 ============ -->
+<section id="summary">
+  <h2><span class="num">00</span>结论摘要</h2>
+  <p class="lead">两件事都不需要改接口，也不需要新增依赖；工作量集中在一个新的「账号级本地存储层」和首页列表容器的重构上。</p>
+
+  <div class="cards">
+    <div class="card">
+      <div class="label">需求 ①</div>
+      <strong>查询历史 = 账号级 5 条快照</strong>
+      <p>输入框下方直接跟列表，不加大标题、不加清除按钮、不加时间。头像 40dp，昵称 titleSmall，UID bodySmall，行高 56dp。</p>
+    </div>
+    <div class="card">
+      <div class="label">需求 ②</div>
+      <strong>对局 = 本地 JSON 归档 + 合并去重</strong>
+      <p>远端只给最近 10 局，本地无上限；每次刷新按 <code>trans_no</code> 去重入库，首页统一渲染合并结果。远端失败但本地有数据时不报错。</p>
+    </div>
+    <div class="card">
+      <div class="label">必须一起改</div>
+      <strong>首页列表容器：Column → LazyColumn</strong>
+      <p>现在是「整页 verticalScroll + 直接渲染最多 10 条」。全量后必须换成单一 LazyColumn，否则几百条会同时组合、内存与滑动都不可接受。</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <b>一句话口径：</b>查询历史只记「用户在弹窗里主动查的人」；对局归档只记「官方窗口里出现过的比赛」，二者都按
+    <code>账号 UID + 服务器</code> 隔离，不跨账号串数据。
+  </div>
+</section>
+
+<!-- ============ 现状取证 ============ -->
+<section id="evidence">
+  <h2><span class="num">01</span>现状取证</h2>
+
+  <h3>1.1 查询弹窗：只有一个输入框</h3>
+  <p>
+    <code>PlayerQueryDialog</code> 由主壳在 <code>queryOpen</code> 为真时挂载（右上角入口），
+    内容只有一个 <code>OutlinedTextField</code>：9 位纯数字校验、非法提示、合法后 <code>onSubmit(uid)</code> 交给宿主。
+    没有历史、没有本地存储，关闭即丢。
+  </p>
+  <pre><code>// GigiNavHost.kt L504-512（现状）
+if (queryOpen) {
+    PlayerQueryDialog(
+        onSubmit = { uid -&gt;
+            queryOpen = false
+            detailTarget = PlayerDetailTarget(uid)   // 手输：无头像兜底
+        },
+        onClose = { queryOpen = false },
+    )
+}</code></pre>
+
+  <p>玩家详情共有 4 个入口，其中 3 个是「点页面上已有的人」，只有 1 个是「手输」：</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>入口</th><th>代码位置</th><th>本需求写入历史？</th></tr></thead>
+    <tbody>
+      <tr><td>右上角 UID 查询弹窗</td><td><code>GigiNavHost.kt L505-L512</code></td><td><span class="pill ok">写入</span></td></tr>
+      <tr><td>首页资料卡（点自己）</td><td><code>HomeRoute.kt L184-L189</code> → <code>GigiNavHost.kt L403-L405</code></td><td><span class="pill bad">不写</span></td></tr>
+      <tr><td>首页对局记录（点对手）</td><td><code>HomeRoute.kt L234-L245</code> → <code>GigiNavHost.kt L403-L405</code></td><td><span class="pill bad">不写</span></td></tr>
+      <tr><td>排行榜（点玩家）</td><td><code>RankRoute</code> → <code>GigiNavHost.kt L411-L413</code></td><td><span class="pill bad">不写</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <p>
+    因此「在首页或排行榜等页面查询玩家信息时，不入库」不需要额外判断页面，只需要一个**来源标记**：
+    只有弹窗提交时把 <code>recordHistory</code> 置真，详情查询成功后再落库。
+  </p>
+
+  <h3>1.2 对局：只有网络结果，没有本地账本</h3>
+  <pre><code>// HomeViewModel.kt L138-L159（现状）
+val next = try {
+    Async.Content(
+        container.repository.fetchGameRecordsCached(uid, server, force).gameRecords.orEmpty(),
+    )
+} catch (e: Exception) { Async.Error(apiErrorText(e)) }</code></pre>
+  <ul>
+    <li>数据源只有 <code>get_game_records</code>，服务端窗口约 10 局；超出窗口的历史**永久丢失**。</li>
+    <li>只有 45 秒的进程内缓存（<code>cachedPrivate</code>），进程重启即清零；断网时首页只剩错误态。</li>
+    <li><code>HomeRoute</code> 用 <code>Column + verticalScroll</code> 直接 <code>forEach</code> 渲染，代码里已有注释「服务端最多返回 10 条」。
+      全量后这个前提不成立，必须换容器（见 §05）。</li>
+    <li><code>GameRecord.transNo</code> 是服务端对局流水号，可直接作为去重主键；缺失时用「时间 + 对手 + 胜负」兜底。</li>
+  </ul>
+
+  <div class="callout warn">
+    <b>必须诚实说明的上限：</b>归档只在「打开首页 / 下拉刷新 / 回前台」时补齐。
+    若两次同步之间打了超过 10 局，中间超出官方窗口的对局拿不到——这是数据源决定的，不是实现取舍。
+    本报告仍会把「回前台静默同步」纳入，把窗口从「每次开 App」压缩到「每次回 App」。
+  </div>
+</section>
+
+<!-- ============ 决策 ============ -->
+<section id="decisions">
+  <h2><span class="num">02</span>关键决策</h2>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>议题</th><th>选择</th><th>理由 / 被否方案</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>查询历史归属维度</td>
+        <td>账号级：<code>sessionUid + serverId</code>，上限 5 条，按 UID 去重并置顶</td>
+        <td>UID 是服务器范围的，跨账号/跨服混排会点出「查无此玩家」。全设备共用一份会导致换号后历史错乱。</td>
+      </tr>
+      <tr>
+        <td>历史写入时机</td>
+        <td>手动提交（或点历史项）→ 详情查询成功且拿到昵称后写入</td>
+        <td>提交即写会产生「查无此玩家 / 无权限」的垃圾条目，且拿不到头像昵称。<br>否：查询失败也记录 UID（列表头像与昵称会长期为空）。</td>
+      </tr>
+      <tr>
+        <td>对局存储介质</td>
+        <td>账号级 JSON 文件 + 原子写（<code>filesDir</code> 私有目录）</td>
+        <td>不引 Room（当前工程无 KSP，仅加依赖与注解处理不值当）；条目是追加型快照，不需要查询语言。<br>否：塞进 DataStore Preferences 存一个大字符串（每次写整份、体积增大后不合适）。</td>
+      </tr>
+      <tr>
+        <td>去重主键</td>
+        <td><code>trans_no</code>；为空时 <code>timestamp|nickname|result</code></td>
+        <td><code>trans_no</code> 是服务端流水号；兜底键仅在异常数据上生效，冲突概率极低（同秒 + 同对手 + 同胜负）。</td>
+      </tr>
+      <tr>
+        <td>远端失败时的对局展示</td>
+        <td>本地非空 → 展示本地，不报错；本地为空 → 维持现有整屏错误</td>
+        <td>归档的意义就是断网可读；此时把已有历史藏到错误页后面，等于白存。</td>
+      </tr>
+      <tr>
+        <td>对局上限</td>
+        <td>不设上限</td>
+        <td>用户明确要求「本地对局数无限制」。1 条约 200 B，1 万局约 2 MB，仍在可控范围。</td>
+      </tr>
+      <tr>
+        <td>本轮是否引入 Room</td>
+        <td>否</td>
+        <td>两个存储都是「整份小数据 / 追加型快照」，文件 + 内存镜像足够；Room 会带来构建复杂度与迁移成本。</td>
+      </tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============ 查询历史 ============ -->
+<section id="query">
+  <h2><span class="num">03</span>① UID 查询历史快照</h2>
+
+  <h3>3.1 数据模型</h3>
+  <pre><code>@Serializable
+data class QuerySnapshot(
+    val uid: String,          // 9 位，去重主键
+    val nickname: String?,    // 查询成功后回填
+    val avatarUrl: String?,   // 查询成功后回填
+    val serverId: String,     // 写入时所在服务器
+    val queriedAt: Long,      // 最近一次查询时间（用于排序兜底，不上屏）
+)</code></pre>
+  <p>列表顺序 = 文件内顺序 = 最近查询在前。点击历史项视作一次查询：重新请求并把该条移到第 1 位。</p>
+
+  <h3>3.2 存储</h3>
+  <ul>
+    <li>复用现有 <code>datastore-preferences</code>（不加依赖），文件 <code>player_query_history</code>，键
+      <code>gigi:query-history:&lt;server&gt;:&lt;accountUid&gt;</code>，值是上述列表的 JSON。</li>
+    <li>损坏/解析失败 → 视为空列表（与 <code>WikiDiskCache</code> 的 <code>ReplaceFileCorruptionHandler</code> 同一哲学），不向页面抛错。</li>
+    <li>写入 = 读当前列表 → 去除同 <code>uid</code> → 头插 → <code>take(5)</code> → 整体写回（单条最大 5 条，成本可忽略）。</li>
+    <li>对外暴露 <code>Flow&lt;List&lt;QuerySnapshot&gt;&gt;</code>，由 <code>combine(sessionUid, currentServer)</code> 驱动；会话为空时发空列表。</li>
+  </ul>
+
+  <h3>3.3 写入链路</h3>
+  <pre><code>// 1) 给 Target 增加来源标记（默认 false：所有「点列表」入口零改动）
+data class PlayerDetailTarget(
+    val uid: String,
+    val avatarUrl: String? = null,
+    val recordHistory: Boolean = false,
+)
+
+// 2) 仅查询弹窗提交时置真
+PlayerDetailTarget(uid, recordHistory = true)
+
+// 3) PlayerDetailViewModel 在拿到结果后落库（含 5 分钟内缓存命中的路径）
+if (recordHistory &amp;&amp; content.data.pageInfo?.nickname != null) {
+    queryHistory.record(
+        QuerySnapshot(
+            uid = uid,
+            nickname = pageInfo.nickname,
+            avatarUrl = pageInfo.avatarUrl,
+            serverId = server.id,
+            queriedAt = now,
+        ),
+    )
+}</code></pre>
+  <ul>
+    <li>「查无此玩家」「无权限（isShield）」「网络失败」都不写：没有昵称就不构成一张可读快照。</li>
+    <li>手输校验失败（非 9 位）在弹窗内拦截，不产生任何写入。</li>
+    <li>点历史项 = 再查一次 = 同一套链路，因此会自然置顶。</li>
+  </ul>
+
+  <h3>3.4 UI 规格（Material 3）</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>元素</th><th>规格</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>容器</td><td>沿用 <code>AlertDialog</code>（28dp 圆角，宽度 280–560dp）</td><td>不换成 BasicAlertDialog，保持工程内弹窗一致</td></tr>
+      <tr><td>标题</td><td><code>query_title</code>，headlineSmall</td><td>现有文案不动</td></tr>
+      <tr><td>输入框</td><td><code>OutlinedTextField</code>，56dp，单行、数字键盘</td><td>现有实现不动</td></tr>
+      <tr><td>输入框 → 列表</td><td>8dp</td><td>无分组标题，避免「多一个组件」</td></tr>
+      <tr><td>列表项高度</td><td>最小 56dp，纵向内边距 8dp</td><td>满足 48dp 触摸目标</td></tr>
+      <tr><td>头像</td><td>40dp，CircleShape，占位 surfaceContainerHighest</td><td>复用 <code>Avatar</code> 组件</td></tr>
+      <tr><td>头像 → 文本</td><td>12dp</td><td></td></tr>
+      <tr><td>昵称</td><td>titleSmall（14/20，w500），单行省略</td><td>缺昵称时不落库，因此不会出现空行</td></tr>
+      <tr><td>UID</td><td>bodySmall（12/16），onSurfaceVariant，tabular-nums</td><td>与昵称 2dp 垂直间距</td></tr>
+      <tr><td>行间距</td><td>4dp，行容器 <code>shapes.small</code> + ripple</td><td>不加分割线（属「多余组件」）</td></tr>
+      <tr><td>最大高度</td><td>5 × 56 + 4 × 4 = 296dp</td><td>整体套 <code>verticalScroll</code>，200% 字体时仍可滚</td></tr>
+      <tr><td>空历史</td><td>不渲染任何占位/说明</td><td>列表区高度为 0，弹窗回到现在的观感</td></tr>
+      <tr><td>动作区</td><td>取消 / 查询，TextButton</td><td>现有实现不动</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="grid2">
+    <div>
+      <h4>线框：有历史</h4>
+      <div class="phone">
+        <div class="bar"><div class="back">←</div><div class="title">首页</div></div>
+        <div class="pane" style="opacity:.35">
+          <div class="profile"><div class="ava"></div><div><div class="n">Atardece</div><div class="u">350347778</div></div></div>
+        </div>
+        <div class="scrim">
+          <div class="dialog" style="position:relative">
+            <div class="dt">查询玩家</div>
+            <div class="field"><span>UID</span></div>
+            <div class="hist">
+              <div class="hrow"><div class="ava"></div><div class="txt"><div class="n">浊水幻灵</div><div class="u">502488123</div></div></div>
+              <div class="hrow"><div class="ava"></div><div class="txt"><div class="n">北风骑士</div><div class="u">350347778</div></div></div>
+              <div class="hrow"><div class="ava"></div><div class="txt"><div class="n">叶洛亚</div><div class="u">216931204</div></div></div>
+              <div class="hrow"><div class="ava"></div><div class="txt"><div class="n">哥伦比娅</div><div class="u">801234567</div></div></div>
+              <div class="hrow"><div class="ava"></div><div class="txt"><div class="n">法尔伽</div><div class="u">104987365</div></div></div>
+            </div>
+            <div class="dactions"><div class="t">取消</div><div class="t">查询</div></div>
+          </div>
+        </div>
+      </div>
+      <p class="legend">5 条全显示；除输入框、列表、两个动作外没有第三个元素。</p>
+    </div>
+    <div>
+      <h4>线框：无历史</h4>
+      <div class="phone">
+        <div class="bar"><div class="back">←</div><div class="title">首页</div></div>
+        <div class="pane" style="opacity:.35">
+          <div class="profile"><div class="ava"></div><div><div class="n">Atardece</div><div class="u">350347778</div></div></div>
+        </div>
+        <div class="scrim" style="align-items:center">
+          <div class="dialog">
+            <div class="dt">查询玩家</div>
+            <div class="field"><span>UID</span></div>
+            <div class="dactions"><div class="t">取消</div><div class="t">查询</div></div>
+          </div>
+        </div>
+      </div>
+      <p class="legend">无历史时不出现空态文案，弹窗高度与现状一致。</p>
+    </div>
+  </div>
+
+  <h3>3.5 边界与结论</h3>
+  <ul>
+    <li>同一 UID 重复查询：不留重复项，直接置顶（快照不是日志）。</li>
+    <li>超过 5 条：淘汰最久未查询的一条。</li>
+    <li>换账号 / 换服：各自 5 条，互不可见（键空间已隔离）。</li>
+    <li>登出：数据保留在设备私有目录（同一账号再登录仍可见）；本轮不提供清除入口（不属于「列表外」）。</li>
+    <li>点击历史后：弹窗立即关闭（与手输一致），详情以新查询结果为准。</li>
+  </ul>
+</section>
+
+<!-- ============ 对局归档 ============ -->
+<section id="archive">
+  <h2><span class="num">04</span>② 对局本地全量归档</h2>
+
+  <h3>4.1 架构</h3>
+  <pre><code>HomeViewModel
+   │  loadRecords()
+   ▼
+GigiRepository.syncGameRecords(uid, server, force)
+   │
+   ├─ ① 读本地：MatchArchiveStore.load(uid, server)      → 立即可渲染
+   ├─ ② 拉远端：GET get_game_records（窗口内最新 N 局）
+   ├─ ③ 合并：remote ∪ local，按 key 去重，remote 覆盖同 key
+   ├─ ④ 排序：timestamp 倒序（同秒按 archivedAt 倒序）
+   └─ ⑤ 落盘：仅在有新增/变化时原子写 + 更新 lastSyncAt
+   ▼
+List&lt;GameRecord&gt;（全量） → 首页 LazyColumn</code></pre>
+
+  <h3>4.2 存储格式</h3>
+  <pre><code>filesDir/match_archive/&lt;serverId&gt;_&lt;accountUid&gt;.json
+{
+  "version": 1,
+  "serverId": "cn_gf01",
+  "uid": "350347778",
+  "lastSyncAt": 1794791686000,
+  "records": [ { "nickname": "...", "avatar_url": "...", "result": "Win",
+                 "trans_no": "...", "timestamp": "1786515594",
+                 "ladder_score": {...}, "peak_score": {...} } ]
+}</code></pre>
+  <ul>
+    <li>直接序列化现有 <code>GameRecord</code>（已是 <code>@Serializable</code>），不另建一套映射模型，避免字段漂移。</li>
+    <li>写入 = 写 <code>*.json.tmp</code> → <code>rename</code> 覆盖，避免中途被杀导致半截文件。</li>
+    <li>读取失败（文件损坏 / 版本不认识）→ 当作空库并记录一次日志，下次同步重建，不影响页面。</li>
+    <li>内存中保留一份 <code>MutableStateFlow&lt;List&lt;GameRecord&gt;&gt;</code>，按账号缓存，避免每次进首页都读盘。</li>
+  </ul>
+
+  <h3>4.3 合并与去重</h3>
+  <pre><code>// domain/MatchMerge.kt —— 纯函数，JVM 直测
+fun matchKey(r: GameRecord): String =
+    r.transNo?.takeIf { it.isNotBlank() }
+        ?: "t:${r.timestamp}|n:${r.nickname}|r:${r.result}"
+
+fun mergeMatches(
+    local: List&lt;GameRecord&gt;,
+    remote: List&lt;GameRecord&gt;,
+    now: Long,
+): List&lt;GameRecord&gt; {
+    val byKey = LinkedHashMap&lt;String, GameRecord&gt;()
+    local.forEach { byKey[matchKey(it)] = it }       // 旧值先放
+    remote.forEach { byKey[matchKey(it)] = it }      // 同 key 用远端覆盖（积分等字段可能修正）
+    return byKey.values.sortedWith(
+        compareByDescending&lt;GameRecord&gt; { it.timestamp?.toLongOrNull() ?: 0L }
+            .thenByDescending { archivedAt[it] ?: 0L }
+    )
+}</code></pre>
+  <ul>
+    <li>无上限：不截断、不采样。</li>
+    <li>稳定排序：时间相同（同一秒内的两局）时按入库先后倒序，保证多次刷新顺序不跳。</li>
+    <li>只在「合并结果 != 内存列表」时写盘；下拉刷新但无新对局时零写盘。</li>
+  </ul>
+
+  <h3>4.4 失败与降级矩阵</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>远端</th><th>本地</th><th>首页表现</th><th>写盘</th></tr></thead>
+    <tbody>
+      <tr><td>成功</td><td>空</td><td>远端窗口内的对局（首次入库）</td><td>是</td></tr>
+      <tr><td>成功</td><td>非空</td><td>合并后的全量，新的在上</td><td>有新条目时</td></tr>
+      <tr><td>失败（网络/retcode）</td><td>非空</td><td>展示本地全量，不显示错误</td><td>否</td></tr>
+      <tr><td>失败</td><td>空</td><td>保持现有整屏错误 + 重试</td><td>否</td></tr>
+      <tr><td>成功但返回空数组</td><td>非空</td><td>展示本地全量（不清库）</td><td>否</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout warn">
+    <b>不要做的事：</b>远端返回空就用空覆盖本地。官方窗口偶尔会短暂返回空/少条，
+    用「覆盖」会让本地历史凭空消失；合并语义天然规避这个问题。
+  </div>
+
+  <h3>4.5 同步时机</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>时机</th><th>行为</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>首载（进首页）</td><td>先本地、后网络</td><td>本地非空立即出内容，网络回来后静默替换；不再整块 Loading</td></tr>
+      <tr><td>下拉刷新 / 刷新图标</td><td>force 同步</td><td>现有 <code>refresh()</code> 不动</td></tr>
+      <tr><td>回前台（ON_START）</td><td>records-only 静默同步，60s 去抖</td><td>把「丢 10 局」的窗口从「开 App」缩到「回 App」；只发 1 个请求，不碰 profile</td></tr>
+      <tr><td>45 秒内重复进入</td><td>直接返回内存结果</td><td>沿用现有 HOME_CACHE_TTL_MS，避免重复请求</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>4.6 容量估算</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>对局数</th><th>JSON 体积（约）</th><th>全量重写耗时</th><th>判定</th></tr></thead>
+    <tbody>
+      <tr><td>100</td><td>20 KB</td><td>&lt; 5 ms</td><td>无感</td></tr>
+      <tr><td>1 000</td><td>200 KB</td><td>&lt; 20 ms</td><td>无感</td></tr>
+      <tr><td>10 000</td><td>2 MB</td><td>&lt; 150 ms</td><td>后台 IO 线程，可接受</td></tr>
+      <tr><td>50 000</td><td>10 MB</td><td>~0.7 s</td><td>仍然只在有新对局时写；不做截断（用户要求无限制）</td></tr>
+    </tbody>
+  </table></div>
+  <p>写盘与解析全部在 <code>Dispatchers.IO</code>；首页只读内存快照，不阻塞主线程。</p>
+</section>
+
+<!-- ============ 首页 UI ============ -->
+<section id="homeui">
+  <h2><span class="num">05</span>首页渲染改造（全量的前提）</h2>
+
+  <h3>5.1 为什么必须改</h3>
+  <p>
+    现状是 <code>Column + verticalScroll</code>，记录用 <code>forEach</code> 直接组合；注释里明确写着
+    「服务端最多返回 10 条」。全量后：
+  </p>
+  <ul>
+    <li>1000 条 = 1000 个 Composable 同时存在，首次组合与内存都不可接受；</li>
+    <li>整页 <code>verticalScroll</code> 与 <code>PullToRefreshBox</code> 的组合在超长内容下也没有回收机制。</li>
+  </ul>
+
+  <h3>5.2 目标结构</h3>
+  <pre><code>PullToRefreshBox(isRefreshing, onRefresh) {
+    LazyColumn(
+        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item("profile") { ProfileCard(...) }              // 或该块自己的 LoadingView
+        item("section") { RecentHeader(onRefresh) }        // 「最近对局」+ 刷新图标
+        items(records, key = { matchKey(it) }) { record -&gt;
+            RecordItem(record, ...)                        // 视觉零改动
+        }
+    }
+}</code></pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th>现状</th><th>改造</th><th>保持不变</th></tr></thead>
+    <tbody>
+      <tr><td>外层 <code>Column + verticalScroll</code>（按 <code>recordsEmpty</code> 切换）</td><td>单一 <code>LazyColumn</code>，无条件滚动</td><td>整页内边距 16dp</td></tr>
+      <tr><td>记录 <code>forEach</code> 直渲染</td><td><code>items(key = matchKey)</code> 虚拟化</td><td>卡片间距 8dp、卡片样式与点击/长按</td></tr>
+      <tr><td>空态用 <code>weight(1f)</code> 居中</td><td>空态作为 <code>item</code>，固定 360dp 高度居中</td><td>空态文案</td></tr>
+      <tr><td>两块都 Loading → 整屏 Loading</td><td>不变（首屏无本地记录时仍整屏转圈）</td><td>错误二合一、下拉刷新动效</td></tr>
+    </tbody>
+  </table></div>
+
+  <h4>线框（全量）</h4>
+  <div class="phone">
+    <div class="bar"><div class="title" style="margin-left:8px">首页</div></div>
+    <div class="pane" style="gap:8px">
+      <div class="profile"><div class="ava"></div><div><div class="n">Atardece</div><div class="u">Lv. 无段位 · 350347778</div></div></div>
+      <div class="sect"><div class="t">最近对局</div><div style="opacity:.6">⟳</div></div>
+      <div class="mrec"><div class="ava"></div><div class="txt"><div class="n">浊水幻灵</div><div class="meta">502488123</div><div class="meta">11-16 09:25</div></div><div class="right">天梯 2760 (+10)<br>巅峰 -<br><span style="color:var(--win)">胜</span></div></div>
+      <div class="mrec"><div class="ava"></div><div class="txt"><div class="n">北风骑士</div><div class="meta">350347778</div><div class="meta">11-15 22:07</div></div><div class="right">天梯 2750 (-7)<br>巅峰 -<br><span style="color:var(--error)">负</span></div></div>
+      <div class="mrec"><div class="ava"></div><div class="txt"><div class="n">叶洛亚</div><div class="meta">216931204</div><div class="meta">09-02 14:17</div></div><div class="right">天梯 2757 (+9)<br>巅峰 -<br><span style="color:var(--win)">胜</span></div></div>
+      <div style="text-align:center;color:var(--muted);font-size:11px;padding-top:4px">… 继续向下为更早对局（本地全量）</div>
+    </div>
+  </div>
+  <p class="legend">卡片视觉、胜负色、长按复制对手 UID 全部沿用；仅把「最多 10 条」换成虚拟化全量列表。</p>
+
+  <h3>5.3 ViewModel 状态流</h3>
+  <pre><code>private fun loadRecords(uid, server, force) {
+    val gen = ++recordsGeneration
+    val local = repository.localMatches(uid, server)       // 同步读内存镜像
+    if (local.isNotEmpty()) {
+        _uiState.update { it.copy(records = Async.Content(local)) }   // 不进 Loading
+    } else if (!silent) {
+        _uiState.update { it.copy(records = Async.Loading) }
+    }
+    viewModelScope.launch {
+        val next = try {
+            Async.Content(repository.syncGameRecords(uid, server, force))
+        } catch (e: Exception) {
+            if (local.isNotEmpty()) Async.Content(local)
+            else Async.Error(apiErrorText(e))
+        }
+        if (gen == recordsGeneration) _uiState.update { it.copy(records = next) }
+    }
+}</code></pre>
+  <ul>
+    <li>首载 <code>pendingLoads / refreshing</code> 语义保持不变，下拉圈仍由「请求清零 + 两块落定」控制。</li>
+    <li>回前台同步：<code>fun syncRecordsOnResume()</code>，同一条链路但不动 profile，60 秒去抖。</li>
+  </ul>
+</section>
+
+<!-- ============ 红线 ============ -->
+<section id="redline">
+  <h2><span class="num">06</span>红线与隐私</h2>
+
+  <div class="callout warn">
+    <b>本需求会改写一条既有设计红线。</b>
+    <code>WikiDiskCache.kt</code> 开头写明：「公开静态数据才允许落盘——私有数据（主页/对局/排行/卡牌统计/凭据）一律只走内存层」。
+    本轮按你的明确要求，把「对局」与「查询历史」纳入落盘白名单，其余私有数据仍然只走内存。
+  </div>
+
+  <ul>
+    <li>存储位置：<code>filesDir</code>（应用私有，其他应用不可读），卸载即清除。</li>
+    <li>键包含账号与服务器，不跨账号混排；登出不清盘（同一账号回来仍可见）。</li>
+    <li>不写日志、不上传、不导出；对局库仅在首页与详情页内使用。</li>
+    <li>查询历史只存「UID + 公开昵称/头像」，不存任何凭据。</li>
+    <li>凭据（Cookie / DS）继续只走 <code>CredentialStore</code>，本次改动不触碰。</li>
+  </ul>
+</section>
+
+<!-- ============ 测试 ============ -->
+<section id="tests">
+  <h2><span class="num">07</span>测试与验收</h2>
+
+  <h3>7.1 JVM 单测（新增）</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>文件</th><th>覆盖</th></tr></thead>
+    <tbody>
+      <tr><td><code>QueryHistoryUpsertTest</code></td><td>头插置顶、同 UID 去重、上限 5、第 6 条淘汰最旧、空输入</td></tr>
+      <tr><td><code>QueryHistoryJsonTest</code></td><td>序列化往返、损坏 JSON → 空列表、缺少可选字段</td></tr>
+      <tr><td><code>QueryHistoryScopeTest</code></td><td>不同账号/服务器键空间隔离</td></tr>
+      <tr><td><code>MatchMergeTest</code></td><td>10 新 + 3 重叠 → 17；远端覆盖同 key；timestamp 倒序；同秒稳定；<code>trans_no</code> 缺失走兜底键；重复键在远端内部去重</td></tr>
+      <tr><td><code>MatchArchiveStoreTest</code></td><td>临时目录写入/重读、原子替换、损坏文件降级为空、只在新条目时写盘</td></tr>
+      <tr><td><code>HomeRecordsFallbackTest</code></td><td>远端失败 + 本地非空 → Content；远端空数组不覆盖本地</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>7.2 真机冒烟（Redmi K30，2162f16c）</h3>
+  <ol>
+    <li>连查 6 个不同 UID → 列表只剩最近 5 条，顺序为 6→2，头像昵称正确。</li>
+    <li>重复查第 1 条 → 仍 5 条，该条置顶不重复。</li>
+    <li>杀掉进程重开 → 历史仍在。</li>
+    <li>从首页对局点对手、从排行榜点玩家 → 回到弹窗，历史**不增加**。</li>
+    <li>首页连续刷新两次 → 查看 <code>filesDir/match_archive/*.json</code>，条数 ≥ 远端窗口且无重复 <code>trans_no</code>。</li>
+    <li>断网点刷新 → 首页仍显示上一次的全量列表，无错误页；再联网刷新 → 新对局并入顶部。</li>
+    <li>200% 字体 / 浅色 / 夜间检查弹窗与首页列表。</li>
+    <li>滚到列表底部无卡顿、无重复 key 崩溃（<code>IllegalArgumentException: Key was already used</code>）。</li>
+  </ol>
+</section>
+
+<!-- ============ 实施 ============ -->
+<section id="plan">
+  <h2><span class="num">08</span>实施顺序与代码落点</h2>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>阶段</th><th>产出</th><th>文件</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>P1 数据层</td>
+        <td><code>QuerySnapshot</code> / <code>QueryHistoryStore</code>（DataStore）<br><code>MatchArchive</code> / <code>MatchArchiveStore</code>（JSON 文件）<br><code>MatchMerge</code> 纯函数；容器注册</td>
+        <td><code>data/history/QueryHistoryStore.kt</code><br><code>data/history/MatchArchiveStore.kt</code><br><code>domain/MatchMerge.kt</code><br><code>di/AppContainer.kt</code></td>
+      </tr>
+      <tr>
+        <td>P2 查询历史</td>
+        <td>弹窗历史列表、来源标记、成功落库</td>
+        <td><code>PlayerQueryDialog.kt</code><br><code>PlayerQueryViewModel.kt</code>（新）<br><code>PlayerDetailDialog.kt</code> / <code>PlayerDetailViewModel.kt</code><br><code>GigiNavHost.kt</code></td>
+      </tr>
+      <tr>
+        <td>P3 对局同步</td>
+        <td><code>syncGameRecords</code> + HomeViewModel 本地优先 + 回前台去抖</td>
+        <td><code>GigiRepository.kt</code><br><code>HomeViewModel.kt</code></td>
+      </tr>
+      <tr>
+        <td>P4 首页容器</td>
+        <td>LazyColumn 重构、空态 item、去掉 verticalScroll</td>
+        <td><code>HomeRoute.kt</code></td>
+      </tr>
+      <tr>
+        <td>P5 验证</td>
+        <td>单测 + 构建 + 真机冒烟</td>
+        <td><code>app/src/test/…</code></td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <h3>8.1 风险清单</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>风险</th><th>影响</th><th>缓解</th></tr></thead>
+    <tbody>
+      <tr><td>两次同步之间打超过 10 局</td><td>中间对局仍会丢失</td><td>回前台同步 + 下拉刷新；报告明确这是数据源上限</td></tr>
+      <tr><td>时间戳缺失/非数字</td><td>排序落到末尾</td><td>解析失败按 0 处理，仍能展示</td></tr>
+      <tr><td>大量记录导致整份 JSON 重写变慢</td><td>刷新时 IO 抖动</td><td>IO 线程 + 仅在变化时写 + 原子替换</td></tr>
+      <tr><td>首页 LazyColumn key 冲突</td><td>运行期崩溃</td><td>key 统一走 <code>matchKey</code>，合并阶段已保证唯一</td></tr>
+      <tr><td>历史里出现空昵称</td><td>列表行只剩 UID</td><td>仅在有昵称时入库，从源头杜绝</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>8.2 本轮不做</h3>
+  <ul>
+    <li>不做历史管理页 / 清除按钮 / 搜索历史。</li>
+    <li>不做对局按日期分组、筛选、导出（未提出）。</li>
+    <li>不引入 Room、不改接口、不动排行榜与卡牌统计的玩家入口行为。</li>
+    <li>不做跨账号共享的查询历史。</li>
+  </ul>
+</section>
+
+</div>
+</body>
+</html>

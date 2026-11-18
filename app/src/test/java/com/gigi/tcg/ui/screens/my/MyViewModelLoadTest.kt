@@ -9,6 +9,9 @@
 package com.gigi.tcg.ui.screens.my
 
 import com.gigi.tcg.data.auth.StoredAccount
+import com.gigi.tcg.data.model.WikiCardEntry
+import com.gigi.tcg.data.model.WikiChannelNode
+import com.gigi.tcg.data.repo.WikiListData
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.currentTime
@@ -51,6 +54,47 @@ class MyViewModelLoadTest {
         guard.onLoadedFrom("123456")
         assertTrue("登出（uid 置 null）必须作废上一账户的数据", guard.onLoadedFrom(null))
         assertFalse(guard.onLoadedFrom(null))
+    }
+
+    // ---- 卡组详情点卡面 → 图鉴 contentId 的映射（V39-H） ----
+
+    @Test
+    fun `wiki card index strips role suffix and keeps the first duplicate`() {
+        val data = WikiListData(
+            list = listOf(
+                WikiChannelNode(
+                    id = 231,
+                    children = listOf(
+                        WikiChannelNode(
+                            id = 233,
+                            list = listOf(
+                                WikiCardEntry(contentId = 509928, title = "雷电将军【角色牌】"),
+                                WikiCardEntry(contentId = 509929, title = "雷电将军【角色牌】"),
+                            ),
+                        ),
+                        WikiChannelNode(
+                            id = 234,
+                            list = listOf(
+                                WikiCardEntry(contentId = 6578, title = "万千的愿望"),
+                                WikiCardEntry(contentId = null, title = "缺少 content_id 的条目"),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val index = buildWikiCardIndex(data)
+        // 卡组接口的牌名没有【角色牌】后缀 ⇒ 索引键必须去掉后缀
+        assertEquals(509928L, index["雷电将军"])
+        assertEquals(6578L, index["万千的愿望"])
+        assertFalse("缺 content_id 的条目不进索引", index.containsKey("缺少 content_id 的条目"))
+        assertFalse("带后缀的标题不应成为另一个键", index.containsKey("雷电将军【角色牌】"))
+    }
+
+    @Test
+    fun `wiki card index tolerates missing or empty payloads`() {
+        assertTrue(buildWikiCardIndex(null).isEmpty())
+        assertTrue(buildWikiCardIndex(WikiListData()).isEmpty())
     }
 
     @Test

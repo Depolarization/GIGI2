@@ -118,6 +118,16 @@ class AlbumPathTest {
     }
 
     @Test
+    fun `技能图标目录挂 UID 层`() {
+        // 报告 §7.2：Pictures/GIGI/技能图标/<UID>/<技能名>.<ext>
+        assertEquals(
+            "Pictures/GIGI/技能图标/12345",
+            buildAlbumRelativePath("Pictures", "GIGI", "技能图标", "12345"),
+        )
+        assertTrue(EXPORT_DIR_SKILL_ICON != EXPORT_DIR_CHAR && EXPORT_DIR_SKILL_ICON != EXPORT_DIR_QR)
+    }
+
+    @Test
     fun `导出日期文本为 yyyy-MM-dd 形状`() {
         val text = exportDateText()
         assertEquals(10, text.length)
