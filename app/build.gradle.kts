@@ -41,8 +41,8 @@ android {
         applicationId = "com.gigi.tcg"
         minSdk = 24
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 5
+        versionName = "1.0.4"
         // T11 取证用：instrumentation 注入凭据（仅 debug/androidTest 路径，不触业务逻辑）
         testInstrumentationRunner = "com.gigi.tcg.debug.DebugCredentialInjector"
 
