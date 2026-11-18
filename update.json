@@ -1,9 +1,9 @@
 {
-  "versionName": "1.0.3",
-  "versionCode": 4,
-  "body": "## 1.0.3 更新内容\n\n### 改进\n- 检查更新改造：镜像改为并发探测，国内网络下拿结果明显更快\n- 更新清单按发布时间择优，避免镜像缓存导致的「有新版却提示已是最新」\n- 下载地址增加域名白名单校验",
-  "downloadUrl": "https://github.com/Depolarization/GIGI2/releases/download/v1.0.3/app-release.apk",
-  "publishedAt": "2026-11-18T13:15:38Z",
-  "sha256": "0d8517f804e5713f96660e0ba0f59ba3fc207e2a8ef623f127eb5daa29bb46c4",
-  "size": 4004792
+  "versionName": "1.0.4",
+  "versionCode": 5,
+  "body": "## 1.0.4 更新内容\n\n### 新增\n- 卡牌详情页：技能与卡牌描述富文本渲染，元素色板区分\n- 卡面/卡背下载支持普通图与动态图切换\n\n### 改进\n- 更新下载改走国内镜像，下载完成后校验 SHA-256，校验不通过自动删除\n- 修复行动牌效果描述多余空行、技能图标下载角标点击区过小、详情富文本 HTML 泄漏\n- 「我的」页与图鉴若干展示修正（获取方式为空时隐藏、缩略图回退动态图、大字号胶囊自适应）",
+  "downloadUrl": "https://github.com/Depolarization/GIGI2/releases/download/v1.0.4/app-release.apk",
+  "publishedAt": "2026-11-18T13:34:33Z",
+  "sha256": "303393b999ce0ea75ccee487783fe827a8f6df4daf70276f1ddf038ad30831df",
+  "size": 4006504
 }
